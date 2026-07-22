@@ -1,0 +1,61 @@
+services:
+  - type: web
+    name: dineos-api
+    runtime: python
+    buildCommand: pip install -r requirements/production.txt && python manage.py migrate --noinput && python manage.py collectstatic --noinput
+    startCommand: daphne -b 0.0.0.0 -p $PORT dineos.asgi:application
+    healthCheckPath: /healthz/
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: dineos.settings.production
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: SECRET_KEY
+        sync: false
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dineos-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: dineos-redis
+          type: redis
+          property: connectionString
+      - key: GROQ_API_KEY
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+
+  - type: worker
+    name: dineos-worker
+    runtime: python
+    buildCommand: pip install -r requirements/production.txt
+    startCommand: celery -A dineos worker --loglevel=info --concurrency 2
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: dineos.settings.production
+      - key: SECRET_KEY
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: dineos-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          name: dineos-redis
+          type: redis
+          property: connectionString
+      - key: GROQ_API_KEY
+        sync: false
+
+databases:
+  - name: dineos-db
+    databaseName: dineos
+    user: dineos
+
+# Note: Redis on Render requires a paid plan (starts at $10/mo).
+# Free alternative: use Upstash Redis (upstash.com) and paste the URL manually.
+# Redis is required in production now (unlike the prior v1 build) because
+# Channels needs a real channel layer across multiple daphne workers.

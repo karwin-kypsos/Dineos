@@ -1,0 +1,614 @@
+{
+  "info": {
+    "name": "DineOS v2 Backend API (Phase 1)",
+    "description": "Sit-down restaurant OS — table sessions, QR ordering, kitchen, billing. Phase 1 endpoints only.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://127.0.0.1:8000/v1" },
+    { "key": "admin_token", "value": "" },
+    { "key": "manager_token", "value": "" },
+    { "key": "server_token", "value": "" },
+    { "key": "cashier_token", "value": "" },
+    { "key": "kds_api_key", "value": "a24bb21e5189cd8703841681e146b651cdf8185e470016493c86ff1360126dc6" },
+    { "key": "refresh_token", "value": "" },
+    { "key": "reset_token", "value": "" },
+    { "key": "table_id", "value": "" },
+    { "key": "table_number", "value": "5" },
+    { "key": "session_id", "value": "" },
+    { "key": "menu_item_id", "value": "" },
+    { "key": "category_id", "value": "" },
+    { "key": "order_1_id", "value": "" },
+    { "key": "order_2_id", "value": "" },
+    { "key": "bill_id", "value": "" },
+    { "key": "staff_id", "value": "" },
+    { "key": "notification_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "01 Auth",
+      "item": [
+        {
+          "name": "Login — Admin",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/login/",
+            "body": { "mode": "raw", "raw": "{\"email\": \"admin@dineos.demo\", \"password\": \"Demo@1234\"}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const adminLoginData = pm.response.json();",
+            "pm.collectionVariables.set('admin_token', adminLoginData.access);",
+            "pm.collectionVariables.set('refresh_token', adminLoginData.refresh);"
+          ] } }]
+        },
+        {
+          "name": "Login — Manager",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/login/",
+            "body": { "mode": "raw", "raw": "{\"email\": \"manager@dineos.demo\", \"password\": \"Demo@1234\"}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const managerLoginData = pm.response.json();",
+            "pm.collectionVariables.set('manager_token', managerLoginData.access);"
+          ] } }]
+        },
+        {
+          "name": "Login — Server",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/login/",
+            "body": { "mode": "raw", "raw": "{\"email\": \"server@dineos.demo\", \"password\": \"Demo@1234\"}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const serverLoginData = pm.response.json();",
+            "pm.collectionVariables.set('server_token', serverLoginData.access);"
+          ] } }]
+        },
+        {
+          "name": "Login — Cashier",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/login/",
+            "body": { "mode": "raw", "raw": "{\"email\": \"cashier@dineos.demo\", \"password\": \"Demo@1234\"}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const cashierLoginData = pm.response.json();",
+            "pm.collectionVariables.set('cashier_token', cashierLoginData.access);"
+          ] } }]
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+            "url": "{{base_url}}/auth/me/"
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/refresh-token/",
+            "body": { "mode": "raw", "raw": "{\"refresh\": \"{{refresh_token}}\"}" }
+          }
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/auth/change-password/",
+            "body": { "mode": "raw", "raw": "{\"current_password\": \"Demo@1234\", \"new_password\": \"Demo@1234\"}" }
+          }
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/auth/forgot-password/",
+            "body": { "mode": "raw", "raw": "{\"email\": \"admin@dineos.demo\"}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const forgotPwData = pm.response.json();",
+            "if (forgotPwData.token) { pm.collectionVariables.set('reset_token', forgotPwData.token); }"
+          ] } }]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/auth/logout/",
+            "body": { "mode": "raw", "raw": "{\"refresh\": \"{{refresh_token}}\"}" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Staff",
+      "item": [
+        {
+          "name": "List Staff (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+            "url": "{{base_url}}/staff/"
+          }
+        },
+        {
+          "name": "Create Staff (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{admin_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/staff/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"newserver@dineos.demo\", \"password\": \"Demo@1234\", \"role\": \"SERVER\", \"name\": \"New Server\"}"
+            }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const createStaffData = pm.response.json();",
+            "pm.collectionVariables.set('staff_id', createStaffData.id);"
+          ] } }]
+        },
+        {
+          "name": "Deactivate Staff (Admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+            "url": "{{base_url}}/staff/{{staff_id}}/deactivate/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Tables & Sessions",
+      "item": [
+        {
+          "name": "List Tables",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
+            "url": "{{base_url}}/tables/"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const tablesData = pm.response.json();",
+            "const tablesList = tablesData.results || tablesData;",
+            "const match = tablesList.find(t => t.table_number === pm.collectionVariables.get('table_number'));",
+            "if (match) { pm.collectionVariables.set('table_id', match.id); }"
+          ] } }]
+        },
+        {
+          "name": "Scan QR (Customer, no auth)",
+          "request": { "method": "GET", "url": "{{base_url}}/tables/qr/{{table_number}}/" }
+        },
+        {
+          "name": "Start Session (Customer, no auth)",
+          "request": { "method": "POST", "url": "{{base_url}}/tables/{{table_id}}/session/" },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const startSessionData = pm.response.json();",
+            "pm.collectionVariables.set('session_id', startSessionData.id);"
+          ] } }]
+        },
+        {
+          "name": "Get Active Session (Customer, no auth)",
+          "request": { "method": "GET", "url": "{{base_url}}/tables/{{table_id}}/session/" }
+        },
+        {
+          "name": "Table History (Manager)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
+            "url": "{{base_url}}/tables/{{table_id}}/history/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Menu",
+      "item": [
+        {
+          "name": "Create Category (Manager)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{manager_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/menu/categories/",
+            "body": { "mode": "raw", "raw": "{\"name\": \"Starters\", \"emoji\": \"🥗\", \"sort_order\": 2}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const createCategoryData = pm.response.json();",
+            "pm.collectionVariables.set('category_id', createCategoryData.id);"
+          ] } }]
+        },
+        {
+          "name": "List Categories",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{server_token}}" }],
+            "url": "{{base_url}}/menu/categories/"
+          }
+        },
+        {
+          "name": "Create Menu Item (Manager)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{manager_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/menu/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"category\": {{category_id}}, \"name\": \"Paneer Tikka\", \"price\": \"180.00\", \"description\": \"Grilled paneer\"}"
+            }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const createMenuItemData = pm.response.json();",
+            "pm.collectionVariables.set('menu_item_id', createMenuItemData.id);"
+          ] } }]
+        },
+        {
+          "name": "Order-Taking Menu (Server/Cashier)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{server_token}}" }],
+            "url": "{{base_url}}/menu/"
+          }
+        },
+        {
+          "name": "Customer Menu (no auth)",
+          "request": { "method": "GET", "url": "{{base_url}}/menu/customer/{{table_id}}/" }
+        },
+        {
+          "name": "Management Menu — All Items",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
+            "url": "{{base_url}}/menu/all/"
+          }
+        },
+        {
+          "name": "Menu Item Detail",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
+            "url": "{{base_url}}/menu/{{menu_item_id}}/"
+          }
+        },
+        {
+          "name": "Toggle Availability",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
+            "url": "{{base_url}}/menu/{{menu_item_id}}/availability/"
+          }
+        },
+        {
+          "name": "Toggle Availability Back",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
+            "url": "{{base_url}}/menu/{{menu_item_id}}/availability/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 Prepared Dishes",
+      "item": [
+        {
+          "name": "Add Portions (Manager)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{manager_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/prepared-dishes/{{menu_item_id}}/add-portions/",
+            "body": { "mode": "raw", "raw": "{\"additional_quantity\": 15}" }
+          }
+        },
+        {
+          "name": "Today's Prepared Dishes",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
+            "url": "{{base_url}}/prepared-dishes/today/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 Orders",
+      "item": [
+        {
+          "name": "Place Order — Round 1 (Customer, no auth)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{base_url}}/orders/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"session_id\": \"{{session_id}}\", \"items\": [{\"menu_item\": {{menu_item_id}}, \"quantity\": 2}]}"
+            }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const placeOrder1Data = pm.response.json();",
+            "pm.collectionVariables.set('order_1_id', placeOrder1Data.id);"
+          ] } }]
+        },
+        {
+          "name": "Place Order — Round 2 (Server)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{server_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/orders/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"session_id\": \"{{session_id}}\", \"items\": [{\"menu_item\": {{menu_item_id}}, \"quantity\": 1}]}"
+            }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const placeOrder2Data = pm.response.json();",
+            "pm.collectionVariables.set('order_2_id', placeOrder2Data.id);"
+          ] } }]
+        },
+        {
+          "name": "Active Orders (Kitchen)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-KDS-API-Key", "value": "{{kds_api_key}}" }],
+            "url": "{{base_url}}/orders/active/"
+          }
+        },
+        {
+          "name": "Order Detail (Kitchen)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "X-KDS-API-Key", "value": "{{kds_api_key}}" }],
+            "url": "{{base_url}}/orders/{{order_1_id}}/"
+          }
+        },
+        {
+          "name": "Orders by Session",
+          "request": { "method": "GET", "url": "{{base_url}}/orders/session/{{session_id}}/" }
+        },
+        {
+          "name": "Orders by Table (Server)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{server_token}}" }],
+            "url": "{{base_url}}/orders/table/{{table_id}}/"
+          }
+        },
+        {
+          "name": "Order 1 → Accepted (Kitchen)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "X-KDS-API-Key", "value": "{{kds_api_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/orders/{{order_1_id}}/status/",
+            "body": { "mode": "raw", "raw": "{\"status\": \"accepted\"}" }
+          }
+        },
+        {
+          "name": "Order 1 → Preparing (Kitchen)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "X-KDS-API-Key", "value": "{{kds_api_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/orders/{{order_1_id}}/status/",
+            "body": { "mode": "raw", "raw": "{\"status\": \"preparing\"}" }
+          }
+        },
+        {
+          "name": "Order 1 → Ready (Kitchen)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "X-KDS-API-Key", "value": "{{kds_api_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/orders/{{order_1_id}}/status/",
+            "body": { "mode": "raw", "raw": "{\"status\": \"ready\"}" }
+          }
+        },
+        {
+          "name": "Order 2 → Accepted (Kitchen)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "X-KDS-API-Key", "value": "{{kds_api_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/orders/{{order_2_id}}/status/",
+            "body": { "mode": "raw", "raw": "{\"status\": \"accepted\"}" }
+          }
+        },
+        {
+          "name": "Order 2 → Preparing (Kitchen)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "X-KDS-API-Key", "value": "{{kds_api_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/orders/{{order_2_id}}/status/",
+            "body": { "mode": "raw", "raw": "{\"status\": \"preparing\"}" }
+          }
+        },
+        {
+          "name": "Order 2 → Ready (Kitchen)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "X-KDS-API-Key", "value": "{{kds_api_key}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/orders/{{order_2_id}}/status/",
+            "body": { "mode": "raw", "raw": "{\"status\": \"ready\"}" }
+          }
+        },
+        {
+          "name": "Ready Orders (Server)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{server_token}}" }],
+            "url": "{{base_url}}/orders/ready/"
+          }
+        },
+        {
+          "name": "Order 1 Collected (Server)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{server_token}}" }],
+            "url": "{{base_url}}/orders/{{order_1_id}}/collected/"
+          }
+        },
+        {
+          "name": "Order 1 Served (Server)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{server_token}}" }],
+            "url": "{{base_url}}/orders/{{order_1_id}}/served/"
+          }
+        },
+        {
+          "name": "Order 2 Collected (Server)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{server_token}}" }],
+            "url": "{{base_url}}/orders/{{order_2_id}}/collected/"
+          }
+        },
+        {
+          "name": "Order 2 Served (Server)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{server_token}}" }],
+            "url": "{{base_url}}/orders/{{order_2_id}}/served/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 Billing",
+      "item": [
+        {
+          "name": "Request Bill (Customer, no auth)",
+          "request": { "method": "POST", "url": "{{base_url}}/tables/{{table_id}}/bill-request/" }
+        },
+        {
+          "name": "Bill Preview (Cashier)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{cashier_token}}" }],
+            "url": "{{base_url}}/bills/session/{{session_id}}/"
+          }
+        },
+        {
+          "name": "Confirm Payment (Cashier)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{cashier_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/bills/payment/",
+            "body": { "mode": "raw", "raw": "{\"session_id\": \"{{session_id}}\", \"payment_method\": \"CASH\"}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const payBillData = pm.response.json();",
+            "pm.collectionVariables.set('bill_id', payBillData.id);"
+          ] } }]
+        },
+        {
+          "name": "Confirm Payment Again (idempotency check)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{cashier_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/bills/payment/",
+            "body": { "mode": "raw", "raw": "{\"session_id\": \"{{session_id}}\", \"payment_method\": \"CASH\"}" }
+          }
+        },
+        {
+          "name": "Confirm Table Freed (Manager)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
+            "url": "{{base_url}}/tables/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 Notifications",
+      "item": [
+        {
+          "name": "List (Manager)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
+            "url": "{{base_url}}/notifications/"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const notificationsData = pm.response.json();",
+            "const notificationsList = notificationsData.results || notificationsData;",
+            "if (notificationsList.length) { pm.collectionVariables.set('notification_id', notificationsList[0].id); }"
+          ] } }]
+        },
+        {
+          "name": "Unread Count (Manager)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
+            "url": "{{base_url}}/notifications/unread-count/"
+          }
+        },
+        {
+          "name": "Mark Read (Manager)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
+            "url": "{{base_url}}/notifications/{{notification_id}}/read/"
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 Health",
+      "item": [
+        { "name": "Health Check", "request": { "method": "GET", "url": "http://127.0.0.1:8000/healthz/" } }
+      ]
+    }
+  ]
+}
