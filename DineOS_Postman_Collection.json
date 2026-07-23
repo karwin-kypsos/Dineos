@@ -92,7 +92,16 @@
             "method": "GET",
             "header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
             "url": "{{base_url}}/auth/me/"
-          }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const meData = pm.response.json();",
+            "pm.test('includes own tenant feature flags', () => {",
+            "  pm.expect(meData.restaurant).to.have.property('kitchen_enabled');",
+            "  pm.expect(meData.restaurant).to.have.property('billing_enabled');",
+            "  pm.expect(meData.restaurant).to.have.property('notifications_enabled');",
+            "  pm.expect(meData.restaurant).to.have.property('realtime_enabled');",
+            "});"
+          ] } }]
         },
         {
           "name": "Refresh Token",

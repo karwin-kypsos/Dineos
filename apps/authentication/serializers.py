@@ -2,7 +2,28 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
+from apps.restaurant.models import Restaurant
+
 User = get_user_model()
+
+
+class TenantSummarySerializer(serializers.ModelSerializer):
+    """The subset of a tenant's record staff clients need to render a
+    feature-flag-aware UI — not the full platform-management view
+    (see apps.platform.serializers.RestaurantSerializer for that).
+    """
+
+    class Meta:
+        model = Restaurant
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "notifications_enabled",
+            "kitchen_enabled",
+            "billing_enabled",
+            "realtime_enabled",
+        ]
 
 
 class DineOSTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -23,9 +44,11 @@ class DineOSTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 
 class UserSerializer(serializers.ModelSerializer):
+    restaurant = TenantSummarySerializer(read_only=True)
+
     class Meta:
         model = User
-        fields = ["id", "email", "name", "phone", "role", "is_active", "created_at"]
+        fields = ["id", "email", "name", "phone", "role", "is_active", "restaurant", "created_at"]
         read_only_fields = ["id", "created_at"]
 
 
