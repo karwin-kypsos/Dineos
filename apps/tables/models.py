@@ -13,7 +13,8 @@ class Table(models.Model):
         NEEDS_CLEANING = "NEEDS_CLEANING", "Needs Cleaning"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    table_number = models.CharField(max_length=32, unique=True)
+    restaurant = models.ForeignKey("restaurant.Restaurant", on_delete=models.CASCADE, related_name="tables")
+    table_number = models.CharField(max_length=32)
     capacity = models.PositiveIntegerField(default=4)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.AVAILABLE)
     is_active = models.BooleanField(default=True)
@@ -22,6 +23,9 @@ class Table(models.Model):
     class Meta:
         db_table = "tables"
         ordering = ["table_number"]
+        constraints = [
+            models.UniqueConstraint(fields=["restaurant", "table_number"], name="one_table_number_per_restaurant")
+        ]
 
     def __str__(self):
         return f"Table {self.table_number}"

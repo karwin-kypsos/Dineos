@@ -5,12 +5,15 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "base_url", "value": "http://127.0.0.1:8000/v1" },
+    { "key": "server_root", "value": "http://127.0.0.1:8000" },
+    { "key": "base_url", "value": "{{server_root}}/v1" },
+    { "key": "tenant_slug", "value": "demo-bistro" },
+    { "key": "platform_token", "value": "" },
     { "key": "admin_token", "value": "" },
     { "key": "manager_token", "value": "" },
     { "key": "server_token", "value": "" },
     { "key": "cashier_token", "value": "" },
-    { "key": "kds_api_key", "value": "a24bb21e5189cd8703841681e146b651cdf8185e470016493c86ff1360126dc6" },
+    { "key": "kds_api_key", "value": "81b07c39ac7f53efe6742e129273ea1e0ebf751116e9c7f317e4a4588d8e3dcd" },
     { "key": "refresh_token", "value": "" },
     { "key": "reset_token", "value": "" },
     { "key": "table_id", "value": "" },
@@ -18,6 +21,8 @@
     { "key": "session_id", "value": "" },
     { "key": "menu_item_id", "value": "" },
     { "key": "category_id", "value": "" },
+    { "key": "temp_menu_item_id", "value": "" },
+    { "key": "temp_category_id", "value": "" },
     { "key": "order_1_id", "value": "" },
     { "key": "order_2_id", "value": "" },
     { "key": "bill_id", "value": "" },
@@ -34,7 +39,7 @@
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "url": "{{base_url}}/auth/login/",
-            "body": { "mode": "raw", "raw": "{\"email\": \"admin@dineos.demo\", \"password\": \"Demo@1234\"}" }
+            "body": { "mode": "raw", "raw": "{\"email\": \"admin@{{tenant_slug}}.demo\", \"password\": \"Demo@1234\"}" }
           },
           "event": [{ "listen": "test", "script": { "exec": [
             "const adminLoginData = pm.response.json();",
@@ -48,7 +53,7 @@
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "url": "{{base_url}}/auth/login/",
-            "body": { "mode": "raw", "raw": "{\"email\": \"manager@dineos.demo\", \"password\": \"Demo@1234\"}" }
+            "body": { "mode": "raw", "raw": "{\"email\": \"manager@{{tenant_slug}}.demo\", \"password\": \"Demo@1234\"}" }
           },
           "event": [{ "listen": "test", "script": { "exec": [
             "const managerLoginData = pm.response.json();",
@@ -61,7 +66,7 @@
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "url": "{{base_url}}/auth/login/",
-            "body": { "mode": "raw", "raw": "{\"email\": \"server@dineos.demo\", \"password\": \"Demo@1234\"}" }
+            "body": { "mode": "raw", "raw": "{\"email\": \"server@{{tenant_slug}}.demo\", \"password\": \"Demo@1234\"}" }
           },
           "event": [{ "listen": "test", "script": { "exec": [
             "const serverLoginData = pm.response.json();",
@@ -74,7 +79,7 @@
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "url": "{{base_url}}/auth/login/",
-            "body": { "mode": "raw", "raw": "{\"email\": \"cashier@dineos.demo\", \"password\": \"Demo@1234\"}" }
+            "body": { "mode": "raw", "raw": "{\"email\": \"cashier@{{tenant_slug}}.demo\", \"password\": \"Demo@1234\"}" }
           },
           "event": [{ "listen": "test", "script": { "exec": [
             "const cashierLoginData = pm.response.json();",
@@ -116,7 +121,7 @@
             "method": "POST",
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "url": "{{base_url}}/auth/forgot-password/",
-            "body": { "mode": "raw", "raw": "{\"email\": \"admin@dineos.demo\"}" }
+            "body": { "mode": "raw", "raw": "{\"email\": \"admin@{{tenant_slug}}.demo\"}" }
           },
           "event": [{ "listen": "test", "script": { "exec": [
             "const forgotPwData = pm.response.json();",
@@ -159,7 +164,7 @@
             "url": "{{base_url}}/staff/",
             "body": {
               "mode": "raw",
-              "raw": "{\"email\": \"newserver@dineos.demo\", \"password\": \"Demo@1234\", \"role\": \"SERVER\", \"name\": \"New Server\"}"
+              "raw": "{\"email\": \"newserver@{{tenant_slug}}.demo\", \"password\": \"Demo@1234\", \"role\": \"SERVER\", \"name\": \"New Server\"}"
             }
           },
           "event": [{ "listen": "test", "script": { "exec": [
@@ -196,7 +201,7 @@
         },
         {
           "name": "Scan QR (Customer, no auth)",
-          "request": { "method": "GET", "url": "{{base_url}}/tables/qr/{{table_number}}/" }
+          "request": { "method": "GET", "url": "{{base_url}}/tables/qr/{{tenant_slug}}/{{table_number}}/" }
         },
         {
           "name": "Start Session (Customer, no auth)",
@@ -267,6 +272,57 @@
           ] } }]
         },
         {
+          "name": "Create Temp Menu Item (for update/delete test)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{manager_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/menu/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"category\": {{category_id}}, \"name\": \"Temp Dish\", \"price\": \"50.00\"}"
+            }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const createTempItemData = pm.response.json();",
+            "pm.collectionVariables.set('temp_menu_item_id', createTempItemData.id);",
+            "pm.test('status is 201', () => pm.response.to.have.status(201));"
+          ] } }]
+        },
+        {
+          "name": "Update Temp Menu Item (Manager)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{manager_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/menu/{{temp_menu_item_id}}/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"category\": {{category_id}}, \"name\": \"Temp Dish (Updated)\", \"price\": \"60.00\"}"
+            }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const updateTempItemData = pm.response.json();",
+            "pm.test('status is 200', () => pm.response.to.have.status(200));",
+            "pm.test('name updated', () => pm.expect(updateTempItemData.name).to.eql('Temp Dish (Updated)'));"
+          ] } }]
+        },
+        {
+          "name": "Delete Temp Menu Item (Manager)",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
+            "url": "{{base_url}}/menu/{{temp_menu_item_id}}/"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('status is 204', () => pm.response.to.have.status(204));"
+          ] } }]
+        },
+        {
           "name": "Order-Taking Menu (Server/Cashier)",
           "request": {
             "method": "GET",
@@ -309,6 +365,62 @@
             "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
             "url": "{{base_url}}/menu/{{menu_item_id}}/availability/"
           }
+        },
+        {
+          "name": "Update Category (Manager)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{manager_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/menu/categories/{{category_id}}/",
+            "body": { "mode": "raw", "raw": "{\"name\": \"Starters (Updated)\", \"emoji\": \"🥗\", \"sort_order\": 2}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const updateCategoryData = pm.response.json();",
+            "pm.test('status is 200', () => pm.response.to.have.status(200));",
+            "pm.test('name updated', () => pm.expect(updateCategoryData.name).to.eql('Starters (Updated)'));"
+          ] } }]
+        },
+        {
+          "name": "Delete Category — Blocked, Has Items (expect 409)",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
+            "url": "{{base_url}}/menu/categories/{{category_id}}/"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('status is 409 (category still has menu items)', () => pm.response.to.have.status(409));"
+          ] } }]
+        },
+        {
+          "name": "Create Temp Category (empty, for delete test)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{manager_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/menu/categories/",
+            "body": { "mode": "raw", "raw": "{\"name\": \"Temp Category\", \"emoji\": \"🗑️\", \"sort_order\": 99}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const createTempCategoryData = pm.response.json();",
+            "pm.collectionVariables.set('temp_category_id', createTempCategoryData.id);",
+            "pm.test('status is 201', () => pm.response.to.have.status(201));"
+          ] } }]
+        },
+        {
+          "name": "Delete Temp Category — Empty, Succeeds",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
+            "url": "{{base_url}}/menu/categories/{{temp_category_id}}/"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('status is 204', () => pm.response.to.have.status(204));"
+          ] } }]
         }
       ]
     },
@@ -607,7 +719,41 @@
     {
       "name": "09 Health",
       "item": [
-        { "name": "Health Check", "request": { "method": "GET", "url": "http://127.0.0.1:8000/healthz/" } }
+        { "name": "Health Check", "request": { "method": "GET", "url": "{{server_root}}/healthz/" } }
+      ]
+    },
+    {
+      "name": "10 Platform (Super Admin)",
+      "item": [
+        {
+          "name": "Platform Login",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{server_root}}/platform/auth/login/",
+            "body": { "mode": "raw", "raw": "{\"email\": \"super@dineos.platform\", \"password\": \"Demo@1234\"}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const platformLoginData = pm.response.json();",
+            "pm.collectionVariables.set('platform_token', platformLoginData.access);"
+          ] } }]
+        },
+        {
+          "name": "List Tenants",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{platform_token}}" }],
+            "url": "{{server_root}}/platform/tenants/"
+          }
+        },
+        {
+          "name": "Staff Token Rejected Here (should 401/403)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{admin_token}}" }],
+            "url": "{{server_root}}/platform/tenants/"
+          }
+        }
       ]
     }
   ]

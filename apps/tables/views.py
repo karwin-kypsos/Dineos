@@ -18,9 +18,19 @@ from .serializers import (
 
 
 class TableViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Table.objects.filter(is_active=True)
     serializer_class = TableSerializer
     permission_classes = [IsAnyStaff]
+
+    def get_queryset(self):
+        qs = Table.objects.filter(is_active=True)
+        tenant = getattr(self.request, "tenant", None)
+        # Only staff/KDS requests resolve a tenant via the middleware; the
+        # login-less customer realm (retrieve/qr/session/etc.) addresses a
+        # specific table by its own unguessable UUID or by
+        # (restaurant_slug, table_number) together, so no tenant to filter by.
+        if tenant is not None:
+            qs = qs.filter(restaurant=tenant)
+        return qs
 
     def get_permissions(self):
         # Note: self.action for a `.mapping`-based multi-method action is the
@@ -33,9 +43,17 @@ class TableViewSet(viewsets.ReadOnlyModelViewSet):
             return [IsAnyStaff()]
         return super().get_permissions()
 
-    @action(detail=False, methods=["get"], url_path="qr/(?P<table_number>[^/.]+)")
-    def qr(self, request, table_number=None):
-        table = Table.objects.filter(table_number=table_number, is_active=True).first()
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="qr/(?P<restaurant_slug>[^/]+)/(?P<table_number>[^/.]+)",
+    )
+    def qr(self, request, restaurant_slug=None, table_number=None):
+        # table_number alone is only unique WITHIN a restaurant (two clients
+        # can both have a "Table 5") — the slug in the QR URL disambiguates.
+        table = Table.objects.filter(
+            restaurant__slug=restaurant_slug, table_number=table_number, is_active=True
+        ).first()
         if not table:
             return Response({"detail": "Table not found."}, status=status.HTTP_404_NOT_FOUND)
         active_session = table.sessions.filter(status__in=["ACTIVE", "BILL_REQUESTED"]).first()

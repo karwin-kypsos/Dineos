@@ -32,6 +32,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         CASHIER = "CASHIER", "Cashier"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    restaurant = models.ForeignKey("restaurant.Restaurant", on_delete=models.CASCADE, related_name="staff")
     email = models.EmailField(unique=True)
     name = models.CharField(max_length=255, blank=True)
     phone = models.CharField(max_length=32, blank=True)

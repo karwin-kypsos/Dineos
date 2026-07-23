@@ -42,7 +42,7 @@ def test_server_cannot_collect_before_ready(server_client, table, menu_item):
 def test_placing_order_does_not_affect_untracked_items(api_client, table):
     from apps.menu.models import Category, MenuItem
 
-    category = Category.objects.create(name="Drinks")
+    category = Category.objects.create(restaurant=table.restaurant, name="Drinks")
     drink = MenuItem.objects.create(category=category, name="Coke", price=60)
     session, _ = table_services.get_or_create_active_session(table.id)
 

@@ -104,15 +104,25 @@ class ChangePasswordView(APIView):
 
 
 class StaffViewSet(viewsets.ModelViewSet):
-    """Admin-only staff account management (list/create/update/deactivate)."""
+    """Admin-only staff account management (list/create/update/deactivate),
+    scoped to the calling Admin's own restaurant only.
+    """
 
-    queryset = User.objects.all()
+    serializer_class = UserSerializer
     permission_classes = [IsAdmin]
+
+    def get_queryset(self):
+        return User.objects.filter(restaurant=self.request.user.restaurant)
 
     def get_serializer_class(self):
         if self.action == "create":
             return UserCreateSerializer
         return UserSerializer
+
+    def perform_create(self, serializer):
+        # Always the calling Admin's own restaurant — never client-supplied,
+        # so one restaurant's Admin can never create a user in another's.
+        serializer.save(restaurant=self.request.user.restaurant)
 
     @action(detail=True, methods=["patch"])
     def deactivate(self, request, pk=None):

@@ -5,7 +5,6 @@ from channels.layers import get_channel_layer
 from django.db import transaction
 
 from apps.orders.models import Order
-from apps.restaurant.models import Restaurant
 from apps.tables.models import TableSession
 from apps.tables.services import close_session
 
@@ -16,7 +15,7 @@ def _compute_totals(session):
     orders = Order.objects.filter(session=session).exclude(status="CANCELLED").prefetch_related("items")
     subtotal = sum((item.unit_price * item.quantity for order in orders for item in order.items.all()), Decimal("0"))
 
-    restaurant = Restaurant.load()
+    restaurant = session.table.restaurant
     tax_amount = (subtotal * restaurant.gst_percentage / Decimal("100")).quantize(Decimal("0.01"))
     service_charge = (subtotal * restaurant.service_charge_percentage / Decimal("100")).quantize(Decimal("0.01"))
     total_amount = subtotal + tax_amount + service_charge
@@ -67,8 +66,13 @@ def pay_bill(session_id, payment_method, processed_by):
 def _notify_payment_confirmed(bill, session):
     from apps.notifications.services import notify_role
 
+    restaurant = session.table.restaurant
+    if not restaurant.notifications_enabled:
+        return
+
     notify_role(
         ["ADMIN", "MANAGER"],
+        tenant=restaurant,
         type="PAYMENT_CONFIRMED",
         title=f"Payment received — Table {session.table.table_number}",
         body=f"Bill total: {bill.total_amount}",
@@ -77,6 +81,10 @@ def _notify_payment_confirmed(bill, session):
 
 
 def _broadcast_payment_confirmed(bill, session):
+    restaurant = session.table.restaurant
+    if not restaurant.realtime_enabled:
+        return
+
     channel_layer = get_channel_layer()
     if channel_layer is None:
         return
@@ -87,5 +95,5 @@ def _broadcast_payment_confirmed(bill, session):
         "table_id": str(session.table_id),
         "total_amount": str(bill.total_amount),
     }
-    for group in ("cashiers", "managers", f"table_session_{session.id}"):
+    for group in (f"cashiers_{restaurant.id}", f"managers_{restaurant.id}", f"table_session_{session.id}"):
         async_to_sync(channel_layer.group_send)(group, payload)

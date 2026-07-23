@@ -11,12 +11,14 @@ class DineOSTokenObtainPairSerializer(TokenObtainPairSerializer):
         token = super().get_token(user)
         token["role"] = user.role
         token["name"] = user.name
+        token["restaurant_id"] = str(user.restaurant_id)
         return token
 
     def validate(self, attrs):
         data = super().validate(attrs)
         data["role"] = self.user.role
         data["name"] = self.user.name
+        data["restaurant_id"] = str(self.user.restaurant_id)
         return data
 
 

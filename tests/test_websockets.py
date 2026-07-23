@@ -6,6 +6,7 @@ from channels.layers import get_channel_layer
 from channels.testing import WebsocketCommunicator
 
 from apps.kitchen.models import KDSDevice
+from apps.restaurant.models import Restaurant
 from apps.tables.models import Table, TableSession
 from apps.websockets.consumers import KitchenConsumer, TableConsumer
 from apps.websockets.middleware import KDSAuthMiddleware, TableSessionAuthMiddleware
@@ -14,8 +15,13 @@ pytestmark = pytest.mark.django_db(transaction=True)
 
 
 @database_sync_to_async
-def _create_table_and_session():
-    table = Table.objects.create(table_number="9", capacity=4)
+def _create_restaurant():
+    return Restaurant.objects.create(name="WS Test Restaurant", slug="ws-test-restaurant")
+
+
+@database_sync_to_async
+def _create_table_and_session(restaurant):
+    table = Table.objects.create(restaurant=restaurant, table_number="9", capacity=4)
     session = TableSession.objects.create(table=table, status=TableSession.Status.ACTIVE)
     return table, session
 
@@ -27,8 +33,8 @@ def _close_session(session):
 
 
 @database_sync_to_async
-def _create_kds_device():
-    return KDSDevice.objects.create(label="Test Device")
+def _create_kds_device(restaurant):
+    return KDSDevice.objects.create(restaurant=restaurant, label="Test Device")
 
 
 @pytest.mark.asyncio
@@ -44,7 +50,8 @@ async def test_table_consumer_rejects_unknown_session():
 
 @pytest.mark.asyncio
 async def test_table_consumer_rejects_closed_session():
-    table, session = await _create_table_and_session()
+    restaurant = await _create_restaurant()
+    table, session = await _create_table_and_session(restaurant)
     await _close_session(session)
 
     app = TableSessionAuthMiddleware(TableConsumer.as_asgi())
@@ -58,7 +65,8 @@ async def test_table_consumer_rejects_closed_session():
 
 @pytest.mark.asyncio
 async def test_table_consumer_accepts_open_session_and_forwards_events():
-    table, session = await _create_table_and_session()
+    restaurant = await _create_restaurant()
+    table, session = await _create_table_and_session(restaurant)
 
     app = TableSessionAuthMiddleware(TableConsumer.as_asgi())
     communicator = WebsocketCommunicator(app, f"/ws/table/{session.id}/")
@@ -96,7 +104,8 @@ async def test_kitchen_consumer_rejects_missing_key():
 
 @pytest.mark.asyncio
 async def test_kitchen_consumer_accepts_valid_key():
-    device = await _create_kds_device()
+    restaurant = await _create_restaurant()
+    device = await _create_kds_device(restaurant)
 
     app = KDSAuthMiddleware(KitchenConsumer.as_asgi())
     communicator = WebsocketCommunicator(app, f"/ws/kitchen/?kds_key={device.api_key}")

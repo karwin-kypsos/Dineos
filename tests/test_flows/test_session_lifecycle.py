@@ -9,7 +9,7 @@ def test_full_customer_journey(api_client, kds_client, server_client, cashier_cl
     cashier_user, cashier = cashier_client
 
     # 1. Customer scans the QR code — no active session yet.
-    qr_response = api_client.get(f"/v1/tables/qr/{table.table_number}/")
+    qr_response = api_client.get(f"/v1/tables/qr/{table.restaurant.slug}/{table.table_number}/")
     assert qr_response.status_code == 200
     assert qr_response.data["active_session"] is None
 

@@ -35,6 +35,7 @@ THIRD_PARTY_APPS = [
     "channels",
 ]
 LOCAL_APPS = [
+    "apps.platform",
     "apps.authentication",
     "apps.restaurant",
     "apps.tables",
@@ -59,6 +60,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "core.tenancy.TenantResolverMiddleware",
 ]
 
 ROOT_URLCONF = "dineos.urls"
@@ -205,7 +207,9 @@ GROQ_MODEL = env("GROQ_MODEL", default="llama-3.3-70b-versatile")
 LLM_PROVIDER = env("LLM_PROVIDER", default="mock")
 
 # ---------------------------------------------------------------------------
-# Restaurant defaults (used when no Restaurant row exists yet)
+# Platform-wide tenant defaults — applied by TenantViewSet.perform_create()
+# when the Super Admin creates a new client restaurant without specifying
+# its own rate.
 # ---------------------------------------------------------------------------
 DEFAULT_GST_PERCENTAGE = env.float("DEFAULT_GST_PERCENTAGE", default=5.0)
 DEFAULT_SERVICE_CHARGE_PERCENTAGE = env.float("DEFAULT_SERVICE_CHARGE_PERCENTAGE", default=0.0)

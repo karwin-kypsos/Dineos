@@ -37,3 +37,72 @@ def test_add_portions_increments_existing_row(manager_client, menu_item):
 
     portion.refresh_from_db()
     assert portion.portions_remaining == starting + 5
+
+
+def test_manager_can_update_menu_item(manager_client, menu_item):
+    _, client = manager_client
+
+    response = client.put(
+        f"/v1/menu/{menu_item.id}/",
+        {"category": menu_item.category_id, "name": "Chicken Biryani (Large)", "price": "260.00"},
+        format="json",
+    )
+    assert response.status_code == 200
+    assert response.data["name"] == "Chicken Biryani (Large)"
+
+    menu_item.refresh_from_db()
+    assert str(menu_item.price) == "260.00"
+
+
+def test_manager_can_delete_menu_item(manager_client, menu_item):
+    from apps.menu.models import MenuItem
+
+    _, client = manager_client
+
+    response = client.delete(f"/v1/menu/{menu_item.id}/")
+    assert response.status_code == 204
+    assert not MenuItem.objects.filter(id=menu_item.id).exists()
+
+
+def test_manager_can_update_category(manager_client, menu_item):
+    _, client = manager_client
+    category = menu_item.category
+
+    response = client.put(
+        f"/v1/menu/categories/{category.id}/", {"name": "Main Course (Updated)"}, format="json"
+    )
+    assert response.status_code == 200
+
+    category.refresh_from_db()
+    assert category.name == "Main Course (Updated)"
+
+
+def test_renaming_category_to_a_name_already_in_use_returns_400(manager_client, menu_item, restaurant):
+    from apps.menu.models import Category
+
+    _, client = manager_client
+    other_category = Category.objects.create(restaurant=restaurant, name="Desserts")
+
+    response = client.put(
+        f"/v1/menu/categories/{other_category.id}/", {"name": menu_item.category.name}, format="json"
+    )
+    assert response.status_code == 400
+
+
+def test_deleting_category_with_items_is_blocked(manager_client, menu_item):
+    _, client = manager_client
+    category = menu_item.category
+
+    response = client.delete(f"/v1/menu/categories/{category.id}/")
+    assert response.status_code == 409
+
+
+def test_deleting_empty_category_succeeds(manager_client, restaurant):
+    from apps.menu.models import Category
+
+    _, client = manager_client
+    empty_category = Category.objects.create(restaurant=restaurant, name="Empty Category")
+
+    response = client.delete(f"/v1/menu/categories/{empty_category.id}/")
+    assert response.status_code == 204
+    assert not Category.objects.filter(id=empty_category.id).exists()

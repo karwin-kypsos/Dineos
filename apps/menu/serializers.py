@@ -9,6 +9,23 @@ class CategorySerializer(serializers.ModelSerializer):
         model = Category
         fields = ["id", "name", "emoji", "sort_order", "is_active"]
 
+    def validate_name(self, value):
+        # `restaurant` isn't a serializer field (it's set from request.tenant,
+        # never client-supplied), so DRF can't auto-build a validator for the
+        # UniqueConstraint(["restaurant", "name"]) — check it explicitly here,
+        # otherwise a colliding rename surfaces as a raw 500 IntegrityError.
+        request = self.context.get("request")
+        restaurant = getattr(request, "tenant", None) if request else None
+        if restaurant is None and self.instance is not None:
+            restaurant = self.instance.restaurant
+        if restaurant is not None:
+            conflict = Category.objects.filter(restaurant=restaurant, name=value)
+            if self.instance is not None:
+                conflict = conflict.exclude(pk=self.instance.pk)
+            if conflict.exists():
+                raise serializers.ValidationError("A category with this name already exists.")
+        return value
+
 
 class MenuItemSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)

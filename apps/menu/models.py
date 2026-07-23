@@ -3,7 +3,8 @@ from django.utils import timezone
 
 
 class Category(models.Model):
-    name = models.CharField(max_length=100, unique=True)
+    restaurant = models.ForeignKey("restaurant.Restaurant", on_delete=models.CASCADE, related_name="menu_categories")
+    name = models.CharField(max_length=100)
     emoji = models.CharField(max_length=8, blank=True)
     sort_order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
@@ -12,6 +13,9 @@ class Category(models.Model):
         db_table = "menu_categories"
         ordering = ["sort_order", "name"]
         verbose_name_plural = "categories"
+        constraints = [
+            models.UniqueConstraint(fields=["restaurant", "name"], name="one_category_name_per_restaurant")
+        ]
 
     def __str__(self):
         return self.name
