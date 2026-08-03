@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DineOS Backend — API Reference</title>
+<style>
+  :root{
+    --navy:#0f1b2d;
+    --navy-2:#16263d;
+    --paper:#fafaf8;
+    --ink:#1a1f26;
+    --ink-soft:#5a6472;
+    --line:#e4e2dc;
+    --accent:#2f6f5e;
+    --accent-soft:#e6f0ec;
+    --get:#2f6f5e;
+    --post:#a15c2b;
+    --patch:#7a5ea8;
+    --delete:#b0453f;
+    --put:#3a6ea5;
+    --ws:#1a1f26;
+    --mono: "SF Mono", "JetBrains Mono", Consolas, Menlo, monospace;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--sans); font-size:15px; line-height:1.55;
+  }
+  a{color:inherit;}
+
+  /* Layout */
+  .shell{display:grid; grid-template-columns:270px 1fr; min-height:100vh;}
+  @media (max-width:900px){ .shell{grid-template-columns:1fr;} .sidebar{position:relative; height:auto;} }
+
+  .sidebar{
+    background:var(--navy); color:#cdd8de;
+    position:sticky; top:0; height:100vh; overflow-y:auto;
+    padding:28px 22px 40px;
+  }
+  .sidebar h1{
+    font-family:var(--mono); font-size:14px; letter-spacing:.04em;
+    color:#fff; margin:0 0 2px;
+  }
+  .sidebar .sub{ font-size:12px; color:#7f97a6; margin-bottom:26px;}
+  .sidebar nav a{
+    display:flex; justify-content:space-between; gap:8px;
+    text-decoration:none; color:#a9bac4; font-size:13px;
+    padding:7px 10px; border-radius:6px; margin-bottom:2px;
+  }
+  .sidebar nav a:hover{background:var(--navy-2); color:#fff;}
+  .sidebar nav a.active{background:var(--navy-2); color:#fff; box-shadow:inset 2px 0 0 var(--accent);}
+  .sidebar nav a small{color:#5f7784; font-family:var(--mono); font-size:11px;}
+  .sidebar .group-label{
+    font-size:10px; text-transform:uppercase; letter-spacing:.09em;
+    color:#5f7784; margin:20px 0 6px 10px;
+  }
+  .sidebar .group-label:first-of-type{margin-top:0;}
+
+  .main{padding:44px 56px 100px; max-width:980px;}
+  @media (max-width:900px){ .main{padding:32px 20px 80px;} }
+
+  header.top{margin-bottom:36px;}
+  header.top .eyebrow{
+    font-family:var(--mono); font-size:12px; color:var(--accent);
+    text-transform:uppercase; letter-spacing:.08em; margin-bottom:10px;
+  }
+  header.top h2{font-size:30px; margin:0 0 8px; letter-spacing:-0.01em;}
+  header.top p.path{
+    font-family:var(--mono); font-size:12.5px; color:var(--ink-soft);
+  }
+
+  /* Stat cards */
+  .stats{ display:grid; grid-template-columns:repeat(4,1fr); gap:1px;
+    background:var(--line); border:1px solid var(--line); margin:28px 0 40px; }
+  @media (max-width:700px){ .stats{grid-template-columns:repeat(2,1fr);} }
+  .stat{background:#fff; padding:18px 20px;}
+  .stat .n{font-family:var(--mono); font-size:26px; font-weight:600;}
+  .stat .l{font-size:12px; color:var(--ink-soft); margin-top:3px;}
+
+  .note{
+    font-size:13px; color:var(--ink-soft); background:#fff;
+    border:1px solid var(--line); border-left:3px solid var(--accent);
+    padding:12px 16px; margin-bottom:44px; border-radius:2px;
+  }
+
+  /* App sections */
+  .app-section{margin-bottom:52px; scroll-margin-top:24px;}
+  .app-section h3{
+    font-size:19px; margin:0 0 4px; display:flex; align-items:baseline; gap:10px;
+  }
+  .app-section h3 .num{
+    font-family:var(--mono); font-size:12px; color:#b7bcc4; font-weight:400;
+  }
+  .app-meta{font-family:var(--mono); font-size:12px; color:var(--ink-soft); margin-bottom:16px;}
+  .app-meta div{margin-bottom:2px;}
+
+  table{width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line);}
+  th,td{padding:10px 12px; text-align:left; border-bottom:1px solid var(--line); font-size:13.5px; vertical-align:top;}
+  th{
+    font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--ink-soft);
+    background:#f4f3ef; font-weight:600;
+  }
+  tr:last-child td{border-bottom:none;}
+  td.route{font-family:var(--mono); font-size:12.5px;}
+  td.hash{font-family:var(--mono); color:#b7bcc4; font-size:12px;}
+  td.view{font-family:var(--mono); font-size:12px; color:var(--ink-soft);}
+
+  .badges{display:flex; gap:4px; flex-wrap:wrap;}
+  .badge{
+    font-family:var(--mono); font-size:10.5px; font-weight:700; letter-spacing:.02em;
+    padding:2px 6px; border-radius:3px; color:#fff; white-space:nowrap;
+  }
+  .badge.GET{background:var(--get);}
+  .badge.POST{background:var(--post);}
+  .badge.PATCH{background:var(--patch);}
+  .badge.DELETE{background:var(--delete);}
+  .badge.PUT{background:var(--put);}
+  .badge.WS{background:var(--ws);}
+
+  /* search */
+  .search-bar{margin-bottom:28px;}
+  .search-bar input{
+    width:100%; padding:11px 14px; font-family:var(--mono); font-size:13px;
+    border:1px solid var(--line); border-radius:6px; background:#fff;
+    outline:none;
+  }
+  .search-bar input:focus{border-color:var(--accent);}
+  .row-hidden{display:none;}
+
+  footer{margin-top:60px; padding-top:20px; border-top:1px solid var(--line); font-size:12px; color:var(--ink-soft); font-family:var(--mono);}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <aside class="sidebar">
+    <h1>DineOS-Backend</h1>
+    <div class="sub">API Reference · 68 route+method combos</div>
+
+    <div class="group-label">Overview</div>
+    <nav>
+      <a href="#summary">Summary <small>counts</small></a>
+    </nav>
+
+    <div class="group-label">REST — Custom</div>
+    <nav>
+      <a href="#auth">Authentication <small>10</small></a>
+      <a href="#tables">Tables <small>9</small></a>
+      <a href="#menu">Menu <small>9</small></a>
+      <a href="#orders">Orders <small>9</small></a>
+      <a href="#billing">Billing <small>7</small></a>
+      <a href="#notifications">Notifications <small>3</small></a>
+      <a href="#platform">Platform Admin <small>3</small></a>
+      <a href="#diagnostics">Diagnostics <small>1</small></a>
+    </nav>
+
+    <div class="group-label">WebSocket</div>
+    <nav>
+      <a href="#websockets">Channels <small>3</small></a>
+    </nav>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <div class="eyebrow">Internal API Analysis</div>
+      <h2>DineOS-Backend API Reference</h2>
+      <p class="path">D:\DineOS-Backend</p>
+    </header>
+
+    <div class="search-bar">
+      <input type="text" id="filterInput" placeholder="Filter by route, view, or description…">
+    </div>
+
+    <section id="summary">
+      <div class="stats">
+        <div class="stat"><div class="n">49</div><div class="l">Distinct REST routes</div></div>
+        <div class="stat"><div class="n">65</div><div class="l">REST route+method combos</div></div>
+        <div class="stat"><div class="n">3</div><div class="l">WebSocket channels</div></div>
+        <div class="stat"><div class="n">68</div><div class="l">Total endpoints</div></div>
+      </div>
+      <div class="note">
+        Counts exclude built-in Django Admin endpoints, auto-generated DRF format suffixes (<code>.json</code> / <code>.api</code>), and the DRF default <code>APIRootView</code> documentation root — including these would inflate the count with duplicate/built-in routes.
+      </div>
+    </section>
+
+    <!-- 1. AUTH -->
+    <section class="app-section" id="auth">
+      <h3><span class="num">01</span> Authentication App</h3>
+      <div class="app-meta">
+        <div>v1/auth/ &amp; v1/staff/</div>
+        <div>URLs: apps/authentication/urls.py, apps/authentication/staff_urls.py</div>
+        <div>Views: apps/authentication/views.py</div>
+      </div>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">1</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/auth/login/</td><td class="view">LoginView</td><td>User authentication / JWT issuance</td></tr>
+          <tr><td class="hash">2</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/auth/logout/</td><td class="view">LogoutView</td><td>Log out / blacklist token</td></tr>
+          <tr><td class="hash">3</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/auth/forgot-password/</td><td class="view">ForgotPasswordView</td><td>Initiate forgot-password workflow</td></tr>
+          <tr><td class="hash">4</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/auth/reset-password/</td><td class="view">ResetPasswordView</td><td>Reset password using token</td></tr>
+          <tr><td class="hash">5</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/auth/me/</td><td class="view">MeView</td><td>Retrieve logged-in user profile</td></tr>
+          <tr><td class="hash">6</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/auth/refresh-token/</td><td class="view">RefreshTokenView</td><td>Refresh JWT access token</td></tr>
+          <tr><td class="hash">7</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/auth/change-password/</td><td class="view">ChangePasswordView</td><td>Change password for logged-in user</td></tr>
+          <tr><td class="hash">8</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge POST">POST</span></span></td><td class="route">/v1/staff/</td><td class="view">StaffViewSet</td><td>List staff / create new staff</td></tr>
+          <tr><td class="hash">9</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge PUT">PUT</span><span class="badge PATCH">PATCH</span><span class="badge DELETE">DELETE</span></span></td><td class="route">/v1/staff/{pk}/</td><td class="view">StaffViewSet</td><td>Manage individual staff account</td></tr>
+          <tr><td class="hash">10</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/staff/{pk}/deactivate/</td><td class="view">StaffViewSet</td><td>Deactivate staff member</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 2. TABLES -->
+    <section class="app-section" id="tables">
+      <h3><span class="num">02</span> Tables App</h3>
+      <div class="app-meta">
+        <div>v1/tables/</div>
+        <div>URL: apps/tables/urls.py &nbsp;·&nbsp; View: apps/tables/views.py</div>
+      </div>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">11</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/</td><td class="view">TableViewSet</td><td>List all active tables for the tenant</td></tr>
+          <tr><td class="hash">12</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/{pk}/</td><td class="view">TableViewSet</td><td>Retrieve table details</td></tr>
+          <tr><td class="hash">13</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/qr/{restaurant_slug}/{table_number}/</td><td class="view">TableViewSet</td><td>Landing API for QR scan</td></tr>
+          <tr><td class="hash">14</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/{pk}/session/</td><td class="view">TableViewSet</td><td>Get active session for a table</td></tr>
+          <tr><td class="hash">15</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/tables/{pk}/session/</td><td class="view">TableViewSet</td><td>Start active session for a table</td></tr>
+          <tr><td class="hash">16</td><td><span class="badges"><span class="badge DELETE">DELETE</span></span></td><td class="route">/v1/tables/{pk}/session/</td><td class="view">TableViewSet</td><td>Close active session (override/payment)</td></tr>
+          <tr><td class="hash">17</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/tables/{pk}/bill-request/</td><td class="view">TableViewSet</td><td>Request bill for a table session</td></tr>
+          <tr><td class="hash">18</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/tables/{pk}/status/</td><td class="view">TableViewSet</td><td>Admin/Manager override table status</td></tr>
+          <tr><td class="hash">19</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/{pk}/history/</td><td class="view">TableViewSet</td><td>Get past closed sessions history</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 3. MENU -->
+    <section class="app-section" id="menu">
+      <h3><span class="num">03</span> Menu App</h3>
+      <div class="app-meta">
+        <div>v1/menu/ &amp; v1/prepared-dishes/</div>
+        <div>URLs: apps/menu/urls.py, apps/menu/prepared_urls.py &nbsp;·&nbsp; View: apps/menu/views.py</div>
+      </div>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">20</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/menu/customer/{table_id}/</td><td class="view">CustomerMenuView</td><td>Retrieve customer-facing menu</td></tr>
+          <tr><td class="hash">21</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/menu/all/</td><td class="view">MenuItemViewSet</td><td>Management view of all items</td></tr>
+          <tr><td class="hash">22</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge POST">POST</span></span></td><td class="route">/v1/menu/categories/</td><td class="view">CategoryViewSet</td><td>List categories / create category</td></tr>
+          <tr><td class="hash">23</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge PUT">PUT</span><span class="badge DELETE">DELETE</span></span></td><td class="route">/v1/menu/categories/{pk}/</td><td class="view">CategoryViewSet</td><td>Retrieve/update/delete category</td></tr>
+          <tr><td class="hash">24</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/menu/{pk}/availability/</td><td class="view">MenuItemViewSet</td><td>Toggle menu item availability</td></tr>
+          <tr><td class="hash">25</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge PUT">PUT</span><span class="badge DELETE">DELETE</span></span></td><td class="route">/v1/menu/{pk}/</td><td class="view">MenuItemViewSet</td><td>Retrieve/update/delete menu item</td></tr>
+          <tr><td class="hash">26</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge POST">POST</span></span></td><td class="route">/v1/menu/</td><td class="view">OrderTakingMenuView</td><td>Order-taking menu / item creation</td></tr>
+          <tr><td class="hash">27</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/prepared-dishes/today/</td><td class="view">PreparedDishesTodayView</td><td>Get prepared portions counts for today</td></tr>
+          <tr><td class="hash">28</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/prepared-dishes/{dish_id}/add-portions/</td><td class="view">AddPortionsView</td><td>Manager update prepared portions</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 4. ORDERS -->
+    <section class="app-section" id="orders">
+      <h3><span class="num">04</span> Orders App</h3>
+      <div class="app-meta">
+        <div>v1/orders/</div>
+        <div>URL: apps/orders/urls.py &nbsp;·&nbsp; View: apps/orders/views.py</div>
+      </div>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">29</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/orders/</td><td class="view">CreateOrderView</td><td>Place a new order round</td></tr>
+          <tr><td class="hash">30</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/orders/active/</td><td class="view">ActiveOrdersView</td><td>List active kitchen orders</td></tr>
+          <tr><td class="hash">31</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/orders/ready/</td><td class="view">ReadyOrdersView</td><td>List ready orders waiting for pickup</td></tr>
+          <tr><td class="hash">32</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/orders/session/{session_id}/</td><td class="view">OrdersBySessionView</td><td>Retrieve orders under a session</td></tr>
+          <tr><td class="hash">33</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/orders/table/{table_id}/</td><td class="view">OrdersByTableView</td><td>Retrieve orders under a table</td></tr>
+          <tr><td class="hash">34</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/orders/{order_id}/status/</td><td class="view">OrderKitchenStatusView</td><td>KDS update kitchen status</td></tr>
+          <tr><td class="hash">35</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/orders/{order_id}/collected/</td><td class="view">OrderCollectedView</td><td>Mark order collected by server</td></tr>
+          <tr><td class="hash">36</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/orders/{order_id}/served/</td><td class="view">OrderServedView</td><td>Mark order served to table</td></tr>
+          <tr><td class="hash">37</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/orders/{order_id}/</td><td class="view">OrderDetailView</td><td>Retrieve individual order details</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 5. BILLING -->
+    <section class="app-section" id="billing">
+      <h3><span class="num">05</span> Billing App</h3>
+      <div class="app-meta">
+        <div>v1/bills/ &amp; v1/cashier/</div>
+        <div>URL: apps/billing/urls.py &nbsp;·&nbsp; Views: apps/billing/views.py, apps/billing/cashier_views.py</div>
+      </div>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">38</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/bills/session/{session_id}/</td><td class="view">SessionBillView</td><td>Get session bill preview / existing bill</td></tr>
+          <tr><td class="hash">39</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/bills/payment/</td><td class="view">PayBillView</td><td>Complete table bill payment</td></tr>
+          <tr><td class="hash">40</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/cashier/shifts/open/</td><td class="view">OpenShiftView</td><td>Open a cashier shift</td></tr>
+          <tr><td class="hash">41</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/cashier/shifts/current/</td><td class="view">CurrentShiftView</td><td>Get current active shift dashboard</td></tr>
+          <tr><td class="hash">42</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/cashier/shifts/{shift_id}/reconciliation/</td><td class="view">ShiftReconciliationView</td><td>Get shift totals by payment method</td></tr>
+          <tr><td class="hash">43</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/cashier/shifts/{shift_id}/close/</td><td class="view">CloseShiftView</td><td>Close shift with counted cash</td></tr>
+          <tr><td class="hash">44</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/cashier/collections/daily/</td><td class="view">DailyCollectionsView</td><td>Daily collections summary</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 6. NOTIFICATIONS -->
+    <section class="app-section" id="notifications">
+      <h3><span class="num">06</span> Notifications App</h3>
+      <div class="app-meta">
+        <div>v1/notifications/</div>
+        <div>URL: apps/notifications/urls.py &nbsp;·&nbsp; View: apps/notifications/views.py</div>
+      </div>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">45</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/notifications/</td><td class="view">NotificationListView</td><td>Retrieve all notifications for the user</td></tr>
+          <tr><td class="hash">46</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/notifications/unread-count/</td><td class="view">UnreadCountView</td><td>Retrieve count of unread notifications</td></tr>
+          <tr><td class="hash">47</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/notifications/{notification_id}/read/</td><td class="view">MarkNotificationReadView</td><td>Mark notification as read</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 7. PLATFORM -->
+    <section class="app-section" id="platform">
+      <h3><span class="num">07</span> Platform Administration App</h3>
+      <div class="app-meta">
+        <div>platform/</div>
+        <div>URL: apps/platform/urls.py &nbsp;·&nbsp; View: apps/platform/views.py</div>
+      </div>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">48</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/platform/auth/login/</td><td class="view">PlatformLoginView</td><td>Super Admin login / platform JWT</td></tr>
+          <tr><td class="hash">49</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge POST">POST</span></span></td><td class="route">/platform/tenants/</td><td class="view">TenantViewSet</td><td>List/create client restaurants</td></tr>
+          <tr><td class="hash">50</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge PUT">PUT</span><span class="badge PATCH">PATCH</span><span class="badge DELETE">DELETE</span></span></td><td class="route">/platform/tenants/{pk}/</td><td class="view">TenantViewSet</td><td>Manage tenant settings &amp; feature flags</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 8. DIAGNOSTICS -->
+    <section class="app-section" id="diagnostics">
+      <h3><span class="num">08</span> System Diagnostics</h3>
+      <div class="app-meta">
+        <div>/</div>
+        <div>URL: dineos/urls.py</div>
+      </div>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">51</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/healthz/</td><td class="view">healthz</td><td>Health check endpoint</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 9. WEBSOCKETS -->
+    <section class="app-section" id="websockets">
+      <h3><span class="num">09</span> WebSockets</h3>
+      <div class="app-meta">
+        <div>ws/</div>
+        <div>Routing: apps/websockets/routing.py &nbsp;·&nbsp; Consumers: apps/websockets/consumers.py</div>
+      </div>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Protocol</th><th>Route</th><th>Middleware</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">52</td><td><span class="badges"><span class="badge WS">WS</span></span></td><td class="route">/ws/staff/</td><td class="view">JWTAuthMiddleware</td><td>Real-time notifications for staff</td></tr>
+          <tr><td class="hash">53</td><td><span class="badges"><span class="badge WS">WS</span></span></td><td class="route">/ws/kitchen/</td><td class="view">KDSAuthMiddleware</td><td>KDS status update subscription</td></tr>
+          <tr><td class="hash">54</td><td><span class="badges"><span class="badge WS">WS</span></span></td><td class="route">/ws/table/{session_id}/</td><td class="view">TableSessionAuthMiddleware</td><td>Real-time table session events</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer>DineOS-Backend · API Analysis Report · generated reference</footer>
+  </main>
+</div>
+
+<script>
+  // scroll spy
+  const links = document.querySelectorAll('.sidebar nav a');
+  const sections = Array.from(links).map(l => document.querySelector(l.getAttribute('href')));
+  function onScroll(){
+    let idx = 0;
+    sections.forEach((s,i) => { if(s && s.getBoundingClientRect().top - 80 <= 0) idx = i; });
+    links.forEach(l => l.classList.remove('active'));
+    if(links[idx]) links[idx].classList.add('active');
+  }
+  window.addEventListener('scroll', onScroll);
+  onScroll();
+
+  // filter
+  const input = document.getElementById('filterInput');
+  input.addEventListener('input', () => {
+    const q = input.value.trim().toLowerCase();
+    document.querySelectorAll('.ep-table tbody tr').forEach(row => {
+      const text = row.textContent.toLowerCase();
+      row.classList.toggle('row-hidden', q.length > 0 && !text.includes(q));
+    });
+    document.querySelectorAll('.app-section').forEach(section => {
+      const table = section.querySelector('.ep-table');
+      if(!table) return;
+      const visible = table.querySelectorAll('tbody tr:not(.row-hidden)').length;
+      section.style.display = (q.length > 0 && visible === 0) ? 'none' : '';
+    });
+  });
+</script>
+</body>
+</html>
