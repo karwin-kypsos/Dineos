@@ -3,12 +3,34 @@ from decimal import Decimal
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.db import transaction
+from django.db.models import Sum
+from django.utils import timezone
 
 from apps.orders.models import Order
 from apps.tables.models import TableSession
 from apps.tables.services import close_session
 
-from .models import Bill
+from .models import Bill, CashierShift
+
+
+class ShiftAlreadyOpenError(Exception):
+    pass
+
+
+class ShiftAlreadyClosedError(Exception):
+    pass
+
+
+class DiscrepancyNotAcknowledgedError(Exception):
+    """Raised when the counted cash doesn't match the system total and the
+    caller hasn't set `acknowledge_discrepancy` — mirrors the Figma flow's
+    'Discrepancy detected... Go back and recount / Proceed with discrepancy'
+    fork instead of silently closing over a mismatch.
+    """
+
+    def __init__(self, discrepancy):
+        self.discrepancy = discrepancy
+        super().__init__(f"Counted cash differs from the system total by {discrepancy}.")
 
 
 def _compute_totals(session):
@@ -97,3 +119,137 @@ def _broadcast_payment_confirmed(bill, session):
     }
     for group in (f"cashiers_{restaurant.id}", f"managers_{restaurant.id}", f"table_session_{session.id}"):
         async_to_sync(channel_layer.group_send)(group, payload)
+
+
+# ---------------------------------------------------------------------------
+# Cashier shifts — "Cashier Home" / "Daily Collections" / "Cash Reconciliation"
+# ---------------------------------------------------------------------------
+
+_PAYMENT_METHOD_KEYS = {
+    Bill.PaymentMethod.CASH: "cash",
+    Bill.PaymentMethod.CARD: "card",
+    Bill.PaymentMethod.UPI: "upi",
+}
+
+
+def open_shift(cashier):
+    """Idempotent, like `get_or_create_active_session` — re-tapping "Start
+    Shift" on an already-open shift just returns it rather than erroring.
+    """
+    existing = CashierShift.objects.filter(cashier=cashier, status=CashierShift.Status.OPEN).first()
+    if existing:
+        return existing
+    return CashierShift.objects.create(restaurant=cashier.restaurant, cashier=cashier)
+
+
+def get_current_shift(cashier):
+    return CashierShift.objects.filter(cashier=cashier, status=CashierShift.Status.OPEN).first()
+
+
+def _shift_bills(shift):
+    window_end = shift.closed_at or timezone.now()
+    return Bill.objects.filter(processed_by=shift.cashier, paid_at__gte=shift.opened_at, paid_at__lte=window_end)
+
+
+def shift_totals_by_method(shift):
+    """The 'System Totals' section of Cash Reconciliation — Cash/Card/UPI
+    subtotals plus the grand total, computed straight from `Bill` records
+    rather than a stored snapshot (`Bill.processed_by` + `Bill.paid_at` are
+    the single source of truth — see `CashierShift`'s docstring).
+    """
+    totals = {"cash": Decimal("0"), "card": Decimal("0"), "upi": Decimal("0")}
+    for bill in _shift_bills(shift):
+        key = _PAYMENT_METHOD_KEYS.get(bill.payment_method)
+        if key:
+            totals[key] += bill.total_amount
+    totals["total"] = totals["cash"] + totals["card"] + totals["upi"]
+    return totals
+
+
+def cashier_dashboard(restaurant, cashier):
+    """'Cashier Home' — awaiting/occupied/paid-today counts and lists, plus
+    today's collected total for the calling cashier's current shift.
+    """
+    today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    awaiting_sessions = (
+        TableSession.objects.filter(table__restaurant=restaurant, status=TableSession.Status.BILL_REQUESTED)
+        .select_related("table")
+    )
+    active_sessions = (
+        TableSession.objects.filter(table__restaurant=restaurant, status=TableSession.Status.ACTIVE)
+        .select_related("table")
+    )
+    paid_today_count = Bill.objects.filter(session__table__restaurant=restaurant, paid_at__gte=today_start).count()
+
+    shift = get_current_shift(cashier)
+    collected_today = shift_totals_by_method(shift)["total"] if shift else Decimal("0")
+
+    def _session_summary(session):
+        _, _, _, total = _compute_totals(session)
+        return {
+            "session_id": str(session.id),
+            "table_id": str(session.table_id),
+            "table_number": session.table.table_number,
+            "total_amount": total,
+        }
+
+    return {
+        "shift": shift,
+        "collected_today": collected_today,
+        "awaiting_payment": [_session_summary(s) for s in awaiting_sessions],
+        "active_tables": [_session_summary(s) for s in active_sessions],
+        "paid_today_count": paid_today_count,
+    }
+
+
+def close_shift(shift, counted_cash, acknowledge_discrepancy=False):
+    if shift.status == CashierShift.Status.CLOSED:
+        raise ShiftAlreadyClosedError()
+
+    system_cash_total = shift_totals_by_method(shift)["cash"]
+    discrepancy = counted_cash - system_cash_total
+
+    if discrepancy != 0 and not acknowledge_discrepancy:
+        raise DiscrepancyNotAcknowledgedError(discrepancy)
+
+    shift.counted_cash = counted_cash
+    shift.discrepancy_acknowledged = discrepancy != 0
+    shift.status = CashierShift.Status.CLOSED
+    shift.closed_at = timezone.now()
+    shift.save(update_fields=["counted_cash", "discrepancy_acknowledged", "status", "closed_at"])
+    return shift
+
+
+def daily_collections(restaurant, date):
+    day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
+    day_end = day_start + timezone.timedelta(days=1)
+    previous_day_start = day_start - timezone.timedelta(days=1)
+
+    bills = Bill.objects.filter(session__table__restaurant=restaurant, paid_at__gte=day_start, paid_at__lt=day_end).select_related(
+        "session__table"
+    )
+    previous_day_total = Bill.objects.filter(
+        session__table__restaurant=restaurant, paid_at__gte=previous_day_start, paid_at__lt=day_start
+    ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
+
+    totals = {"cash": Decimal("0"), "card": Decimal("0"), "upi": Decimal("0")}
+    bill_amounts = []
+    for bill in bills:
+        key = _PAYMENT_METHOD_KEYS.get(bill.payment_method)
+        if key:
+            totals[key] += bill.total_amount
+        bill_amounts.append(bill.total_amount)
+    grand_total = totals["cash"] + totals["card"] + totals["upi"]
+
+    return {
+        "date": date,
+        "total_collected": grand_total,
+        "vs_yesterday": grand_total - previous_day_total,
+        "tables_served": bills.count(),
+        "avg_bill_value": (grand_total / len(bill_amounts)) if bill_amounts else Decimal("0"),
+        "largest_bill": max(bill_amounts) if bill_amounts else Decimal("0"),
+        "smallest_bill": min(bill_amounts) if bill_amounts else Decimal("0"),
+        "payment_breakdown": totals,
+        "bills": list(bills.order_by("-paid_at")),
+    }

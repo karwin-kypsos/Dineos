@@ -2,6 +2,8 @@ from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
 
+from apps.billing.urls import cashier_urlpatterns
+
 
 def healthz(request):
     return JsonResponse({"status": "ok"})
@@ -17,6 +19,7 @@ urlpatterns = [
     path("v1/prepared-dishes/", include("apps.menu.prepared_urls")),
     path("v1/orders/", include("apps.orders.urls")),
     path("v1/bills/", include("apps.billing.urls")),
+    path("v1/cashier/", include(cashier_urlpatterns)),
     path("v1/notifications/", include("apps.notifications.urls")),
     path("platform/", include("apps.platform.urls")),
 ]

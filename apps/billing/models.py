@@ -4,6 +4,39 @@ from django.conf import settings
 from django.db import models
 
 
+class CashierShift(models.Model):
+    """One cashier's work period — 'Shift ID #SCH-...' / 'Cash
+    Reconciliation' in the Cashier Home + Close Shift screens. `Bill.
+    processed_by` + `Bill.paid_at` are the single source of truth for what a
+    cashier collected during their shift; this model never duplicates those
+    totals, it only stores the physical cash count entered at close time
+    (everything else is computed on demand in `services.py`).
+    """
+
+    class Status(models.TextChoices):
+        OPEN = "OPEN", "Open"
+        CLOSED = "CLOSED", "Closed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    restaurant = models.ForeignKey("restaurant.Restaurant", on_delete=models.CASCADE, related_name="cashier_shifts")
+    cashier = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cashier_shifts")
+    status = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
+    opened_at = models.DateTimeField(auto_now_add=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    counted_cash = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    discrepancy_acknowledged = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "cashier_shifts"
+        ordering = ["-opened_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["cashier"], condition=models.Q(status="OPEN"), name="one_open_shift_per_cashier")
+        ]
+
+    def __str__(self):
+        return f"Shift {self.id} — {self.cashier} ({self.status})"
+
+
 class Bill(models.Model):
     class PaymentMethod(models.TextChoices):
         CASH = "CASH", "Cash"

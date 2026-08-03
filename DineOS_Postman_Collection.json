@@ -27,7 +27,9 @@
     { "key": "order_2_id", "value": "" },
     { "key": "bill_id", "value": "" },
     { "key": "staff_id", "value": "" },
-    { "key": "notification_id", "value": "" }
+    { "key": "notification_id", "value": "" },
+    { "key": "shift_id", "value": "" },
+    { "key": "cashier_cash_total", "value": "" }
   ],
   "item": [
     {
@@ -688,6 +690,131 @@
             "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
             "url": "{{base_url}}/tables/"
           }
+        }
+      ]
+    },
+    {
+      "name": "07b Cashier Shift",
+      "item": [
+        {
+          "name": "Open Shift (Cashier)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{cashier_token}}" }],
+            "url": "{{base_url}}/cashier/shifts/open/"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const openShiftData = pm.response.json();",
+            "pm.collectionVariables.set('shift_id', openShiftData.id);",
+            "pm.test('status is 201', () => pm.response.to.have.status(201));"
+          ] } }]
+        },
+        {
+          "name": "Start New Session for Shift Test (Customer, no auth)",
+          "request": { "method": "POST", "url": "{{base_url}}/tables/{{table_id}}/session/" },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const shiftSessionData = pm.response.json();",
+            "pm.collectionVariables.set('session_id', shiftSessionData.id);"
+          ] } }]
+        },
+        {
+          "name": "Place Order for Shift Test (Server)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{server_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/orders/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"session_id\": \"{{session_id}}\", \"items\": [{\"menu_item\": {{menu_item_id}}, \"quantity\": 1}]}"
+            }
+          }
+        },
+        {
+          "name": "Pay Bill for Shift Test (Cashier)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{cashier_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/bills/payment/",
+            "body": { "mode": "raw", "raw": "{\"session_id\": \"{{session_id}}\", \"payment_method\": \"CASH\"}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('status is 201', () => pm.response.to.have.status(201));"
+          ] } }]
+        },
+        {
+          "name": "Current Shift Dashboard (Cashier)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{cashier_token}}" }],
+            "url": "{{base_url}}/cashier/shifts/current/"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const dashboardData = pm.response.json();",
+            "pm.test('paid_today_count is at least 1', () => pm.expect(dashboardData.paid_today_count).to.be.at.least(1));"
+          ] } }]
+        },
+        {
+          "name": "Shift Reconciliation (Cashier)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{cashier_token}}" }],
+            "url": "{{base_url}}/cashier/shifts/{{shift_id}}/reconciliation/"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const reconciliationData = pm.response.json();",
+            "pm.collectionVariables.set('cashier_cash_total', reconciliationData.cash);",
+            "pm.test('cash total is greater than 0', () => pm.expect(parseFloat(reconciliationData.cash)).to.be.above(0));"
+          ] } }]
+        },
+        {
+          "name": "Close Shift — Discrepancy Rejected (Cashier)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{cashier_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/cashier/shifts/{{shift_id}}/close/",
+            "body": { "mode": "raw", "raw": "{\"counted_cash\": \"0.00\"}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "pm.test('status is 409 (uncounted cash mismatch)', () => pm.response.to.have.status(409));"
+          ] } }]
+        },
+        {
+          "name": "Close Shift — Matches System Total (Cashier)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{cashier_token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{base_url}}/cashier/shifts/{{shift_id}}/close/",
+            "body": { "mode": "raw", "raw": "{\"counted_cash\": \"{{cashier_cash_total}}\"}" }
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const closeShiftData = pm.response.json();",
+            "pm.test('status is 200', () => pm.response.to.have.status(200));",
+            "pm.test('shift is closed', () => pm.expect(closeShiftData.status).to.eql('CLOSED'));"
+          ] } }]
+        },
+        {
+          "name": "Daily Collections (Manager)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{manager_token}}" }],
+            "url": "{{base_url}}/cashier/collections/daily/"
+          },
+          "event": [{ "listen": "test", "script": { "exec": [
+            "const dailyData = pm.response.json();",
+            "pm.test('tables_served is at least 1', () => pm.expect(dailyData.tables_served).to.be.at.least(1));"
+          ] } }]
         }
       ]
     },

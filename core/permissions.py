@@ -28,6 +28,13 @@ class IsAdminOrManager(BasePermission):
         )
 
 
+class IsCashierOrManager(BasePermission):
+    def has_permission(self, request, view):
+        return bool(
+            request.user and request.user.is_authenticated and request.user.role in ("CASHIER", "MANAGER", "ADMIN")
+        )
+
+
 class IsAnyStaff(BasePermission):
     def has_permission(self, request, view):
         return bool(

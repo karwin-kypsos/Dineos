@@ -167,6 +167,28 @@ def test_restaurant_staff_token_cannot_access_platform_endpoints():
     assert response.status_code in (401, 403)
 
 
+def test_cashier_cannot_view_or_close_another_restaurants_shift():
+    from apps.billing import services as billing_services
+
+    restaurant_a, _, _ = _make_tenant_with_staff("tenant-a")
+    restaurant_b, _, _ = _make_tenant_with_staff("tenant-b")
+
+    cashier_a = User.objects.create_user(
+        email="cashier@tenant-a.test", password="Test@1234", role="CASHIER", restaurant=restaurant_a
+    )
+    cashier_b = User.objects.create_user(
+        email="cashier@tenant-b.test", password="Test@1234", role="CASHIER", restaurant=restaurant_b
+    )
+    shift_b = billing_services.open_shift(cashier_b)
+
+    client_a = APIClient()
+    token_a = DineOSTokenObtainPairSerializer.get_token(cashier_a)
+    client_a.credentials(HTTP_AUTHORIZATION=f"Bearer {token_a.access_token}")
+
+    response = client_a.get(f"/v1/cashier/shifts/{shift_b.id}/reconciliation/")
+    assert response.status_code == 404
+
+
 def test_platform_token_cannot_authenticate_as_restaurant_staff():
     admin = PlatformAdmin.objects.create_user(email="super2@platform.test", password="Test@1234")
     token = issue_platform_access_token(admin)
