@@ -3,7 +3,7 @@ from rest_framework_simplejwt.tokens import AccessToken
 
 from apps.restaurant.models import Restaurant
 
-from .models import PlatformAdmin
+from .models import PlatformActivityLog, PlatformAdmin
 
 
 def issue_platform_access_token(admin):
@@ -50,3 +50,46 @@ class RestaurantSerializer(serializers.ModelSerializer):
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+
+
+class PlatformAdminSerializer(serializers.ModelSerializer):
+    """Team screen — list/create platform team members. Password is
+    write-only and hashed via set_password, never round-tripped in a
+    response, matching the pattern used by apps.authentication.StaffSerializer.
+    """
+
+    password = serializers.CharField(write_only=True, required=False, min_length=8)
+
+    class Meta:
+        model = PlatformAdmin
+        fields = ["id", "email", "name", "is_active", "is_staff", "created_at", "password"]
+        read_only_fields = ["id", "created_at"]
+
+    def create(self, validated_data):
+        password = validated_data.pop("password", None)
+        admin = PlatformAdmin(**validated_data)
+        if password:
+            admin.set_password(password)
+        else:
+            admin.set_unusable_password()
+        admin.save()
+        return admin
+
+
+class PlatformActivityLogSerializer(serializers.ModelSerializer):
+    actor_name = serializers.CharField(source="actor.name", read_only=True, default="")
+    actor_email = serializers.CharField(source="actor.email", read_only=True, default="")
+    restaurant_name = serializers.CharField(source="restaurant.name", read_only=True, default="")
+
+    class Meta:
+        model = PlatformActivityLog
+        fields = [
+            "id",
+            "action",
+            "description",
+            "actor_name",
+            "actor_email",
+            "restaurant_name",
+            "created_at",
+        ]
+        read_only_fields = fields

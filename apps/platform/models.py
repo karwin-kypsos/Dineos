@@ -47,3 +47,37 @@ class PlatformAdmin(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.email
+
+
+class PlatformActivityLog(models.Model):
+    """Audit trail for actions taken by platform team members — powers the
+    Super Admin app's Activity Log screen. Written by the views that
+    perform the action (tenant create/update, team member added, etc.)
+    rather than via signals, so the description text stays human-readable
+    and action-specific instead of generic field-diff dumps.
+    """
+
+    ACTION_CHOICES = [
+        ("TENANT_CREATED", "Tenant created"),
+        ("TENANT_UPDATED", "Tenant updated"),
+        ("TEAM_MEMBER_ADDED", "Team member added"),
+        ("TEAM_MEMBER_DEACTIVATED", "Team member deactivated"),
+    ]
+
+    id = models.BigAutoField(primary_key=True)
+    actor = models.ForeignKey(
+        PlatformAdmin, on_delete=models.SET_NULL, null=True, related_name="activity_logs"
+    )
+    action = models.CharField(max_length=32, choices=ACTION_CHOICES)
+    restaurant = models.ForeignKey(
+        "restaurant.Restaurant", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    description = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "platform_activity_log"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.action} — {self.description}"
