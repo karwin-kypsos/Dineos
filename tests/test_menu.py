@@ -54,6 +54,36 @@ def test_manager_can_update_menu_item(manager_client, menu_item):
     assert str(menu_item.price) == "260.00"
 
 
+def test_menu_items_within_a_category_are_ordered_by_sort_order_then_name(manager_client, menu_item):
+    from apps.menu.models import MenuItem
+
+    _, client = manager_client
+    # menu_item ("Chicken Biryani") defaults to sort_order=0; give it a
+    # higher number so an alphabetically-earlier item can still be forced
+    # to the front — proves ordering isn't falling back to pure alpha sort.
+    menu_item.sort_order = 5
+    menu_item.save()
+    zebra = MenuItem.objects.create(category=menu_item.category, name="Zebra Special", price=99, sort_order=1)
+
+    response = client.get("/v1/menu/all/")
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    names_in_this_category = [
+        item["name"] for item in results if item["category"] == menu_item.category_id
+    ]
+    assert names_in_this_category.index(zebra.name) < names_in_this_category.index(menu_item.name)
+
+
+def test_manager_can_update_menu_item_sort_order(manager_client, menu_item):
+    _, client = manager_client
+
+    response = client.patch(f"/v1/menu/{menu_item.id}/", {"sort_order": 3}, format="json")
+    assert response.status_code == 200
+    assert response.data["sort_order"] == 3
+
+    menu_item.refresh_from_db()
+    assert menu_item.sort_order == 3
+
+
 def test_manager_can_delete_menu_item(manager_client, menu_item):
     from apps.menu.models import MenuItem
 

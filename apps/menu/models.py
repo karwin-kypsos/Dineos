@@ -40,12 +40,13 @@ class MenuItem(models.Model):
     is_veg = models.BooleanField(default=False)
     is_available = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "menu_items"
-        ordering = ["category__sort_order", "name"]
+        ordering = ["category__sort_order", "sort_order", "name"]
 
     def __str__(self):
         return self.name

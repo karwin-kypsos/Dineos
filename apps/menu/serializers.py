@@ -54,6 +54,7 @@ class MenuItemSerializer(serializers.ModelSerializer):
             "is_veg",
             "is_available",
             "is_active",
+            "sort_order",
             "portions_remaining_today",
             "created_at",
             "updated_at",

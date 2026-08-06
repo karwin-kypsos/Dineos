@@ -8,11 +8,11 @@ from .views import (
 )
 
 menu_all = MenuItemViewSet.as_view({"get": "list"})
-menu_detail = MenuItemViewSet.as_view({"get": "retrieve", "put": "update", "delete": "destroy"})
+menu_detail = MenuItemViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"})
 menu_availability = MenuItemViewSet.as_view({"patch": "toggle_availability"})
 
 category_list = CategoryViewSet.as_view({"get": "list", "post": "create"})
-category_detail = CategoryViewSet.as_view({"get": "retrieve", "put": "update", "delete": "destroy"})
+category_detail = CategoryViewSet.as_view({"get": "retrieve", "put": "update", "patch": "partial_update", "delete": "destroy"})
 
 urlpatterns = [
     path("customer/<uuid:table_id>/", CustomerMenuView.as_view(), name="menu-customer"),
