@@ -433,11 +433,12 @@ def build(collection: dict, results: list[dict]) -> None:
     for i, (folder_name, section_title) in enumerate(SECTION_TITLES, start=1):
         add_heading(doc, f"{i}. {section_title} ✅", level=2)
         names = folder_index.get(folder_name, [])
-        etbl = doc.add_table(rows=1, cols=8)
+        api_number = 0
+        etbl = doc.add_table(rows=1, cols=9)
         etbl.alignment = WD_TABLE_ALIGNMENT.LEFT
         hdr = etbl.rows[0].cells
         for c, h in enumerate(
-            ["Screen", "Method", "URL", "Parameters", "Output Parameters (In Response)", "Changes Required", "Comments", "Status"]
+            ["#", "Screen", "Method", "URL", "Parameters", "Output Parameters (In Response)", "Changes Required", "Comments", "Status"]
         ):
             add_plain(hdr[c], h, size_pt=9, bold=True)
             set_cell_bg(hdr[c], "D9E2F3")
@@ -447,21 +448,23 @@ def build(collection: dict, results: list[dict]) -> None:
             if not entries:
                 continue
             r = entries[0]
+            api_number += 1
             row = etbl.add_row().cells
-            add_plain(row[0], name, size_pt=8.5)
-            add_plain(row[1], r["method"], size_pt=8.5, bold=True)
-            add_mono(row[2], r["path"], size_pt=7.5)
+            add_plain(row[0], str(api_number), size_pt=8.5, bold=True)
+            add_plain(row[1], name, size_pt=8.5)
+            add_plain(row[2], r["method"], size_pt=8.5, bold=True)
+            add_mono(row[3], r["path"], size_pt=7.5)
             params = r["requestBody"] if r["requestBody"] != "(no request body — GET)" else f"Header: Authorization: {r['auth']}" if r["auth"] != "None (public)" else "(no auth, no body)"
-            add_mono(row[3], pretty_json(params) if params.startswith("{") else params, size_pt=7)
+            add_mono(row[4], pretty_json(params) if params.startswith("{") else params, size_pt=7)
             resp = r["responseBody"] or "(empty)"
-            add_mono(row[4], pretty_json(resp), size_pt=7)
-            add_plain(row[5], "", size_pt=8.5)
+            add_mono(row[5], pretty_json(resp), size_pt=7)
+            add_plain(row[6], "", size_pt=8.5)
             note = EXPECTED_NON_2XX.get(name, "")
-            add_plain(row[6], note, size_pt=8)
+            add_plain(row[7], note, size_pt=8)
             status_text = f"✅ Verified ({r['statusCode']})" if not note else f"✅ Verified ({r['statusCode']}) — expected"
-            add_plain(row[7], status_text, size_pt=8, bold=True, color=STATUS_OK_COLOR)
+            add_plain(row[8], status_text, size_pt=8, bold=True, color=STATUS_OK_COLOR)
 
-        for c, w in enumerate([2.0, 0.9, 2.3, 2.8, 4.2, 1.3, 1.8, 1.8]):
+        for c, w in enumerate([0.6, 1.9, 0.9, 2.2, 2.7, 4.0, 1.2, 1.7, 1.8]):
             set_col_width(etbl.columns[c], w)
         set_table_borders(etbl)
         doc.add_paragraph()

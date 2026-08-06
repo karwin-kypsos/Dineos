@@ -854,7 +854,7 @@
                 "value": "Bearer {{manager_token}}"
               }
             ],
-            "url": "{{base_url}}/tables/"
+            "url": "{{base_url}}/tables/?page_size=100"
           },
           "event": [
             {
@@ -2742,7 +2742,40 @@
                 "exec": [
                   "const verify2faData = pm.response.json();",
                   "pm.collectionVariables.set('platform_token', verify2faData.access);",
-                  "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                  "pm.collectionVariables.set('platform_refresh_token', verify2faData.refresh);",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('response includes a refresh token', () => pm.expect(verify2faData.refresh).to.exist);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh Access Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{server_root}}/platform/auth/refresh/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"refresh\": \"{{platform_refresh_token}}\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const refreshData = pm.response.json();",
+                  "pm.collectionVariables.set('platform_token', refreshData.access);",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('returns a new access token', () => pm.expect(refreshData.access).to.exist);"
                 ]
               }
             }
@@ -3383,9 +3416,17 @@
               {
                 "key": "Authorization",
                 "value": "Bearer {{platform_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
               }
             ],
-            "url": "{{server_root}}/platform/auth/logout/"
+            "url": "{{server_root}}/platform/auth/logout/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"refresh\": \"{{platform_refresh_token}}\"}"
+            }
           },
           "event": [
             {
@@ -3418,6 +3459,34 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('status is 401 (token blacklisted after logout)', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify Refresh Token Revoked (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{server_root}}/platform/auth/refresh/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"refresh\": \"{{platform_refresh_token}}\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400 (refresh token revoked at logout)', () => pm.response.to.have.status(400));"
                 ]
               }
             }
@@ -3601,6 +3670,10 @@
     },
     {
       "key": "team_member_id",
+      "value": ""
+    },
+    {
+      "key": "platform_refresh_token",
       "value": ""
     },
     {
