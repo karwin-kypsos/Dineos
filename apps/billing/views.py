@@ -70,10 +70,5 @@ class PayTakeawayBillView(APIView):
         if order is None or order.branch is None or order.branch.restaurant_id != request.tenant.id:
             raise PermissionDenied("This order does not belong to your restaurant.")
 
-        try:
-            bill = services.pay_takeaway_bill(order_id, serializer.validated_data["payment_method"], request.user)
-        except Exception as e:
-            import traceback
-
-            return Response({"_debug_error": str(e), "_debug_traceback": traceback.format_exc()}, status=500)
+        bill = services.pay_takeaway_bill(order_id, serializer.validated_data["payment_method"], request.user)
         return Response(BillSerializer(bill).data, status=201)

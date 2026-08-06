@@ -110,7 +110,17 @@ def get_takeaway_bill_preview(order_id):
 
 @transaction.atomic
 def pay_takeaway_bill(order_id, payment_method, processed_by):
-    order = Order.objects.select_for_update().select_related("branch__restaurant").prefetch_related("items").get(id=order_id)
+    # of=("self",): Order.branch is nullable, so select_related("branch__restaurant")
+    # compiles to a LEFT OUTER JOIN — PostgreSQL rejects a plain FOR UPDATE across
+    # the nullable side of an outer join ("FeatureNotSupported"). Restricting the
+    # lock to just the orders row (which is all pay_takeaway_bill's idempotency
+    # check needs) keeps the join without asking Postgres to lock through it.
+    order = (
+        Order.objects.select_for_update(of=("self",))
+        .select_related("branch__restaurant")
+        .prefetch_related("items")
+        .get(id=order_id)
+    )
 
     existing_bill = Bill.objects.filter(order=order).first()
     if existing_bill:
