@@ -10,8 +10,18 @@ None if unresolved):
 Platform (Super Admin) requests never resolve a tenant — their tokens
 carry no restaurant_id by design (see apps/platform/authentication.py).
 """
+from django.http import JsonResponse
 from rest_framework.permissions import BasePermission
 from rest_framework_simplejwt.tokens import UntypedToken
+
+
+class ImpersonationRevoked(Exception):
+    """Raised internally when a token carries an impersonation_session_id
+    for a session that's been explicitly ended or has expired — see
+    apps.platform.views.EndImpersonationView. A stateless JWT can't be
+    invalidated by itself, so this DB check is what makes 'end this support
+    session now' actually take effect immediately instead of at token
+    expiry."""
 
 
 class TenantResolverMiddleware:
@@ -21,13 +31,19 @@ class TenantResolverMiddleware:
     authentication/permission classes further down the stack. A request
     resolved by neither (the login-less customer realm) is picked up
     explicitly by the specific views that need it, via the helpers below.
+
+    The one exception: a revoked/expired impersonation token IS rejected
+    right here, with a 401 — see ImpersonationRevoked.
     """
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        request.tenant = self._resolve(request)
+        try:
+            request.tenant = self._resolve(request)
+        except ImpersonationRevoked:
+            return JsonResponse({"detail": "This support access session has ended."}, status=401)
         return self.get_response(request)
 
     def _resolve(self, request):
@@ -50,6 +66,14 @@ class TenantResolverMiddleware:
 
         if token.get("platform_admin"):
             return None  # platform tokens never carry a tenant
+
+        impersonation_session_id = token.get("impersonation_session_id")
+        if impersonation_session_id:
+            from apps.platform.models import ImpersonationSession
+
+            session = ImpersonationSession.objects.filter(id=impersonation_session_id).first()
+            if session is None or not session.is_active:
+                raise ImpersonationRevoked()
 
         restaurant_id = token.get("restaurant_id")
         if not restaurant_id:
@@ -75,6 +99,13 @@ def get_tenant_from_table(table_id):
 
     table = Table.objects.filter(id=table_id).select_related("restaurant").first()
     return table.restaurant if table else None
+
+
+def get_branch_from_table(table_id):
+    from apps.tables.models import Table
+
+    table = Table.objects.filter(id=table_id).select_related("branch").first()
+    return table.branch if table else None
 
 
 def get_tenant_from_session(session_id):

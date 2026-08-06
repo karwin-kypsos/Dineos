@@ -8,7 +8,7 @@ class TableSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Table
-        fields = ["id", "table_number", "capacity", "status", "is_active", "active_session_id"]
+        fields = ["id", "branch", "table_number", "capacity", "status", "is_active", "active_session_id"]
 
     def get_active_session_id(self, obj):
         session = obj.sessions.filter(status__in=["ACTIVE", "BILL_REQUESTED"]).first()

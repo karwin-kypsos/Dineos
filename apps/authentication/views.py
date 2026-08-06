@@ -14,6 +14,7 @@ from core.permissions import IsAdmin
 
 from .models import PasswordResetToken
 from .serializers import (
+    ROLE_METADATA,
     ChangePasswordSerializer,
     DineOSTokenObtainPairSerializer,
     ForgotPasswordSerializer,
@@ -63,6 +64,15 @@ class ForgotPasswordView(APIView):
 
 
 class ResetPasswordView(APIView):
+    """Shared by both flows that end in 'now set a password': a genuine
+    forgot-password reset, and completing an invite (apps.authentication.
+    services.issue_invite locks the account and issues the same kind of
+    token). Either way, a successful reset logs the user straight in —
+    for an invite this is literally the "click the link, set a password,
+    you're in" first-login step the product wants; for a reset it's a
+    normal, common UX pattern.
+    """
+
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -73,12 +83,24 @@ class ResetPasswordView(APIView):
             raise ValidationError({"token": "Invalid or expired reset token."})
         user = reset_token.user
         user.set_password(serializer.validated_data["new_password"])
-        user.save(update_fields=["password"])
+        user.must_change_password = False
+        user.save(update_fields=["password", "must_change_password"])
         from django.utils import timezone
 
         reset_token.used_at = timezone.now()
         reset_token.save(update_fields=["used_at"])
-        return Response({"detail": "Password has been reset."})
+
+        token = DineOSTokenObtainPairSerializer.get_token(user)
+        return Response({
+            "detail": "Password has been set.",
+            "refresh": str(token),
+            "access": str(token.access_token),
+            "role": user.role,
+            "role_id": ROLE_METADATA[user.role]["id"],
+            "role_name": ROLE_METADATA[user.role]["name"],
+            "name": user.name,
+            "restaurant_id": str(user.restaurant_id),
+        })
 
 
 class MeView(generics.RetrieveAPIView):
@@ -119,10 +141,27 @@ class StaffViewSet(viewsets.ModelViewSet):
             return UserCreateSerializer
         return UserSerializer
 
-    def perform_create(self, serializer):
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         # Always the calling Admin's own restaurant — never client-supplied,
         # so one restaurant's Admin can never create a user in another's.
-        serializer.save(restaurant=self.request.user.restaurant)
+        user = serializer.save(restaurant=self.request.user.restaurant)
+
+        invite_token = None
+        if not request.data.get("password"):
+            # No password supplied — this is an invite. There's no email
+            # delivery wired up yet, so the token is handed back directly;
+            # the caller (Admin) relays the accept-invite link themselves
+            # until real email sending exists.
+            from . import services
+
+            invite_token = services.issue_invite(user).token
+
+        data = UserSerializer(user).data
+        if invite_token is not None:
+            data["invite_token"] = invite_token
+        return Response(data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["patch"])
     def deactivate(self, request, pk=None):

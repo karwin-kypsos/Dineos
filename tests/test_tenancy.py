@@ -150,9 +150,16 @@ def test_platform_admin_login_and_tenant_management():
 
     login = client.post("/platform/auth/login/", {"email": "super@platform.test", "password": "Test@1234"}, format="json")
     assert login.status_code == 200
-    assert "restaurant_id" not in login.data
+    assert login.data["requires_2fa"] is True
+    assert "access" not in login.data
 
-    client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    verify = client.post(
+        "/platform/auth/verify-2fa/", {"email": "super@platform.test", "code": login.data["code"]}, format="json",
+    )
+    assert verify.status_code == 200
+    assert "restaurant_id" not in verify.data
+
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {verify.data['access']}")
     create = client.post("/platform/tenants/", {"name": "New Client", "slug": "new-client"}, format="json")
     assert create.status_code == 201
 

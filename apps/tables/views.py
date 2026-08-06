@@ -1,3 +1,4 @@
+from django.db import models
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
@@ -30,13 +31,19 @@ class TableViewSet(viewsets.ReadOnlyModelViewSet):
         # (restaurant_slug, table_number) together, so no tenant to filter by.
         if tenant is not None:
             qs = qs.filter(restaurant=tenant)
+            # Staff requests scope further to their own branch once they
+            # have one; branch-less legacy staff/tables still see everything
+            # restaurant-wide.
+            user_branch_id = getattr(self.request.user, "branch_id", None)
+            if user_branch_id is not None:
+                qs = qs.filter(models.Q(branch_id=user_branch_id) | models.Q(branch__isnull=True))
         return qs
 
     def get_permissions(self):
         # Note: self.action for a `.mapping`-based multi-method action is the
         # HANDLER FUNCTION NAME for that HTTP verb, not the shared url_path —
         # "session" (GET), "start_session" (POST), "close_session_view" (DELETE).
-        if self.action in ("qr", "retrieve", "bill_request", "session", "start_session"):
+        if self.action in ("qr", "qr_branch", "retrieve", "bill_request", "session", "start_session"):
             return [AllowAny()]
         if self.action == "close_session_view":
             # Manual close without payment is a staff-only override.
@@ -49,10 +56,35 @@ class TableViewSet(viewsets.ReadOnlyModelViewSet):
         url_path="qr/(?P<restaurant_slug>[^/]+)/(?P<table_number>[^/.]+)",
     )
     def qr(self, request, restaurant_slug=None, table_number=None):
-        # table_number alone is only unique WITHIN a restaurant (two clients
-        # can both have a "Table 5") — the slug in the QR URL disambiguates.
+        # Legacy 2-segment QR URL, kept for branch-less tables printed
+        # before Branch existed. table_number alone is only unique WITHIN a
+        # restaurant when the table has no branch — see the branch-scoped
+        # `qr_branch` route below for the disambiguated, current format.
         table = Table.objects.filter(
-            restaurant__slug=restaurant_slug, table_number=table_number, is_active=True
+            restaurant__slug=restaurant_slug, table_number=table_number,
+            branch__isnull=True, is_active=True,
+        ).first()
+        if not table:
+            return Response({"detail": "Table not found."}, status=status.HTTP_404_NOT_FOUND)
+        active_session = table.sessions.filter(status__in=["ACTIVE", "BILL_REQUESTED"]).first()
+        data = QRLandingSerializer(
+            {"table": table, "active_session": active_session}
+        ).data
+        return Response(data)
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="qr/(?P<restaurant_slug>[^/]+)/(?P<branch_slug>[^/]+)/(?P<table_number>[^/.]+)",
+        url_name="qr-branch",
+    )
+    def qr_branch(self, request, restaurant_slug=None, branch_slug=None, table_number=None):
+        # Current QR format: org_slug/branch_slug/table_number. table_number
+        # is only unique WITHIN a branch, so the branch slug disambiguates
+        # two branches of the same restaurant both having a "Table 5".
+        table = Table.objects.filter(
+            restaurant__slug=restaurant_slug, branch__slug=branch_slug,
+            table_number=table_number, is_active=True,
         ).first()
         if not table:
             return Response({"detail": "Table not found."}, status=status.HTTP_404_NOT_FOUND)

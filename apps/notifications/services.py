@@ -8,8 +8,10 @@ User = get_user_model()
 
 
 def notify(recipient, type, title, body="", data=None, order=None, table=None):
+    branch = table.branch if table is not None else recipient.branch
     notification = Notification.objects.create(
-        recipient=recipient, type=type, title=title, body=body, data=data or {}, order=order, table=table
+        recipient=recipient, branch=branch, type=type, title=title, body=body,
+        data=data or {}, order=order, table=table,
     )
 
     if recipient.restaurant.realtime_enabled:

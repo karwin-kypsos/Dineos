@@ -8,7 +8,7 @@ from rest_framework.test import APIClient
 from apps.authentication.serializers import DineOSTokenObtainPairSerializer
 from apps.kitchen.models import KDSDevice
 from apps.menu.models import Category, MenuItem, PreparedPortion
-from apps.restaurant.models import Restaurant
+from apps.restaurant.models import Branch, Restaurant
 from apps.tables.models import Table
 
 User = get_user_model()
@@ -65,6 +65,11 @@ def kds_client(kds_device):
     client = APIClient()
     client.credentials(HTTP_X_KDS_API_KEY=kds_device.api_key)
     return kds_device, client
+
+
+@pytest.fixture
+def branch(restaurant):
+    return Branch.objects.create(restaurant=restaurant, name="Main Branch")
 
 
 @pytest.fixture

@@ -33,12 +33,17 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     restaurant = models.ForeignKey("restaurant.Restaurant", on_delete=models.CASCADE, related_name="staff")
+    branch = models.ForeignKey(
+        "restaurant.Branch", on_delete=models.SET_NULL, null=True, blank=True, related_name="staff"
+    )
     email = models.EmailField(unique=True)
     name = models.CharField(max_length=255, blank=True)
     phone = models.CharField(max_length=32, blank=True)
+    address = models.CharField(max_length=500, blank=True)
     role = models.CharField(max_length=16, choices=Role.choices)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
+    must_change_password = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

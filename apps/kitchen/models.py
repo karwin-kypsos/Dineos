@@ -9,6 +9,9 @@ def _generate_api_key():
 
 class KDSDevice(models.Model):
     restaurant = models.ForeignKey("restaurant.Restaurant", on_delete=models.CASCADE, related_name="kds_devices")
+    branch = models.ForeignKey(
+        "restaurant.Branch", on_delete=models.SET_NULL, null=True, blank=True, related_name="kds_devices"
+    )
     label = models.CharField(max_length=255)
     api_key = models.CharField(max_length=64, unique=True, default=_generate_api_key)
     is_active = models.BooleanField(default=True)

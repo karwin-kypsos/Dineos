@@ -1,5 +1,6 @@
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.db import models as dj_models
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -9,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.permissions import IsAdminOrManager, IsAnyStaff
-from core.tenancy import TenantObjectPermission, get_tenant_from_table
+from core.tenancy import TenantObjectPermission, get_branch_from_table, get_tenant_from_table
 
 from . import services
 from .models import Category, MenuItem, PreparedPortion
@@ -22,13 +23,16 @@ from .serializers import (
 )
 
 
-def _available_today_queryset(restaurant):
+def _available_today_queryset(restaurant, branch=None):
     today_zero_ids = PreparedPortion.objects.filter(
         date=timezone.localdate(), portions_remaining=0
     ).values_list("menu_item_id", flat=True)
-    return MenuItem.objects.filter(
-        category__restaurant=restaurant, is_available=True, is_active=True
-    ).exclude(id__in=today_zero_ids)
+    qs = MenuItem.objects.filter(category__restaurant=restaurant, is_available=True, is_active=True)
+    if branch is not None:
+        # Branch-scoped categories only, plus any legacy restaurant-wide
+        # (branch-less) categories that still apply to every branch.
+        qs = qs.filter(dj_models.Q(category__branch=branch) | dj_models.Q(category__branch__isnull=True))
+    return qs.exclude(id__in=today_zero_ids)
 
 
 class CustomerMenuView(APIView):
@@ -38,7 +42,8 @@ class CustomerMenuView(APIView):
         restaurant = get_tenant_from_table(table_id)
         if restaurant is None:
             return Response({"detail": "Table not found."}, status=status.HTTP_404_NOT_FOUND)
-        items = _available_today_queryset(restaurant).select_related("category")
+        branch = get_branch_from_table(table_id)
+        items = _available_today_queryset(restaurant, branch).select_related("category")
         return Response(MenuItemCustomerSerializer(items, many=True).data)
 
 
@@ -53,7 +58,7 @@ class OrderTakingMenuView(APIView):
         return [IsAnyStaff()]
 
     def get(self, request):
-        items = _available_today_queryset(request.tenant).select_related("category")
+        items = _available_today_queryset(request.tenant, getattr(request.user, "branch", None)).select_related("category")
         return Response(MenuItemCustomerSerializer(items, many=True).data)
 
     def post(self, request):
@@ -74,7 +79,11 @@ class MenuItemViewSet(viewsets.ModelViewSet):
     serializer_class = MenuItemSerializer
 
     def get_queryset(self):
-        return MenuItem.objects.filter(category__restaurant=self.request.tenant).select_related("category")
+        qs = MenuItem.objects.filter(category__restaurant=self.request.tenant).select_related("category")
+        branch = getattr(self.request.user, "branch", None)
+        if branch is not None:
+            qs = qs.filter(dj_models.Q(category__branch=branch) | dj_models.Q(category__branch__isnull=True))
+        return qs
 
     def get_permissions(self):
         base = [IsAnyStaff()] if self.action in ("list", "retrieve") else [IsAdminOrManager()]
@@ -100,14 +109,18 @@ class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
 
     def get_queryset(self):
-        return Category.objects.filter(restaurant=self.request.tenant)
+        qs = Category.objects.filter(restaurant=self.request.tenant)
+        branch = getattr(self.request.user, "branch", None)
+        if branch is not None:
+            qs = qs.filter(dj_models.Q(branch=branch) | dj_models.Q(branch__isnull=True))
+        return qs
 
     def get_permissions(self):
         base = [IsAuthenticated()] if self.action in ("list", "retrieve") else [IsAdminOrManager()]
         return base + [TenantObjectPermission()]
 
     def perform_create(self, serializer):
-        serializer.save(restaurant=self.request.tenant)
+        serializer.save(restaurant=self.request.tenant, branch=getattr(self.request.user, "branch", None))
 
     def destroy(self, request, *args, **kwargs):
         category = self.get_object()
@@ -140,7 +153,22 @@ class AddPortionsView(APIView):
         # before mutating anything.
         get_object_or_404(MenuItem, id=dish_id, category__restaurant=request.tenant)
 
-        portion = services.add_portions(dish_id, serializer.validated_data["additional_quantity"])
+        overrides = serializer.validated_data.get("deduction_overrides")
+        if overrides:
+            from apps.inventory.models import Ingredient
+
+            valid_ids = set(
+                Ingredient.objects.filter(
+                    id__in=[o["ingredient_id"] for o in overrides], restaurant=request.tenant
+                ).values_list("id", flat=True)
+            )
+            if any(o["ingredient_id"] not in valid_ids for o in overrides):
+                return Response({"deduction_overrides": "Ingredient not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        portion = services.add_portions(
+            dish_id, serializer.validated_data["additional_quantity"],
+            recorded_by=request.user, deduction_overrides=overrides,
+        )
 
         if request.tenant.realtime_enabled:
             channel_layer = get_channel_layer()

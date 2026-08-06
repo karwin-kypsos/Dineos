@@ -10,10 +10,12 @@ from .views import (
     OrdersBySessionView,
     OrdersByTableView,
     ReadyOrdersView,
+    TakeawayOrderView,
 )
 
 urlpatterns = [
     path("", CreateOrderView.as_view(), name="orders-create"),
+    path("takeaway/", TakeawayOrderView.as_view(), name="orders-takeaway-create"),
     path("active/", ActiveOrdersView.as_view(), name="orders-active"),
     path("ready/", ReadyOrdersView.as_view(), name="orders-ready"),
     path("session/<uuid:session_id>/", OrdersBySessionView.as_view(), name="orders-by-session"),

@@ -19,6 +19,9 @@ class CashierShift(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     restaurant = models.ForeignKey("restaurant.Restaurant", on_delete=models.CASCADE, related_name="cashier_shifts")
+    branch = models.ForeignKey(
+        "restaurant.Branch", on_delete=models.SET_NULL, null=True, blank=True, related_name="cashier_shifts"
+    )
     cashier = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="cashier_shifts")
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.OPEN)
     opened_at = models.DateTimeField(auto_now_add=True)
@@ -44,7 +47,16 @@ class Bill(models.Model):
         UPI = "UPI", "UPI"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    session = models.OneToOneField("tables.TableSession", on_delete=models.CASCADE, related_name="bill")
+    # Dine-in: session set, order null. Takeaway: order set, session null.
+    session = models.OneToOneField(
+        "tables.TableSession", on_delete=models.CASCADE, null=True, blank=True, related_name="bill"
+    )
+    order = models.OneToOneField(
+        "orders.Order", on_delete=models.CASCADE, null=True, blank=True, related_name="takeaway_bill"
+    )
+    branch = models.ForeignKey(
+        "restaurant.Branch", on_delete=models.SET_NULL, null=True, blank=True, related_name="bills"
+    )
     subtotal = models.DecimalField(max_digits=10, decimal_places=2)
     tax_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     service_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -57,6 +69,15 @@ class Bill(models.Model):
     class Meta:
         db_table = "bills"
         ordering = ["-paid_at"]
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(session__isnull=False, order__isnull=True)
+                    | models.Q(session__isnull=True, order__isnull=False)
+                ),
+                name="bill_has_exactly_one_of_session_or_order",
+            ),
+        ]
 
     def __str__(self):
         return f"Bill {self.id} — {self.total_amount}"

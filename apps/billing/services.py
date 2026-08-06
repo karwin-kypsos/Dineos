@@ -3,7 +3,7 @@ from decimal import Decimal
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from apps.orders.models import Order
@@ -68,6 +68,7 @@ def pay_bill(session_id, payment_method, processed_by):
     subtotal, tax_amount, service_charge, total_amount = _compute_totals(session)
     bill = Bill.objects.create(
         session=session,
+        branch=session.table.branch,
         subtotal=subtotal,
         tax_amount=tax_amount,
         service_charge=service_charge,
@@ -83,6 +84,68 @@ def pay_bill(session_id, payment_method, processed_by):
     transaction.on_commit(lambda: _broadcast_payment_confirmed(bill, session))
     transaction.on_commit(lambda: _notify_payment_confirmed(bill, session))
     return bill
+
+
+def _compute_order_totals(order, restaurant):
+    subtotal = sum((item.unit_price * item.quantity for item in order.items.all()), Decimal("0"))
+    tax_amount = (subtotal * restaurant.gst_percentage / Decimal("100")).quantize(Decimal("0.01"))
+    service_charge = (subtotal * restaurant.service_charge_percentage / Decimal("100")).quantize(Decimal("0.01"))
+    total_amount = subtotal + tax_amount + service_charge
+    return subtotal, tax_amount, service_charge, total_amount
+
+
+@transaction.atomic
+def get_takeaway_bill_preview(order_id):
+    order = Order.objects.select_related("branch__restaurant").prefetch_related("items").get(id=order_id)
+    restaurant = order.branch.restaurant
+    subtotal, tax_amount, service_charge, total_amount = _compute_order_totals(order, restaurant)
+    return {
+        "order_id": str(order.id),
+        "subtotal": subtotal,
+        "tax_amount": tax_amount,
+        "service_charge": service_charge,
+        "total_amount": total_amount,
+    }
+
+
+@transaction.atomic
+def pay_takeaway_bill(order_id, payment_method, processed_by):
+    order = Order.objects.select_for_update().select_related("branch__restaurant").prefetch_related("items").get(id=order_id)
+
+    existing_bill = Bill.objects.filter(order=order).first()
+    if existing_bill:
+        return existing_bill  # idempotent replay
+
+    restaurant = order.branch.restaurant
+    subtotal, tax_amount, service_charge, total_amount = _compute_order_totals(order, restaurant)
+    bill = Bill.objects.create(
+        order=order,
+        branch=order.branch,
+        subtotal=subtotal,
+        tax_amount=tax_amount,
+        service_charge=service_charge,
+        total_amount=total_amount,
+        payment_method=payment_method,
+        processed_by=processed_by,
+    )
+
+    transaction.on_commit(lambda: _notify_takeaway_payment_confirmed(bill, order, restaurant))
+    return bill
+
+
+def _notify_takeaway_payment_confirmed(bill, order, restaurant):
+    if not restaurant.notifications_enabled:
+        return
+
+    from apps.notifications.services import notify_role
+
+    notify_role(
+        ["ADMIN", "MANAGER"],
+        tenant=restaurant,
+        type="PAYMENT_CONFIRMED",
+        title=f"Payment received — takeaway for {order.customer_name or 'walk-in'}",
+        body=f"Bill total: {bill.total_amount}",
+    )
 
 
 def _notify_payment_confirmed(bill, session):
@@ -139,7 +202,7 @@ def open_shift(cashier):
     existing = CashierShift.objects.filter(cashier=cashier, status=CashierShift.Status.OPEN).first()
     if existing:
         return existing
-    return CashierShift.objects.create(restaurant=cashier.restaurant, cashier=cashier)
+    return CashierShift.objects.create(restaurant=cashier.restaurant, branch=cashier.branch, cashier=cashier)
 
 
 def get_current_shift(cashier):
@@ -180,7 +243,7 @@ def cashier_dashboard(restaurant, cashier):
         TableSession.objects.filter(table__restaurant=restaurant, status=TableSession.Status.ACTIVE)
         .select_related("table")
     )
-    paid_today_count = Bill.objects.filter(session__table__restaurant=restaurant, paid_at__gte=today_start).count()
+    paid_today_count = _restaurant_bills_qs(restaurant).filter(paid_at__gte=today_start).count()
 
     shift = get_current_shift(cashier)
     collected_today = shift_totals_by_method(shift)["total"] if shift else Decimal("0")
@@ -221,16 +284,25 @@ def close_shift(shift, counted_cash, acknowledge_discrepancy=False):
     return shift
 
 
+def _restaurant_bills_qs(restaurant):
+    # A bill is scoped to this restaurant either via its session (dine-in)
+    # or via its order (takeaway, which has no session) — see Bill's
+    # "exactly one of session or order" constraint.
+    return Bill.objects.filter(
+        Q(session__table__restaurant=restaurant) | Q(order__branch__restaurant=restaurant)
+    )
+
+
 def daily_collections(restaurant, date):
     day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
     day_end = day_start + timezone.timedelta(days=1)
     previous_day_start = day_start - timezone.timedelta(days=1)
 
-    bills = Bill.objects.filter(session__table__restaurant=restaurant, paid_at__gte=day_start, paid_at__lt=day_end).select_related(
-        "session__table"
+    bills = _restaurant_bills_qs(restaurant).filter(paid_at__gte=day_start, paid_at__lt=day_end).select_related(
+        "session__table", "order"
     )
-    previous_day_total = Bill.objects.filter(
-        session__table__restaurant=restaurant, paid_at__gte=previous_day_start, paid_at__lt=day_start
+    previous_day_total = _restaurant_bills_qs(restaurant).filter(
+        paid_at__gte=previous_day_start, paid_at__lt=day_start
     ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
 
     totals = {"cash": Decimal("0"), "card": Decimal("0"), "upi": Decimal("0")}

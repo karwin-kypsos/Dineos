@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.utils import timezone
 
 from .models import PreparedPortion
@@ -28,7 +29,23 @@ def decrement_portions(menu_item, quantity):
     return portion, portion.portions_remaining == 0
 
 
-def add_portions(menu_item_id, additional_quantity):
+@transaction.atomic
+def add_portions(menu_item_id, additional_quantity, recorded_by=None, deduction_overrides=None):
+    """Daily Prep Log: 'I prepared N portions of this dish today.' Beyond
+    just bumping the portion counter, this deducts each recipe ingredient's
+    quantity_per_serving * additional_quantity from raw stock — one atomic
+    transaction, so a failure partway through (e.g. one ingredient row
+    locked/missing) can never leave stock deducted for some ingredients but
+    not others.
+
+    `deduction_overrides`, if given, is a list of {"ingredient_id": ...,
+    "quantity": ...} that replaces the recipe-computed deduction entirely
+    (e.g. today's batch actually used more/less per portion than the
+    recipe says) — the portion counter still increments by
+    additional_quantity either way.
+    """
+    from apps.inventory.models import RecipeItem
+
     from .models import MenuItem
 
     menu_item = MenuItem.objects.get(id=menu_item_id)
@@ -41,4 +58,18 @@ def add_portions(menu_item_id, additional_quantity):
         portion.portions_initial += additional_quantity
         portion.portions_remaining += additional_quantity
         portion.save(update_fields=["portions_initial", "portions_remaining", "updated_at"])
+
+    from apps.inventory.services import deduct_for_usage
+
+    if deduction_overrides is not None:
+        for line in deduction_overrides:
+            deduct_for_usage(line["ingredient_id"], line["quantity"], recorded_by=recorded_by)
+    else:
+        for recipe_item in RecipeItem.objects.filter(menu_item=menu_item).select_related("ingredient"):
+            deduct_for_usage(
+                recipe_item.ingredient_id,
+                recipe_item.quantity_per_serving * additional_quantity,
+                recorded_by=recorded_by,
+            )
+
     return portion

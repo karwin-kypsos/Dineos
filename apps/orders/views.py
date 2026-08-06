@@ -1,3 +1,4 @@
+from django.db import models
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -10,7 +11,23 @@ from core.tenancy import get_tenant_from_session
 
 from . import services
 from .models import Order
-from .serializers import OrderCreateSerializer, OrderSerializer, OrderStatusUpdateSerializer
+from .serializers import (
+    OrderCreateSerializer,
+    OrderSerializer,
+    OrderStatusUpdateSerializer,
+    TakeawayOrderCreateSerializer,
+)
+
+
+def _request_branch(request):
+    """The caller's branch, whether they're a staff JWT or a KDS device —
+    KDS auth puts the device on request.auth, not request.user (see
+    apps.kitchen.authentication.KDSKeyAuthentication)."""
+    from apps.kitchen.models import KDSDevice
+
+    if isinstance(request.auth, KDSDevice):
+        return request.auth.branch
+    return getattr(request.user, "branch", None)
 
 
 class CreateOrderView(APIView):
@@ -37,6 +54,33 @@ class CreateOrderView(APIView):
         return Response(OrderSerializer(order).data, status=201)
 
 
+class TakeawayOrderView(APIView):
+    """Cashier's Take-away Order screen — no table/session, just a
+    customer name/phone and the items, billed directly against the order
+    once ready (see apps.billing.views.PayTakeawayBillView)."""
+
+    permission_classes = [IsAnyStaff]
+
+    def post(self, request):
+        serializer = TakeawayOrderCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        branch = getattr(request.user, "branch", None)
+        if branch is None:
+            raise PermissionDenied("Your staff account isn't assigned to a branch — takeaway orders need one.")
+
+        items = [
+            {"menu_item_id": item["menu_item"].id, "quantity": item["quantity"], "notes": item.get("notes", "")}
+            for item in data["items"]
+        ]
+        order = services.place_takeaway_order(
+            request.tenant, branch, items, customer_name=data["customer_name"],
+            customer_phone=data["customer_phone"], placed_by=request.user, notes=data.get("notes", ""),
+        )
+        return Response(OrderSerializer(order).data, status=201)
+
+
 class ActiveOrdersView(APIView):
     authentication_classes = [JWTAuthentication, KDSKeyAuthentication]
     permission_classes = [IsServerOrKDSDevice]
@@ -47,6 +91,9 @@ class ActiveOrdersView(APIView):
             .select_related("table")
             .prefetch_related("items")
         )
+        branch = _request_branch(request)
+        if branch is not None:
+            orders = orders.filter(models.Q(branch=branch) | models.Q(branch__isnull=True))
         return Response(OrderSerializer(orders, many=True).data)
 
 
@@ -59,6 +106,9 @@ class ReadyOrdersView(APIView):
             .select_related("table")
             .prefetch_related("items")
         )
+        branch = _request_branch(request)
+        if branch is not None:
+            orders = orders.filter(models.Q(branch=branch) | models.Q(branch__isnull=True))
         return Response(OrderSerializer(orders, many=True).data)
 
 

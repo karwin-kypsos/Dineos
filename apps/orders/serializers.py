@@ -22,8 +22,12 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             "id",
+            "order_type",
             "session",
             "table",
+            "branch",
+            "customer_name",
+            "customer_phone",
             "round_number",
             "status",
             "placed_by",
@@ -48,6 +52,18 @@ class OrderCreateSerializer(serializers.Serializer):
     session_id = serializers.UUIDField()
     notes = serializers.CharField(required=False, allow_blank=True, default="")
     items = OrderItemInputSerializer(many=True)
+
+
+class TakeawayOrderCreateSerializer(serializers.Serializer):
+    customer_name = serializers.CharField(required=False, allow_blank=True, default="")
+    customer_phone = serializers.CharField(required=False, allow_blank=True, default="")
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+    items = OrderItemInputSerializer(many=True)
+
+    def validate_items(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one item is required.")
+        return value
 
 
 class OrderStatusUpdateSerializer(serializers.Serializer):

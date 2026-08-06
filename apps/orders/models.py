@@ -14,10 +14,25 @@ class Order(models.Model):
         SERVED = "SERVED", "Served"
         CANCELLED = "CANCELLED", "Cancelled"
 
+    class OrderType(models.TextChoices):
+        DINE_IN = "DINE_IN", "Dine-in"
+        TAKEAWAY = "TAKEAWAY", "Takeaway"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    session = models.ForeignKey("tables.TableSession", on_delete=models.CASCADE, related_name="orders")
-    table = models.ForeignKey("tables.Table", on_delete=models.CASCADE, related_name="orders")
-    round_number = models.PositiveIntegerField()
+    order_type = models.CharField(max_length=16, choices=OrderType.choices, default=OrderType.DINE_IN)
+    # Dine-in: both set. Takeaway: both null — see customer_name/phone instead.
+    session = models.ForeignKey(
+        "tables.TableSession", on_delete=models.CASCADE, null=True, blank=True, related_name="orders"
+    )
+    table = models.ForeignKey(
+        "tables.Table", on_delete=models.CASCADE, null=True, blank=True, related_name="orders"
+    )
+    branch = models.ForeignKey(
+        "restaurant.Branch", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders"
+    )
+    customer_name = models.CharField(max_length=255, blank=True)
+    customer_phone = models.CharField(max_length=32, blank=True)
+    round_number = models.PositiveIntegerField(default=1)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.NEW)
     placed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="placed_orders"
@@ -32,8 +47,19 @@ class Order(models.Model):
     class Meta:
         db_table = "orders"
         ordering = ["placed_at"]
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(order_type="DINE_IN", session__isnull=False, table__isnull=False)
+                    | models.Q(order_type="TAKEAWAY", session__isnull=True, table__isnull=True)
+                ),
+                name="dine_in_has_table_takeaway_does_not",
+            ),
+        ]
 
     def __str__(self):
+        if self.order_type == self.OrderType.TAKEAWAY:
+            return f"Takeaway order — {self.customer_name or 'walk-in'}"
         return f"Order round {self.round_number} @ Table {self.table.table_number}"
 
 

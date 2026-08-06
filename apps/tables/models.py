@@ -14,6 +14,9 @@ class Table(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     restaurant = models.ForeignKey("restaurant.Restaurant", on_delete=models.CASCADE, related_name="tables")
+    branch = models.ForeignKey(
+        "restaurant.Branch", on_delete=models.SET_NULL, null=True, blank=True, related_name="tables"
+    )
     table_number = models.CharField(max_length=32)
     capacity = models.PositiveIntegerField(default=4)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.AVAILABLE)
@@ -24,7 +27,19 @@ class Table(models.Model):
         db_table = "tables"
         ordering = ["table_number"]
         constraints = [
-            models.UniqueConstraint(fields=["restaurant", "table_number"], name="one_table_number_per_restaurant")
+            # Legacy (pre-branch) tables: unique per restaurant.
+            models.UniqueConstraint(
+                fields=["restaurant", "table_number"],
+                condition=models.Q(branch__isnull=True),
+                name="one_table_number_per_restaurant_legacy",
+            ),
+            # Once a table belongs to a branch, uniqueness is per-branch —
+            # two branches of the same restaurant can both have a "Table 5".
+            models.UniqueConstraint(
+                fields=["branch", "table_number"],
+                condition=models.Q(branch__isnull=False),
+                name="one_table_number_per_branch",
+            ),
         ]
 
     def __str__(self):

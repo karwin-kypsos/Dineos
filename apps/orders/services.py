@@ -25,18 +25,17 @@ class KitchenDisplayNotEnabledError(InvalidStatusTransitionError):
     default_detail = "Kitchen Display is not enabled for this restaurant."
 
 
-@transaction.atomic
-def place_order(session_id, items, placed_by=None, notes=""):
-    session = TableSession.objects.select_for_update().get(id=session_id)
-    if session.status not in (TableSession.Status.ACTIVE, TableSession.Status.BILL_REQUESTED):
-        raise SessionNotOpenError()
-    restaurant = session.table.restaurant
+def _order_restaurant(order):
+    return order.table.restaurant if order.table_id else order.branch.restaurant
 
-    round_number = Order.objects.filter(session=session).count() + 1
-    order = Order.objects.create(
-        session=session, table=session.table, round_number=round_number, placed_by=placed_by, notes=notes
-    )
 
+def _order_label(order):
+    if order.table_id:
+        return f"Table {order.table.table_number}"
+    return f"takeaway order for {order.customer_name or 'walk-in customer'}"
+
+
+def _create_order_items(order, items, restaurant):
     zero_hits = []
     portion_updates = []
     for item in items:
@@ -51,7 +50,10 @@ def place_order(session_id, items, placed_by=None, notes=""):
             portion_updates.append((menu_item.id, portion.portions_remaining))
             if hit_zero:
                 zero_hits.append(menu_item.id)
+    return zero_hits, portion_updates
 
+
+def _finalize_new_order(order, restaurant, portion_updates, zero_hits):
     if not restaurant.kitchen_enabled:
         # No Kitchen Display add-on — skip the kitchen lifecycle entirely.
         # Staff take the order through to served in one action instead.
@@ -62,13 +64,44 @@ def place_order(session_id, items, placed_by=None, notes=""):
     else:
         transaction.on_commit(lambda: _broadcast_order_placed(order, restaurant, portion_updates, zero_hits))
 
+
+@transaction.atomic
+def place_order(session_id, items, placed_by=None, notes=""):
+    session = TableSession.objects.select_for_update().get(id=session_id)
+    if session.status not in (TableSession.Status.ACTIVE, TableSession.Status.BILL_REQUESTED):
+        raise SessionNotOpenError()
+    restaurant = session.table.restaurant
+
+    round_number = Order.objects.filter(session=session).count() + 1
+    order = Order.objects.create(
+        order_type=Order.OrderType.DINE_IN, session=session, table=session.table, branch=session.table.branch,
+        round_number=round_number, placed_by=placed_by, notes=notes,
+    )
+
+    zero_hits, portion_updates = _create_order_items(order, items, restaurant)
+    _finalize_new_order(order, restaurant, portion_updates, zero_hits)
+    return order
+
+
+@transaction.atomic
+def place_takeaway_order(restaurant, branch, items, customer_name="", customer_phone="", placed_by=None, notes=""):
+    """Same lifecycle as a dine-in order (kitchen states, portion
+    deduction) but with no table/session — see Order.OrderType.TAKEAWAY."""
+    order = Order.objects.create(
+        order_type=Order.OrderType.TAKEAWAY, branch=branch,
+        customer_name=customer_name, customer_phone=customer_phone,
+        placed_by=placed_by, notes=notes,
+    )
+
+    zero_hits, portion_updates = _create_order_items(order, items, restaurant)
+    _finalize_new_order(order, restaurant, portion_updates, zero_hits)
     return order
 
 
 @transaction.atomic
 def advance_kitchen_status(order_id, target_status):
     order = Order.objects.select_for_update().get(id=order_id)
-    restaurant = order.table.restaurant
+    restaurant = _order_restaurant(order)
     if not restaurant.kitchen_enabled:
         raise KitchenDisplayNotEnabledError()
 
@@ -93,7 +126,7 @@ def advance_kitchen_status(order_id, target_status):
 @transaction.atomic
 def mark_collected(order_id):
     order = Order.objects.select_for_update().get(id=order_id)
-    restaurant = order.table.restaurant
+    restaurant = _order_restaurant(order)
     if not restaurant.kitchen_enabled:
         raise KitchenDisplayNotEnabledError()
 
@@ -103,18 +136,17 @@ def mark_collected(order_id):
     order.collected_at = timezone.now()
     order.save(update_fields=["status", "collected_at"])
 
-    transaction.on_commit(
-        lambda: _broadcast(
-            restaurant, [f"kitchen_{restaurant.id}", f"table_session_{order.session_id}"], "order_collected", _order_payload(order)
-        )
-    )
+    groups = [f"kitchen_{restaurant.id}"]
+    if order.session_id:
+        groups.append(f"table_session_{order.session_id}")
+    transaction.on_commit(lambda: _broadcast(restaurant, groups, "order_collected", _order_payload(order)))
     return order
 
 
 @transaction.atomic
 def mark_served(order_id):
     order = Order.objects.select_for_update().get(id=order_id)
-    restaurant = order.table.restaurant
+    restaurant = _order_restaurant(order)
 
     if restaurant.kitchen_enabled:
         if order.status != Order.Status.COLLECTED:
@@ -129,16 +161,21 @@ def mark_served(order_id):
     order.served_at = timezone.now()
     order.save(update_fields=["status", "served_at"])
 
-    transaction.on_commit(
-        lambda: _broadcast(
-            restaurant, [f"servers_{restaurant.id}", f"table_session_{order.session_id}"], "order_served", _order_payload(order)
-        )
-    )
+    groups = [f"servers_{restaurant.id}"]
+    if order.session_id:
+        groups.append(f"table_session_{order.session_id}")
+    transaction.on_commit(lambda: _broadcast(restaurant, groups, "order_served", _order_payload(order)))
     return order
 
 
 def _order_payload(order):
-    return {"order_id": str(order.id), "session_id": str(order.session_id), "table_id": str(order.table_id), "status": order.status}
+    return {
+        "order_id": str(order.id),
+        "session_id": str(order.session_id) if order.session_id else None,
+        "table_id": str(order.table_id) if order.table_id else None,
+        "order_type": order.order_type,
+        "status": order.status,
+    }
 
 
 def _notify_order_ready(order, restaurant):
@@ -151,7 +188,7 @@ def _notify_order_ready(order, restaurant):
         ["SERVER"],
         tenant=restaurant,
         type="ORDER_READY",
-        title=f"Order ready — Table {order.table.table_number}",
+        title=f"Order ready — {_order_label(order)}",
         body=f"Round {order.round_number} is ready to collect from the kitchen.",
         order=order,
         table=order.table,
@@ -182,9 +219,7 @@ def _broadcast_order_placed(order, restaurant, portion_updates, zero_hits):
 
 
 def _broadcast_status_changed(order, restaurant):
-    _broadcast(
-        restaurant,
-        [f"kitchen_{restaurant.id}", f"servers_{restaurant.id}", f"table_session_{order.session_id}"],
-        "order_status_changed",
-        _order_payload(order),
-    )
+    groups = [f"kitchen_{restaurant.id}", f"servers_{restaurant.id}"]
+    if order.session_id:
+        groups.append(f"table_session_{order.session_id}")
+    _broadcast(restaurant, groups, "order_status_changed", _order_payload(order))

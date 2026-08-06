@@ -11,6 +11,8 @@ class BillSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "session",
+            "order",
+            "branch",
             "subtotal",
             "tax_amount",
             "service_charge",
@@ -29,6 +31,12 @@ class PayBillSerializer(serializers.Serializer):
     amount_received = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
 
 
+class PayTakeawayBillSerializer(serializers.Serializer):
+    order_id = serializers.UUIDField()
+    payment_method = serializers.ChoiceField(choices=Bill.PaymentMethod.choices)
+    amount_received = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+
+
 class CashierShiftSerializer(serializers.ModelSerializer):
     cashier_name = serializers.CharField(source="cashier.name", read_only=True)
 
@@ -36,6 +44,7 @@ class CashierShiftSerializer(serializers.ModelSerializer):
         model = CashierShift
         fields = [
             "id",
+            "branch",
             "cashier",
             "cashier_name",
             "status",
