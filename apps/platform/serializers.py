@@ -3,7 +3,7 @@ from rest_framework_simplejwt.tokens import AccessToken
 
 from apps.restaurant.models import Restaurant
 
-from .models import ImpersonationSession, PlatformActivityLog, PlatformAdmin, PlatformLoginCode
+from .models import ImpersonationSession, PlatformActivityLog, PlatformAdmin, PlatformLoginCode, PlatformRefreshToken
 
 
 def issue_platform_access_token(admin, extra_claims=None):
@@ -52,6 +52,19 @@ class VerifyPlatformLoginCodeSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid or expired code.")
         attrs["admin"] = admin
         attrs["login_code"] = login_code
+        return attrs
+
+
+class PlatformRefreshSerializer(serializers.Serializer):
+    refresh = serializers.CharField()
+
+    def validate(self, attrs):
+        refresh_token = PlatformRefreshToken.objects.filter(token=attrs["refresh"]).select_related("admin").first()
+        if refresh_token is None or not refresh_token.is_valid:
+            raise serializers.ValidationError("Invalid or expired refresh token.")
+        if not refresh_token.admin.is_active:
+            raise serializers.ValidationError("Platform admin account is inactive.")
+        attrs["refresh_token"] = refresh_token
         return attrs
 
 

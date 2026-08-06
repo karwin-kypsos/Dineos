@@ -159,6 +159,41 @@ class PlatformActivityLog(models.Model):
         return f"{self.action} — {self.description}"
 
 
+def _generate_platform_refresh_token():
+    return secrets.token_urlsafe(48)
+
+
+class PlatformRefreshToken(models.Model):
+    """Platform Admin's own refresh token — deliberately NOT
+    rest_framework_simplejwt's RefreshToken/OutstandingToken: the
+    token_blacklist app's OutstandingToken model has a hard FK to
+    settings.AUTH_USER_MODEL (apps.authentication.User), so
+    RefreshToken.for_user(platform_admin) fails outright for a
+    PlatformAdmin instance. This mirrors that same access+refresh shape
+    (issued together at login, refresh exchanges for a new access token
+    without redoing password+2FA) without touching that machinery —
+    same pattern as PlatformLoginCode / PasswordResetToken.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    admin = models.ForeignKey(PlatformAdmin, on_delete=models.CASCADE, related_name="refresh_tokens")
+    token = models.CharField(max_length=80, unique=True, default=_generate_platform_refresh_token)
+    expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "platform_refresh_tokens"
+
+    @classmethod
+    def issue(cls, admin, ttl_days=7):
+        return cls.objects.create(admin=admin, expires_at=timezone.now() + timedelta(days=ttl_days))
+
+    @property
+    def is_valid(self):
+        return self.revoked_at is None and self.expires_at > timezone.now()
+
+
 class PlatformAdminBlacklistedToken(models.Model):
     """Platform admins get an access-only token (see
     apps.platform.serializers.issue_platform_access_token) — there's no

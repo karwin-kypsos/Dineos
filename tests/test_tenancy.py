@@ -158,6 +158,7 @@ def test_platform_admin_login_and_tenant_management():
     )
     assert verify.status_code == 200
     assert "restaurant_id" not in verify.data
+    assert verify.data["refresh"]
 
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {verify.data['access']}")
     create = client.post("/platform/tenants/", {"name": "New Client", "slug": "new-client"}, format="json")
@@ -166,6 +167,29 @@ def test_platform_admin_login_and_tenant_management():
     toggle = client.patch(f"/platform/tenants/{create.data['id']}/", {"kitchen_enabled": False}, format="json")
     assert toggle.status_code == 200
     assert toggle.data["kitchen_enabled"] is False
+
+
+def test_platform_refresh_token_issues_new_access_and_logout_revokes_it():
+    PlatformAdmin.objects.create_user(email="refresh@platform.test", password="Test@1234", name="Refresh Admin")
+    client = APIClient()
+
+    login = client.post("/platform/auth/login/", {"email": "refresh@platform.test", "password": "Test@1234"}, format="json")
+    verify = client.post(
+        "/platform/auth/verify-2fa/", {"email": "refresh@platform.test", "code": login.data["code"]}, format="json",
+    )
+    refresh_token = verify.data["refresh"]
+
+    refreshed = client.post("/platform/auth/refresh/", {"refresh": refresh_token}, format="json")
+    assert refreshed.status_code == 200
+    assert refreshed.data["access"]
+    assert refreshed.data["access"] != verify.data["access"]
+
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {refreshed.data['access']}")
+    logout = client.post("/platform/auth/logout/", {"refresh": refresh_token}, format="json")
+    assert logout.status_code == 204
+
+    dead_refresh = client.post("/platform/auth/refresh/", {"refresh": refresh_token}, format="json")
+    assert dead_refresh.status_code == 400
 
 
 def test_restaurant_staff_token_cannot_access_platform_endpoints():

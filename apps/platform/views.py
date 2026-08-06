@@ -22,12 +22,14 @@ from .models import (
     PlatformAdmin,
     PlatformAdminBlacklistedToken,
     PlatformLoginCode,
+    PlatformRefreshToken,
 )
 from .serializers import (
     ImpersonationSessionSerializer,
     PlatformActivityLogSerializer,
     PlatformAdminSerializer,
     PlatformLoginSerializer,
+    PlatformRefreshSerializer,
     RestaurantSerializer,
     VerifyPlatformLoginCodeSerializer,
     issue_platform_access_token,
@@ -46,6 +48,12 @@ class PlatformLoginView(APIView):
     apps.platform.models._generate_2fa_code) — the response echoes it back
     either way so the flow is testable end-to-end without one."""
 
+    # No authentication_classes: without this, DRF still runs the global
+    # default (JWTAuthentication against apps.authentication.User) against
+    # any stray Authorization header the caller happens to send — a token
+    # that doesn't resolve there raises AuthenticationFailed and 401s the
+    # request outright, before AllowAny is even consulted.
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -59,6 +67,7 @@ class PlatformLoginView(APIView):
 
 
 class VerifyPlatformLoginView(APIView):
+    authentication_classes = []
     permission_classes = [AllowAny]
 
     def post(self, request):
@@ -73,14 +82,35 @@ class VerifyPlatformLoginView(APIView):
         admin.save(update_fields=["last_active_at"])
 
         token = issue_platform_access_token(admin)
+        refresh = PlatformRefreshToken.issue(admin)
+        return Response({"access": str(token), "refresh": refresh.token}, status=status.HTTP_200_OK)
+
+
+class PlatformRefreshView(APIView):
+    """Exchanges a still-valid refresh token for a new access token,
+    without redoing password + 2FA. Deliberately doesn't rotate the
+    refresh token on use (unlike rest_framework_simplejwt's optional
+    rotation) — simpler, and adequate for the small, trusted set of
+    Krypsos team accounts this serves; the refresh token itself still
+    expires (7 days) and can be revoked at logout."""
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = PlatformRefreshSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        refresh_token = serializer.validated_data["refresh_token"]
+        token = issue_platform_access_token(refresh_token.admin)
         return Response({"access": str(token)}, status=status.HTTP_200_OK)
 
 
 class PlatformLogoutView(APIView):
-    """Platform tokens are access-only (see issue_platform_access_token) —
-    there's no refresh token to blacklist via the usual pattern, so this
-    blacklists the access token's own jti instead (see
-    PlatformAdminBlacklistedToken / PlatformJWTAuthentication)."""
+    """Blacklists the current access token's jti immediately (see
+    PlatformAdminBlacklistedToken / PlatformJWTAuthentication), and — if
+    a refresh token is passed in the body, matching apps.authentication.
+    views.LogoutView's pattern — revokes that too, so a stolen refresh
+    token can't be used to mint fresh access tokens after logout."""
 
     authentication_classes = [PlatformJWTAuthentication]
     permission_classes = [IsPlatformAdmin]
@@ -89,6 +119,11 @@ class PlatformLogoutView(APIView):
         jti = request.auth.get("jti") if request.auth else None
         if jti:
             PlatformAdminBlacklistedToken.objects.get_or_create(jti=jti)
+
+        refresh = request.data.get("refresh")
+        if refresh:
+            PlatformRefreshToken.objects.filter(token=refresh, admin=request.user).update(revoked_at=timezone.now())
+
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
