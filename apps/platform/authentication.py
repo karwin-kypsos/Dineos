@@ -1,7 +1,7 @@
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken
 
-from .models import PlatformAdmin
+from .models import PlatformAdmin, PlatformAdminBlacklistedToken
 
 
 class PlatformJWTAuthentication(JWTAuthentication):
@@ -14,6 +14,10 @@ class PlatformJWTAuthentication(JWTAuthentication):
     def get_user(self, validated_token):
         if not validated_token.get("platform_admin"):
             raise InvalidToken("Not a platform admin token.")
+
+        jti = validated_token.get("jti")
+        if jti and PlatformAdminBlacklistedToken.objects.filter(jti=jti).exists():
+            raise InvalidToken("This session has been logged out.")
 
         user_id = validated_token[self.get_user_id_claim()]
         try:

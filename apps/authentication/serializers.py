@@ -49,6 +49,8 @@ class DineOSTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         data = super().validate(attrs)
+        if self.user.restaurant.status == Restaurant.Status.SUSPENDED:
+            raise serializers.ValidationError("This organization's account has been suspended.")
         data["role"] = self.user.role
         data["role_id"] = ROLE_METADATA[self.user.role]["id"]
         data["role_name"] = ROLE_METADATA[self.user.role]["name"]

@@ -128,10 +128,14 @@ class PlatformActivityLog(models.Model):
     """
 
     ACTION_CHOICES = [
-        ("TENANT_CREATED", "Tenant created"),
+        ("TENANT_CREATED", "Org created"),
         ("TENANT_UPDATED", "Tenant updated"),
+        ("STATUS_CHANGED", "Status changed"),
+        ("FLAGS_CHANGED", "Flags changed"),
+        ("PLAN_CHANGED", "Plan changed"),
         ("TEAM_MEMBER_ADDED", "Team member added"),
         ("TEAM_MEMBER_DEACTIVATED", "Team member deactivated"),
+        ("TEAM_MEMBER_REMOVED", "Team member removed"),
         ("TENANT_IMPERSONATED", "Support access started"),
         ("IMPERSONATION_ENDED", "Support access ended"),
     ]
@@ -153,3 +157,20 @@ class PlatformActivityLog(models.Model):
 
     def __str__(self):
         return f"{self.action} — {self.description}"
+
+
+class PlatformAdminBlacklistedToken(models.Model):
+    """Platform admins get an access-only token (see
+    apps.platform.serializers.issue_platform_access_token) — there's no
+    refresh token to blacklist via rest_framework_simplejwt's own
+    token_blacklist app. Logout instead records the access token's own
+    jti here; PlatformJWTAuthentication rejects any token whose jti shows
+    up in this table, so a logged-out token stops working immediately
+    rather than just quietly expiring later.
+    """
+
+    jti = models.CharField(max_length=64, unique=True)
+    blacklisted_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "platform_admin_blacklisted_tokens"

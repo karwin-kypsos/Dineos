@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.utils import timezone
 from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -14,7 +15,14 @@ from apps.restaurant.plans import PLAN_PRESETS
 from core.permissions import IsPlatformAdmin
 
 from .authentication import PlatformJWTAuthentication
-from .models import ImpersonationSession, PlatformActivityLog, PlatformAdmin, PlatformLoginCode
+from .constants import FEATURE_FLAG_METADATA, THEME_COLOR_PRESETS
+from .models import (
+    ImpersonationSession,
+    PlatformActivityLog,
+    PlatformAdmin,
+    PlatformAdminBlacklistedToken,
+    PlatformLoginCode,
+)
 from .serializers import (
     ImpersonationSessionSerializer,
     PlatformActivityLogSerializer,
@@ -26,6 +34,7 @@ from .serializers import (
 )
 
 IMPERSONATION_TTL_MINUTES = 30
+FEATURE_FLAG_KEYS = {f["key"] for f in FEATURE_FLAG_METADATA}
 
 
 class PlatformLoginView(APIView):
@@ -67,6 +76,61 @@ class VerifyPlatformLoginView(APIView):
         return Response({"access": str(token)}, status=status.HTTP_200_OK)
 
 
+class PlatformLogoutView(APIView):
+    """Platform tokens are access-only (see issue_platform_access_token) —
+    there's no refresh token to blacklist via the usual pattern, so this
+    blacklists the access token's own jti instead (see
+    PlatformAdminBlacklistedToken / PlatformJWTAuthentication)."""
+
+    authentication_classes = [PlatformJWTAuthentication]
+    permission_classes = [IsPlatformAdmin]
+
+    def post(self, request):
+        jti = request.auth.get("jti") if request.auth else None
+        if jti:
+            PlatformAdminBlacklistedToken.objects.get_or_create(jti=jti)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SubscriptionPlansView(APIView):
+    """Create Organization screen's Plan Tier dropdown — each preset's
+    max_branches + starting flags, so the frontend can auto-fill the rest
+    of the form the moment a tier is picked (still editable before save).
+    """
+
+    authentication_classes = [PlatformJWTAuthentication]
+    permission_classes = [IsPlatformAdmin]
+
+    def get(self, request):
+        return Response([
+            {"tier": tier, "label": tier.title(), "max_branches": preset["max_branches"], "flags": preset["flags"]}
+            for tier, preset in PLAN_PRESETS.items()
+        ])
+
+
+class FeatureFlagListView(APIView):
+    """Organization Detail's Feature Flags section — the label/description
+    text next to each toggle. Static, platform-wide metadata; the actual
+    on/off state per organization lives on the Restaurant row itself."""
+
+    authentication_classes = [PlatformJWTAuthentication]
+    permission_classes = [IsPlatformAdmin]
+
+    def get(self, request):
+        return Response(FEATURE_FLAG_METADATA)
+
+
+class ThemeColorListView(APIView):
+    """Branding section's primary-color picker — a curated quick-pick
+    list; primary_color itself still accepts any hex value."""
+
+    authentication_classes = [PlatformJWTAuthentication]
+    permission_classes = [IsPlatformAdmin]
+
+    def get(self, request):
+        return Response(THEME_COLOR_PRESETS)
+
+
 class TenantViewSet(viewsets.ModelViewSet):
     """Super Admin's view of every client restaurant on the platform —
     create new tenants, and flip their per-add-on feature flags live.
@@ -76,6 +140,19 @@ class TenantViewSet(viewsets.ModelViewSet):
     serializer_class = RestaurantSerializer
     authentication_classes = [PlatformJWTAuthentication]
     permission_classes = [IsPlatformAdmin]
+
+    def get_queryset(self):
+        qs = Restaurant.objects.all().order_by("-created_at")
+
+        status_filter = self.request.query_params.get("status", "all")
+        if status_filter != "all" and status_filter in Restaurant.Status.values:
+            qs = qs.filter(status=status_filter)
+
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            qs = qs.filter(name__icontains=search)
+
+        return qs
 
     def create(self, request, *args, **kwargs):
         # Platform-wide defaults (from .env) apply only when the Super Admin
@@ -124,13 +201,72 @@ class TenantViewSet(viewsets.ModelViewSet):
         return Response(data, status=status.HTTP_201_CREATED)
 
     def perform_update(self, serializer):
+        plan_tier_changed = "plan_tier" in self.request.data and serializer.instance.plan_tier != self.request.data.get(
+            "plan_tier"
+        )
         restaurant = serializer.save()
         PlatformActivityLog.objects.create(
             actor=self.request.user,
-            action="TENANT_UPDATED",
+            action="PLAN_CHANGED" if plan_tier_changed else "TENANT_UPDATED",
             restaurant=restaurant,
-            description=f"Updated tenant '{restaurant.name}' ({restaurant.slug})",
+            description=(
+                f"Changed '{restaurant.name}' to the {restaurant.get_plan_tier_display()} plan"
+                if plan_tier_changed
+                else f"Updated tenant '{restaurant.name}' ({restaurant.slug})"
+            ),
         )
+
+    @action(detail=True, methods=["patch"], url_path="status")
+    def update_status(self, request, pk=None):
+        """Organization Detail's Active/Suspended toggle. Suspending
+        blocks staff logins and every staff-authenticated API call for
+        every branch in this org immediately (see DineOSTokenObtainPairSerializer
+        and core.tenancy.TenantResolverMiddleware) — not just a cosmetic
+        status label."""
+
+        restaurant = self.get_object()
+        new_status = request.data.get("status")
+        if new_status not in Restaurant.Status.values:
+            return Response(
+                {"status": f"Must be one of {list(Restaurant.Status.values)}."}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        restaurant.status = new_status
+        restaurant.is_active = new_status != Restaurant.Status.SUSPENDED
+        restaurant.save(update_fields=["status", "is_active"])
+
+        PlatformActivityLog.objects.create(
+            actor=request.user,
+            action="STATUS_CHANGED",
+            restaurant=restaurant,
+            description=f"Set '{restaurant.name}' status to {restaurant.get_status_display()}",
+        )
+        return Response(RestaurantSerializer(restaurant).data)
+
+    @action(detail=True, methods=["patch"], url_path="feature-flags")
+    def update_feature_flags(self, request, pk=None):
+        """Organization Detail's Feature Flags toggles — instant-save,
+        one dedicated endpoint so the frontend doesn't need to resend the
+        entire org record for a single switch flip."""
+
+        restaurant = self.get_object()
+        unknown = set(request.data.keys()) - FEATURE_FLAG_KEYS
+        if unknown:
+            return Response({"detail": f"Unknown flag(s): {sorted(unknown)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        changed = []
+        for key, value in request.data.items():
+            setattr(restaurant, key, bool(value))
+            changed.append(key)
+        if changed:
+            restaurant.save(update_fields=changed)
+            PlatformActivityLog.objects.create(
+                actor=request.user,
+                action="FLAGS_CHANGED",
+                restaurant=restaurant,
+                description=f"Changed flags for '{restaurant.name}': {', '.join(changed)}",
+            )
+        return Response(RestaurantSerializer(restaurant).data)
 
 
 class DashboardView(APIView):
@@ -167,21 +303,44 @@ class ActivityLogListView(ListAPIView):
     serializer_class = PlatformActivityLogSerializer
     authentication_classes = [PlatformJWTAuthentication]
     permission_classes = [IsPlatformAdmin]
-    queryset = PlatformActivityLog.objects.select_related("actor", "restaurant").all()
+
+    def get_queryset(self):
+        qs = PlatformActivityLog.objects.select_related("actor", "restaurant").all()
+
+        action_filter = self.request.query_params.get("action")
+        if action_filter:
+            qs = qs.filter(action=action_filter)
+
+        date_from = self.request.query_params.get("date_from")
+        if date_from:
+            qs = qs.filter(created_at__date__gte=date_from)
+
+        date_to = self.request.query_params.get("date_to")
+        if date_to:
+            qs = qs.filter(created_at__date__lte=date_to)
+
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            from django.db.models import Q
+
+            qs = qs.filter(Q(restaurant__name__icontains=search) | Q(description__icontains=search))
+
+        return qs
 
 
 class TeamViewSet(viewsets.ModelViewSet):
     """Super Admin app's Team screen — manage other platform admin accounts.
-    No delete endpoint on purpose: matches the soft-deactivate pattern used
-    by apps.authentication.StaffViewSet, so historical activity-log entries
-    always resolve to a real actor.
+    Deactivating (partial_update with only is_active) keeps historical
+    activity-log entries resolving to a real actor; a real delete is also
+    available (destroy) for "Remove" on the Team screen — PlatformActivityLog.
+    actor is on_delete=SET_NULL, so past log entries survive the removal.
     """
 
     queryset = PlatformAdmin.objects.all().order_by("-created_at")
     serializer_class = PlatformAdminSerializer
     authentication_classes = [PlatformJWTAuthentication]
     permission_classes = [IsPlatformAdmin]
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
     def perform_create(self, serializer):
         admin = serializer.save()
@@ -192,19 +351,34 @@ class TeamViewSet(viewsets.ModelViewSet):
         )
 
     def partial_update(self, request, *args, **kwargs):
-        # Only is_active is meant to be toggled from this screen (deactivate
-        # a departing team member) — everything else about an admin account
-        # is set once at creation.
         instance = self.get_object()
-        instance.is_active = request.data.get("is_active", instance.is_active)
-        instance.save(update_fields=["is_active"])
-        if not instance.is_active:
+        was_active = instance.is_active
+
+        for field in ("name", "access_level"):
+            if field in request.data:
+                setattr(instance, field, request.data[field])
+        if "is_active" in request.data:
+            instance.is_active = request.data["is_active"]
+        instance.save()
+
+        if was_active and not instance.is_active:
             PlatformActivityLog.objects.create(
                 actor=request.user,
                 action="TEAM_MEMBER_DEACTIVATED",
                 description=f"Deactivated team member '{instance.email}'",
             )
         return Response(PlatformAdminSerializer(instance).data)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        email = instance.email
+        PlatformActivityLog.objects.create(
+            actor=request.user,
+            action="TEAM_MEMBER_REMOVED",
+            description=f"Removed team member '{email}'",
+        )
+        instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ImpersonateView(APIView):

@@ -24,6 +24,15 @@ class ImpersonationRevoked(Exception):
     expiry."""
 
 
+class TenantSuspended(Exception):
+    """Raised internally when a resolved tenant's status is SUSPENDED —
+    see apps.platform.views.TenantViewSet.update_status. Login is already
+    blocked at that point (DineOSTokenObtainPairSerializer), but a token
+    issued before suspension would otherwise keep working until it
+    expires; this makes suspension take effect on every request, not just
+    new logins."""
+
+
 class TenantResolverMiddleware:
     """Best-effort: sets request.tenant from whichever of the staff-JWT or
     KDS-device-key headers is present. Never rejects a request itself —
@@ -44,6 +53,8 @@ class TenantResolverMiddleware:
             request.tenant = self._resolve(request)
         except ImpersonationRevoked:
             return JsonResponse({"detail": "This support access session has ended."}, status=401)
+        except TenantSuspended:
+            return JsonResponse({"detail": "This organization's account has been suspended."}, status=403)
         return self.get_response(request)
 
     def _resolve(self, request):
@@ -81,7 +92,10 @@ class TenantResolverMiddleware:
 
         from apps.restaurant.models import Restaurant
 
-        return Restaurant.objects.filter(id=restaurant_id).first()
+        restaurant = Restaurant.objects.filter(id=restaurant_id).first()
+        if restaurant is not None and restaurant.status == Restaurant.Status.SUSPENDED:
+            raise TenantSuspended()
+        return restaurant
 
     def _resolve_from_kds_key(self, request):
         api_key = request.META.get("HTTP_X_KDS_API_KEY")
