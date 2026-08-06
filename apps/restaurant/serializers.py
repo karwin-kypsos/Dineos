@@ -40,6 +40,25 @@ class BranchSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "slug", "address", "phone", "photo_url", "manager", "manager_detail",
                   "table_count", "is_active", "created_at"]
         read_only_fields = ["id", "slug", "created_at"]
+        # "restaurant" isn't a serializer field (perform_create supplies it), so
+        # DRF can't auto-build a UniqueTogetherValidator for one_branch_name_per_restaurant
+        # — without this, a duplicate name reaches the DB constraint directly and
+        # 500s instead of 400ing. Same pattern as apps.menu.CategorySerializer.
+        validators = []
+
+    def validate_name(self, value):
+        request = self.context.get("request")
+        restaurant = getattr(getattr(request, "user", None), "restaurant", None) if request else None
+        if self.instance is not None:
+            restaurant = restaurant or self.instance.restaurant
+        if restaurant is None:
+            return value
+        conflict = Branch.objects.filter(restaurant=restaurant, name=value)
+        if self.instance is not None:
+            conflict = conflict.exclude(pk=self.instance.pk)
+        if conflict.exists():
+            raise serializers.ValidationError("A branch with this name already exists.")
+        return value
 
     def validate_manager(self, manager):
         request = self.context.get("request")
