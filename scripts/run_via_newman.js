@@ -22,6 +22,8 @@ if (!collectionPath || !outPath) {
 
 const results = [];
 let step = 0;
+let currentResult = null;
+let currentAssertions = [];
 
 const run = newman.run(
   {
@@ -35,7 +37,6 @@ const run = newman.run(
       console.error('Newman run error:', err);
       process.exit(1);
     }
-    const failedCount = summary.run.failures.length;
     fs.mkdirSync(path.dirname(outPath), { recursive: true });
     fs.writeFileSync(outPath, JSON.stringify(results, null, 2), 'utf8');
     console.log(`\nWrote ${outPath} (${results.length} requests captured)`);
@@ -45,7 +46,9 @@ const run = newman.run(
   }
 );
 
-run.on('beforeItem', function (err, args) {});
+run.on('beforeItem', function (err, args) {
+  currentAssertions = [];
+});
 
 run.on('request', function (err, args) {
   if (err) {
@@ -76,9 +79,8 @@ run.on('request', function (err, args) {
 
   const statusCode = res ? res.code : 0;
   const responseBody = res ? res.stream.toString('utf8') : '';
-  const passFail = statusCode >= 200 && statusCode < 300 ? 'PASS' : 'FAIL';
 
-  results.push({
+  currentResult = {
     step,
     folder: folderName,
     name,
@@ -88,10 +90,29 @@ run.on('request', function (err, args) {
     requestBody: requestBody || (method === 'GET' ? '(no request body — GET)' : ''),
     responseBody: responseBody || (statusCode === 204 ? '(empty — 204 No Content)' : responseBody),
     statusCode,
-    passFail,
+    // Placeholder — finalized in 'item' below once this item's pm.test()
+    // assertions (if any) have all run. Falls back to the 2xx heuristic
+    // only for items with no assertions at all, so a deliberate negative
+    // test (e.g. "expect 401" with a passing pm.test asserting exactly
+    // that) is reported as PASS, not misread as a failure by status code.
+    passFail: null,
     auth: authHeader ? authHeader : 'None (public)',
     notes: '',
-  });
+  };
+  results.push(currentResult);
+});
 
-  console.log(`[${step}] ${folderName} :: ${name} -> ${statusCode} ${passFail}`);
+run.on('assertion', function (err, args) {
+  currentAssertions.push(!args.error);
+});
+
+run.on('item', function (err, args) {
+  if (!currentResult) return;
+  const passFail = currentAssertions.length > 0
+    ? (currentAssertions.every(Boolean) ? 'PASS' : 'FAIL')
+    : (currentResult.statusCode >= 200 && currentResult.statusCode < 300 ? 'PASS' : 'FAIL');
+  currentResult.passFail = passFail;
+  console.log(`[${currentResult.step}] ${currentResult.folder} :: ${currentResult.name} -> ${currentResult.statusCode} ${passFail}`);
+  currentResult = null;
+  currentAssertions = [];
 });
