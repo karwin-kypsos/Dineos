@@ -58,7 +58,7 @@ class ForgotPasswordView(APIView):
         response = {"detail": "If that email is registered, a reset link has been sent."}
         if user:
             reset_token = PasswordResetToken.issue(user)
-            if settings.DEBUG:
+            if settings.DEBUG or not settings.EMAIL_DELIVERY_ENABLED:
                 response["token"] = reset_token.token
         return Response(response)
 

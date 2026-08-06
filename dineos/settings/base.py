@@ -217,6 +217,18 @@ DEFAULT_GST_PERCENTAGE = env.float("DEFAULT_GST_PERCENTAGE", default=5.0)
 DEFAULT_SERVICE_CHARGE_PERCENTAGE = env.float("DEFAULT_SERVICE_CHARGE_PERCENTAGE", default=0.0)
 
 # ---------------------------------------------------------------------------
+# No email/SMS delivery is wired up yet. Until this is True, every
+# "sent" secret (2FA code, password-reset/invite token) is a fixed, known
+# value instead of a random one — see apps.platform.models._generate_2fa_code
+# and apps.authentication.models._generate_reset_token — so the full
+# verification flow is still testable end-to-end without a real inbox.
+# Flip this on (no other code changes needed) once real delivery exists.
+# ---------------------------------------------------------------------------
+EMAIL_DELIVERY_ENABLED = env.bool("EMAIL_DELIVERY_ENABLED", default=False)
+COMMON_VERIFICATION_TOKEN = env("COMMON_VERIFICATION_TOKEN", default="COMMON-TEST-TOKEN")
+COMMON_VERIFICATION_CODE = env("COMMON_VERIFICATION_CODE", default="123456")
+
+# ---------------------------------------------------------------------------
 # Logging — send everything to stdout so Render captures it
 # ---------------------------------------------------------------------------
 LOGGING = {

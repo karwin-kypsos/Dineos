@@ -61,19 +61,32 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 
 def _generate_reset_token():
+    from django.conf import settings
+
+    if not settings.EMAIL_DELIVERY_ENABLED:
+        return settings.COMMON_VERIFICATION_TOKEN
     return secrets.token_urlsafe(32)
 
 
 class PasswordResetToken(models.Model):
+    """token is deliberately NOT unique at the DB level: while
+    EMAIL_DELIVERY_ENABLED is off, every row gets the same well-known
+    value (see _generate_reset_token), so multiple pending invites/resets
+    can coexist. Lookups always take the most recently issued match — see
+    apps.authentication.views.ResetPasswordView — which is unambiguous
+    once real per-user random tokens are turned on, and matches "the one
+    I just triggered" while they're shared."""
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reset_tokens")
-    token = models.CharField(max_length=64, unique=True, default=_generate_reset_token)
+    token = models.CharField(max_length=64, default=_generate_reset_token, db_index=True)
     expires_at = models.DateTimeField()
     used_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "password_reset_tokens"
+        ordering = ["-created_at"]
 
     @classmethod
     def issue(cls, user, ttl_minutes=30):

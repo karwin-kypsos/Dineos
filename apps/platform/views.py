@@ -30,10 +30,12 @@ IMPERSONATION_TTL_MINUTES = 30
 
 class PlatformLoginView(APIView):
     """Step 1 of 2 — password only. No token issued here; a correct
-    password sends a 2FA code (returned directly in DEBUG, since there's
-    no email/SMS delivery wired up yet — same convention as
-    apps.authentication.views.ForgotPasswordView). Step 2 is
-    VerifyPlatformLoginView."""
+    password sends a 2FA code (step 2 is VerifyPlatformLoginView). Until
+    settings.EMAIL_DELIVERY_ENABLED is turned on, there's no real email/SMS
+    channel to deliver that code through, so PlatformLoginCode issues a
+    fixed, well-known code instead of a random one (see
+    apps.platform.models._generate_2fa_code) — the response echoes it back
+    either way so the flow is testable end-to-end without one."""
 
     permission_classes = [AllowAny]
 
@@ -42,7 +44,7 @@ class PlatformLoginView(APIView):
         serializer.is_valid(raise_exception=True)
         login_code = PlatformLoginCode.issue(serializer.validated_data["admin"])
         response = {"detail": "Enter the 6-digit code to continue.", "requires_2fa": True}
-        if settings.DEBUG:
+        if settings.DEBUG or not settings.EMAIL_DELIVERY_ENABLED:
             response["code"] = login_code.code
         return Response(response, status=status.HTTP_200_OK)
 
