@@ -12,6 +12,8 @@ scripts:
     code: |-
       const verify2faData = pm.response.json();
       pm.collectionVariables.set('platform_token', verify2faData.access);
+      pm.collectionVariables.set('platform_refresh_token', verify2faData.refresh);
       pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('response includes a refresh token', () => pm.expect(verify2faData.refresh).to.exist);
     language: text/javascript
 order: 1500

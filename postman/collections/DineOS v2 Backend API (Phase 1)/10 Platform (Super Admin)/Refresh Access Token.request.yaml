@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{server_root}}/platform/auth/refresh/"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"refresh": "{{platform_refresh_token}}"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const refreshData = pm.response.json();
+      pm.collectionVariables.set('platform_token', refreshData.access);
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('returns a new access token', () => pm.expect(refreshData.access).to.exist);
+    language: text/javascript
+order: 1550

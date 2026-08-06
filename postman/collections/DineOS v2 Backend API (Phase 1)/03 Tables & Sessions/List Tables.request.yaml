@@ -1,5 +1,5 @@
 $kind: http-request
-url: "{{base_url}}/tables/"
+url: "{{base_url}}/tables/?page_size=100"
 method: GET
 headers:
   Authorization: Bearer {{manager_token}}

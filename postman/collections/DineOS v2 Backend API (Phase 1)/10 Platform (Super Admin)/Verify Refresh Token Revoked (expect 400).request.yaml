@@ -1,14 +1,13 @@
 $kind: http-request
-url: "{{server_root}}/platform/auth/logout/"
+url: "{{server_root}}/platform/auth/refresh/"
 method: POST
 headers:
-  Authorization: Bearer {{platform_token}}
   Content-Type: application/json
 body:
   type: text
   content: '{"refresh": "{{platform_refresh_token}}"}'
 scripts:
   - type: afterResponse
-    code: pm.test('status is 204', () => pm.response.to.have.status(204));
+    code: pm.test('status is 400 (refresh token revoked at logout)', () => pm.response.to.have.status(400));
     language: text/javascript
-order: 8000
+order: 8200

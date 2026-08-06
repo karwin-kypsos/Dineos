@@ -134,6 +134,9 @@ variables:
   - key: team_member_id
     value: ""
     disabled: false
+  - key: platform_refresh_token
+    value: ""
+    disabled: false
   - key: branch_cashier_token
     value: ""
     disabled: false

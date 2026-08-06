@@ -65,6 +65,7 @@ EXPECTED_NON_2XX = {
     "Verify Impersonation Revoked (Me, expect 401)": "401 — support session had been ended; token correctly rejected",
     "Staff Token Rejected Here (should 401-403)": "401 — restaurant-staff token correctly rejected on a platform-only route",
     "Verify Logout Revoked (List Tenants, expect 401)": "401 — token was blacklisted at logout; correctly rejected",
+    "Verify Refresh Token Revoked (expect 400)": "400 — refresh token was revoked at logout; correctly rejected",
 }
 
 STATUS_OK_COLOR = RGBColor(0x0B, 0x71, 0x2A)
