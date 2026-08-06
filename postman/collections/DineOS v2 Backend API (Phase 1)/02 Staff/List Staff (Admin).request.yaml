@@ -1,0 +1,7 @@
+$kind: http-request
+url: "{{base_url}}/staff/"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+examples: .resources/List Staff (Admin).resources/examples
+order: 1000

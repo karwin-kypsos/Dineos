@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{server_root}}/platform/theme/colors/"
+method: GET
+headers:
+  Authorization: Bearer {{platform_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const colorsData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('includes DineOS Orange', () => pm.expect(colorsData.map(c => c.label)).to.include('DineOS Orange'));
+    language: text/javascript
+order: 1660

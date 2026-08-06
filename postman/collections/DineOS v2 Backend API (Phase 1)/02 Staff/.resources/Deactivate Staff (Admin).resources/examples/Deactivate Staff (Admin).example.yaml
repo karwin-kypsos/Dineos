@@ -1,0 +1,54 @@
+$kind: http-example
+request:
+  url: "{{base_url}}/staff/{{staff_id}}/deactivate/"
+  method: PATCH
+  headers:
+    Authorization: Bearer {{admin_token}}
+  body:
+    type: json
+    content: ""
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    date: Wed, 05 Aug 2026 09:33:55 GMT
+    content-type: application/json
+    content-length: "264"
+    connection: keep-alive
+    allow: PATCH, OPTIONS
+    content-encoding: br
+    cross-origin-opener-policy: same-origin
+    referrer-policy: same-origin
+    rndr-id: df838ab4-2eb3-46f5
+    server: cloudflare
+    vary: origin, Accept-Encoding
+    x-content-type-options: nosniff
+    x-frame-options: DENY
+    x-render-origin-server: daphne
+    cf-cache-status: DYNAMIC
+    cf-ray: a264cd92ffb97ee2-MAA
+    alt-svc: h3=":443"; ma=86400
+  body:
+    type: json
+    content: |-
+      {
+        "id": "17ccb2f4-0dda-40b9-bb2d-2b83eb3b43a5",
+        "email": "newserver2@demo-bistro.demo",
+        "name": "New Server",
+        "phone": "",
+        "role": "SERVER",
+        "role_id": 3,
+        "role_name": "server",
+        "is_active": false,
+        "restaurant": {
+          "id": 1,
+          "name": "DineOS Demo Bistro",
+          "slug": "demo-bistro",
+          "notifications_enabled": true,
+          "kitchen_enabled": true,
+          "billing_enabled": true,
+          "realtime_enabled": true
+        },
+        "created_at": "2026-08-05T09:33:24.562840Z"
+      }
+order: 1785922455878

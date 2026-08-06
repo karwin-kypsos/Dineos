@@ -1,0 +1,9 @@
+$kind: http-example
+name: 'Health Check - Success'
+originalRequest:
+  method: GET
+  url: '{{base_url}}althz/'
+code: 200
+body:
+  type: text
+  content: '{"status": "ok"}'

@@ -1,0 +1,14 @@
+$kind: http-example
+name: 'Create Category (Manager) - Success'
+originalRequest:
+  method: POST
+  url: '{{base_url}}/menu/categories/'
+  headers:
+    Content-Type: application/json
+  body:
+    type: text
+    content: '{"name": "Starters", "emoji": "🥗", "sort_order": 2}'
+code: 201
+body:
+  type: text
+  content: '{"id":3,"name":"Starters","emoji":"🥗","sort_order":2,"is_active":true}'

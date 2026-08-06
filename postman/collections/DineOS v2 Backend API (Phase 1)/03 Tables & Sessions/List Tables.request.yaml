@@ -1,0 +1,14 @@
+$kind: http-request
+url: "{{base_url}}/tables/"
+method: GET
+headers:
+  Authorization: Bearer {{manager_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const tablesData = pm.response.json();
+      const tablesList = tablesData.results || tablesData;
+      const match = tablesList.find(t => t.table_number === pm.collectionVariables.get('table_number'));
+      if (match) { pm.collectionVariables.set('table_id', match.id); }
+    language: text/javascript
+order: 1000

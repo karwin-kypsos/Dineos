@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{base_url}}/tables/{{table_id}}/bill-request/"
+method: POST
+order: 1000

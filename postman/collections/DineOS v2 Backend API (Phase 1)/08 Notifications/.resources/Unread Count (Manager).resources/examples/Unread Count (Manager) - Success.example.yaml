@@ -1,0 +1,9 @@
+$kind: http-example
+name: 'Unread Count (Manager) - Success'
+originalRequest:
+  method: GET
+  url: '{{base_url}}/notifications/unread-count/'
+code: 200
+body:
+  type: text
+  content: '{"count":3}'

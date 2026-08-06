@@ -1,0 +1,9 @@
+$kind: http-example
+name: 'List Categories - Success'
+originalRequest:
+  method: GET
+  url: '{{base_url}}/menu/categories/'
+code: 200
+body:
+  type: text
+  content: '{"count":2,"next":null,"previous":null,"results":[{"id":1,"name":"Main Course","emoji":"🍽️","sort_order":1,"is_active":true},{"id":3,"name":"Starters","emoji":"🥗","sort_order":2,"is_active":true}]}'

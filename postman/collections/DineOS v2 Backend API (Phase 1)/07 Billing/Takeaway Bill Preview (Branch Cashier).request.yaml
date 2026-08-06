@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{base_url}}/bills/takeaway/{{takeaway_order_id}}/"
+method: GET
+headers:
+  Authorization: Bearer {{branch_cashier_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const takeawayPreviewData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('preview has a total_amount', () => pm.expect(takeawayPreviewData.total_amount).to.exist);
+    language: text/javascript
+order: 20000

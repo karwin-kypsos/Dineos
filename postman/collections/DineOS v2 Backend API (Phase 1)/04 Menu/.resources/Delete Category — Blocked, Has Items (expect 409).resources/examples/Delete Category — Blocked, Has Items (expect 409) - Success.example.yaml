@@ -1,0 +1,9 @@
+$kind: http-example
+name: 'Delete Category — Blocked, Has Items (expect 409) - Success'
+originalRequest:
+  method: DELETE
+  url: '{{base_url}}/menu/categories/3/'
+code: 409
+body:
+  type: text
+  content: '{"detail":"Move all items out of this category before deleting it."}'

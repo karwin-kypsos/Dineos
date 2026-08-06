@@ -1,0 +1,14 @@
+$kind: http-example
+name: 'Platform Login - Success'
+originalRequest:
+  method: POST
+  url: '{{server_root}}/platform/auth/login/'
+  headers:
+    Content-Type: application/json
+  body:
+    type: text
+    content: '{"email": "super@dineos.platform", "password": "Demo@1234"}'
+code: 200
+body:
+  type: text
+  content: '{"access":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE3MTk2LCJpYXQiOjE3ODU5MzA3OTYsImp0aSI6IjIxZjZlOWU2MGQ4MDQzNGE5ZTg1MTQ1NmQ2YTk4ZjJiIiwidXNlcl9pZCI6ImRjYTM1NzJmLTgwMTgtNDk5ZC1iZjg4LTU1NWFhN2MyM2VkNiIsInBsYXRmb3JtX2FkbWluIjp0cnVlLCJuYW1lIjoiU3VwZXIgQWRtaW4ifQ.6THg2Wn6hoDanoDMJvuxHp0Fj2DP4z63HIDz5H_SQx8"}'

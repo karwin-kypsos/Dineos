@@ -1,0 +1,14 @@
+$kind: http-example
+name: 'Pay Bill for Shift Test (Cashier) - Success'
+originalRequest:
+  method: POST
+  url: '{{base_url}}/bills/payment/'
+  headers:
+    Content-Type: application/json
+  body:
+    type: text
+    content: '{"session_id": "9d622e57-b81f-4bf7-b6cd-e3b0d74175ac", "payment_method": "CASH"}'
+code: 201
+body:
+  type: text
+  content: '{"id":"5052e191-14d6-4c2a-b1f9-ee6e1cd45235","session":"9d622e57-b81f-4bf7-b6cd-e3b0d74175ac","subtotal":"180.00","tax_amount":"9.00","service_charge":"0.00","discount_amount":"0.00","total_amount":"189.00","payment_method":"CASH","processed_by":"d411e5c8-c2c2-45c5-9268-d9307587818b","paid_at":"2026-08-05T11:53:41.591146Z"}'

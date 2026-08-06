@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{server_root}}/platform/tenants/"
+method: GET
+headers:
+  Authorization: Bearer {{platform_token}}
+scripts:
+  - type: afterResponse
+    code: pm.test('status is 401 (token blacklisted after logout)', () => pm.response.to.have.status(401));
+    language: text/javascript
+order: 8100

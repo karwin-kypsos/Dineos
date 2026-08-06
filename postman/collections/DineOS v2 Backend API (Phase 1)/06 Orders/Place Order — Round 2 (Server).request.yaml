@@ -1,0 +1,16 @@
+$kind: http-request
+url: "{{base_url}}/orders/"
+method: POST
+headers:
+  Authorization: Bearer {{server_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"session_id": "{{session_id}}", "items": [{"menu_item": {{menu_item_id}}, "quantity": 1}]}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const placeOrder2Data = pm.response.json();
+      pm.collectionVariables.set('order_2_id', placeOrder2Data.id);
+    language: text/javascript
+order: 2000

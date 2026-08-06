@@ -1,0 +1,84 @@
+{
+  "environment": {
+    "server_root": "https://dineos-1unt.onrender.com",
+    "base_url": "https://dineos-1unt.onrender.com/v1",
+    "tenant_slug": "demo-bistro",
+    "collection": "DineOS v2 Backend API (Phase 1)",
+    "folder": "07 Billing",
+    "run_date_utc": "2026-08-05T15:17:13+00:00",
+    "runner": "Newman 6.2.2 (Postman's official CLI collection runner)"
+  },
+  "results": [
+    {
+      "step": 1,
+      "folder": "0ad1f1e6-ac09-491f-8ed2-14ea8810a13f",
+      "name": "Request Bill (Customer, no auth)",
+      "method": "POST",
+      "path": "/v1/tables/72e00ee8-a87e-4b05-af40-9ec95d10de7d/bill-request/",
+      "fullUrl": "https://dineos-1unt.onrender.com/v1/tables/72e00ee8-a87e-4b05-af40-9ec95d10de7d/bill-request/",
+      "requestBody": "",
+      "responseBody": "{\"id\":\"58aa2387-c88d-4e6d-acba-967f1080b234\",\"table\":\"72e00ee8-a87e-4b05-af40-9ec95d10de7d\",\"table_number\":\"5\",\"status\":\"BILL_REQUESTED\",\"opened_at\":\"2026-08-05T11:53:17.354582Z\",\"closed_at\":null,\"close_reason\":\"\"}",
+      "statusCode": 200,
+      "passFail": "PASS",
+      "auth": "None (public)",
+      "notes": ""
+    },
+    {
+      "step": 2,
+      "folder": "7788d6d2-345b-4085-8b52-c579aaa8ad18",
+      "name": "Bill Preview (Cashier)",
+      "method": "GET",
+      "path": "/v1/bills/session/58aa2387-c88d-4e6d-acba-967f1080b234/",
+      "fullUrl": "https://dineos-1unt.onrender.com/v1/bills/session/58aa2387-c88d-4e6d-acba-967f1080b234/",
+      "requestBody": "(no request body — GET)",
+      "responseBody": "{\"session_id\":\"58aa2387-c88d-4e6d-acba-967f1080b234\",\"subtotal\":540.0,\"tax_amount\":27.0,\"service_charge\":0.0,\"total_amount\":567.0}",
+      "statusCode": 200,
+      "passFail": "PASS",
+      "auth": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE3MTk0LCJpYXQiOjE3ODU5MzA3OTQsImp0aSI6ImYxNzMxYmFkNDRiYjQ0MTM5OWMwOTRjYzI1ZjU2OTk2IiwidXNlcl9pZCI6ImQ0MTFlNWM4LWMyYzItNDVjNS05MjY4LWQ5MzA3NTg3ODE4YiIsInJvbGUiOiJDQVNISUVSIiwibmFtZSI6IkNhc2hpZXIiLCJyZXN0YXVyYW50X2lkIjoiMSJ9.cWkICZ1GlTxQhDa0RccG43Tvuon4fXlmx-Ol1UrRBDM",
+      "notes": ""
+    },
+    {
+      "step": 3,
+      "folder": "8f47393a-a0c9-462f-a742-d744809dee8a",
+      "name": "Confirm Payment (Cashier)",
+      "method": "POST",
+      "path": "/v1/bills/payment/",
+      "fullUrl": "https://dineos-1unt.onrender.com/v1/bills/payment/",
+      "requestBody": "{\"session_id\": \"58aa2387-c88d-4e6d-acba-967f1080b234\", \"payment_method\": \"CASH\"}",
+      "responseBody": "{\"id\":\"d83dc5bf-6c28-4beb-89be-0999f528a0df\",\"session\":\"58aa2387-c88d-4e6d-acba-967f1080b234\",\"subtotal\":\"540.00\",\"tax_amount\":\"27.00\",\"service_charge\":\"0.00\",\"discount_amount\":\"0.00\",\"total_amount\":\"567.00\",\"payment_method\":\"CASH\",\"processed_by\":\"d411e5c8-c2c2-45c5-9268-d9307587818b\",\"paid_at\":\"2026-08-05T11:53:38.195635Z\"}",
+      "statusCode": 201,
+      "passFail": "PASS",
+      "auth": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE3MTk0LCJpYXQiOjE3ODU5MzA3OTQsImp0aSI6ImYxNzMxYmFkNDRiYjQ0MTM5OWMwOTRjYzI1ZjU2OTk2IiwidXNlcl9pZCI6ImQ0MTFlNWM4LWMyYzItNDVjNS05MjY4LWQ5MzA3NTg3ODE4YiIsInJvbGUiOiJDQVNISUVSIiwibmFtZSI6IkNhc2hpZXIiLCJyZXN0YXVyYW50X2lkIjoiMSJ9.cWkICZ1GlTxQhDa0RccG43Tvuon4fXlmx-Ol1UrRBDM",
+      "notes": ""
+    },
+    {
+      "step": 4,
+      "folder": "a83d0d65-3f84-4f4c-aa25-2af293f7e020",
+      "name": "Confirm Payment Again (idempotency check)",
+      "method": "POST",
+      "path": "/v1/bills/payment/",
+      "fullUrl": "https://dineos-1unt.onrender.com/v1/bills/payment/",
+      "requestBody": "{\"session_id\": \"58aa2387-c88d-4e6d-acba-967f1080b234\", \"payment_method\": \"CASH\"}",
+      "responseBody": "{\"id\":\"d83dc5bf-6c28-4beb-89be-0999f528a0df\",\"session\":\"58aa2387-c88d-4e6d-acba-967f1080b234\",\"subtotal\":\"540.00\",\"tax_amount\":\"27.00\",\"service_charge\":\"0.00\",\"discount_amount\":\"0.00\",\"total_amount\":\"567.00\",\"payment_method\":\"CASH\",\"processed_by\":\"d411e5c8-c2c2-45c5-9268-d9307587818b\",\"paid_at\":\"2026-08-05T11:53:38.195635Z\"}",
+      "statusCode": 201,
+      "passFail": "PASS",
+      "auth": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE3MTk0LCJpYXQiOjE3ODU5MzA3OTQsImp0aSI6ImYxNzMxYmFkNDRiYjQ0MTM5OWMwOTRjYzI1ZjU2OTk2IiwidXNlcl9pZCI6ImQ0MTFlNWM4LWMyYzItNDVjNS05MjY4LWQ5MzA3NTg3ODE4YiIsInJvbGUiOiJDQVNISUVSIiwibmFtZSI6IkNhc2hpZXIiLCJyZXN0YXVyYW50X2lkIjoiMSJ9.cWkICZ1GlTxQhDa0RccG43Tvuon4fXlmx-Ol1UrRBDM",
+      "notes": ""
+    },
+    {
+      "step": 5,
+      "folder": "b32f995c-6684-4d65-95ba-ab9082616355",
+      "name": "Confirm Table Freed (Manager)",
+      "method": "GET",
+      "path": "/v1/tables/",
+      "fullUrl": "https://dineos-1unt.onrender.com/v1/tables/",
+      "requestBody": "(no request body — GET)",
+      "responseBody": "{\"count\":2,\"next\":null,\"previous\":null,\"results\":[{\"id\":\"72e00ee8-a87e-4b05-af40-9ec95d10de7d\",\"table_number\":\"5\",\"capacity\":4,\"status\":\"AVAILABLE\",\"is_active\":true,\"active_session_id\":null},{\"id\":\"606d67da-e038-4a1d-b404-0aaad64ffdbc\",\"table_number\":\"6\",\"capacity\":2,\"status\":\"AVAILABLE\",\"is_active\":true,\"active_session_id\":null}]}",
+      "statusCode": 200,
+      "passFail": "PASS",
+      "auth": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE3MTg5LCJpYXQiOjE3ODU5MzA3ODksImp0aSI6IjdjZTZjZDdiOTY5NjQxN2ViZTJhYWM4MjgzMDMwZWQ1IiwidXNlcl9pZCI6ImQzMThkMzhmLWYyYjctNDUwYy04YjJlLTAyMTBlOTI4YWI3MyIsInJvbGUiOiJNQU5BR0VSIiwibmFtZSI6Ik1hbmFnZXIiLCJyZXN0YXVyYW50X2lkIjoiMSJ9.dy7gVakrdr2zDMScc_GFHttoXbqug6tvzNnTVlRRZyY",
+      "notes": ""
+    }
+  ],
+  "findings": []
+}

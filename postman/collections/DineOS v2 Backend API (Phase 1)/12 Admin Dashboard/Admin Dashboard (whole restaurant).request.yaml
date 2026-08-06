@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{base_url}}/admin/dashboard/"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const adminDashboardData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('has today_orders_count', () => pm.expect(adminDashboardData.today_orders_count).to.exist);
+    language: text/javascript
+order: 1000

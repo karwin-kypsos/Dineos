@@ -1,0 +1,6 @@
+$kind: http-request
+url: "{{base_url}}/orders/{{order_1_id}}/served/"
+method: PATCH
+headers:
+  Authorization: Bearer {{server_token}}
+order: 15000

@@ -1,0 +1,7 @@
+$kind: http-request
+name: Order-Taking Menu (Server/Cashier)
+url: "{{base_url}}/menu/"
+method: GET
+headers:
+  Authorization: Bearer {{server_token}}
+order: 7000

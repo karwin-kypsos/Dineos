@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{server_root}}/v1/auth/login/"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"email": "{{new_org_admin_email}}", "password": "Demo@1234"}'
+scripts:
+  - type: afterResponse
+    code: pm.test('status is 400 (organization suspended)', () => pm.response.to.have.status(400));
+    language: text/javascript
+order: 2150

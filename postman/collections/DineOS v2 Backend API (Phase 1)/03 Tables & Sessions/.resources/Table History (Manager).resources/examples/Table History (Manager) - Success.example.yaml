@@ -1,0 +1,9 @@
+$kind: http-example
+name: 'Table History (Manager) - Success'
+originalRequest:
+  method: GET
+  url: '{{base_url}}/tables/72e00ee8-a87e-4b05-af40-9ec95d10de7d/history/'
+code: 200
+body:
+  type: text
+  content: '[]'

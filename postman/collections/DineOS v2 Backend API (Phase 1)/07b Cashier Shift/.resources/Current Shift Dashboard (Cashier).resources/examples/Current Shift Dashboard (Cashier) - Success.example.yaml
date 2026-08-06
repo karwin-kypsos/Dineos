@@ -1,0 +1,9 @@
+$kind: http-example
+name: 'Current Shift Dashboard (Cashier) - Success'
+originalRequest:
+  method: GET
+  url: '{{base_url}}/cashier/shifts/current/'
+code: 200
+body:
+  type: text
+  content: '{"shift":{"id":"ca904359-5707-4a89-94bd-eba9b30b02d0","cashier":"d411e5c8-c2c2-45c5-9268-d9307587818b","cashier_name":"Cashier","status":"OPEN","opened_at":"2026-08-05T11:53:39.925715Z","closed_at":null,"counted_cash":null,"discrepancy_acknowledged":false},"collected_today":"189.00","awaiting_payment":[],"active_tables":[],"paid_today_count":2}'

@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{base_url}}/cashier/collections/daily/"
+method: GET
+headers:
+  Authorization: Bearer {{manager_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const dailyData = pm.response.json();
+      pm.test('tables_served is at least 1', () => pm.expect(dailyData.tables_served).to.be.at.least(1));
+    language: text/javascript
+order: 9000

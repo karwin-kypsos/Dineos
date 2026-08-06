@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/menu/categories/"
+method: POST
+headers:
+  Authorization: Bearer {{manager_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"name": "Temp Category", "emoji": "🗑️", "sort_order": 99}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const createTempCategoryData = pm.response.json();
+      pm.collectionVariables.set('temp_category_id', createTempCategoryData.id);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+    language: text/javascript
+order: 15000

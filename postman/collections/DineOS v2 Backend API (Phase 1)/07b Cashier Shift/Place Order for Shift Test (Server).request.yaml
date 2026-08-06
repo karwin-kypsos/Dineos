@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{base_url}}/orders/"
+method: POST
+headers:
+  Authorization: Bearer {{server_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"session_id": "{{session_id}}", "items": [{"menu_item": {{menu_item_id}}, "quantity": 1}]}'
+order: 3000

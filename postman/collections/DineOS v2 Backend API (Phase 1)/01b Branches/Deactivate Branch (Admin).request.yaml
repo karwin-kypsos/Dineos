@@ -1,0 +1,7 @@
+$kind: http-request
+url: "{{base_url}}/branches/{{temp_branch_id}}/"
+method: DELETE
+headers:
+  Authorization: Bearer {{admin_token}}
+examples: .resources/Deactivate Branch (Admin).resources/examples
+order: 4000

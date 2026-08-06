@@ -1,0 +1,7 @@
+$kind: http-request
+url: "{{base_url}}/staff/{{staff_id}}/deactivate/"
+method: PATCH
+headers:
+  Authorization: Bearer {{admin_token}}
+examples: .resources/Deactivate Staff (Admin).resources/examples
+order: 3000

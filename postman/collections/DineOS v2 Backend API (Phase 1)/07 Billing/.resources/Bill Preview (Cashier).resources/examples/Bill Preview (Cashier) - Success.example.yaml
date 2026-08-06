@@ -1,0 +1,9 @@
+$kind: http-example
+name: 'Bill Preview (Cashier) - Success'
+originalRequest:
+  method: GET
+  url: '{{base_url}}/bills/session/58aa2387-c88d-4e6d-acba-967f1080b234/'
+code: 200
+body:
+  type: text
+  content: '{"session_id":"58aa2387-c88d-4e6d-acba-967f1080b234","subtotal":540.0,"tax_amount":27.0,"service_charge":0.0,"total_amount":567.0}'

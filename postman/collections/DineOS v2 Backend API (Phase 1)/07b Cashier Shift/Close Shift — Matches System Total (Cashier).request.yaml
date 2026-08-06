@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/cashier/shifts/{{shift_id}}/close/"
+method: POST
+headers:
+  Authorization: Bearer {{cashier_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"counted_cash": "{{cashier_cash_total}}"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const closeShiftData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('shift is closed', () => pm.expect(closeShiftData.status).to.eql('CLOSED'));
+    language: text/javascript
+order: 8000

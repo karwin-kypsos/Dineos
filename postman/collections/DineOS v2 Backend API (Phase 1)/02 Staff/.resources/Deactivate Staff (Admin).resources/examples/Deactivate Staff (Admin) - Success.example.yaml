@@ -1,0 +1,9 @@
+$kind: http-example
+name: 'Deactivate Staff (Admin) - Success'
+originalRequest:
+  method: PATCH
+  url: '{{base_url}}/staff/7e128064-8406-4f6d-888e-6ee61f0bc407/deactivate/'
+code: 200
+body:
+  type: text
+  content: '{"id":"7e128064-8406-4f6d-888e-6ee61f0bc407","email":"newserver.livetest.1785929409@demo-bistro.demo","name":"New Server","phone":"","role":"SERVER","role_id":3,"role_name":"server","is_active":false,"restaurant":{"id":1,"name":"DineOS Demo Bistro","slug":"demo-bistro","notifications_enabled":true,"kitchen_enabled":true,"billing_enabled":true,"realtime_enabled":true},"created_at":"2026-08-05T11:30:39.891616Z"}'

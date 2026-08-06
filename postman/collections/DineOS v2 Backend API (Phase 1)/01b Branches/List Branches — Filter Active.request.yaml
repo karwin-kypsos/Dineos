@@ -1,0 +1,19 @@
+$kind: http-request
+url: "{{base_url}}/branches/?status=active"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const filterActiveData = pm.response.json();
+      const results = Array.isArray(filterActiveData) ? filterActiveData : filterActiveData.results;
+      const ids = results.map(b => b.id);
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('all returned branches are active', () => results.every(b => b.is_active === true));
+      pm.test('includes the active branch, excludes the deactivated one', () => {
+        pm.expect(ids).to.include(pm.collectionVariables.get('branch_id'));
+        pm.expect(ids).to.not.include(pm.collectionVariables.get('temp_branch_id'));
+      });
+    language: text/javascript
+order: 4500

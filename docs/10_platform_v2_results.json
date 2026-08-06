@@ -1,0 +1,129 @@
+{
+  "environment": {
+    "server_root": "https://dineos-1unt.onrender.com",
+    "base_url": "https://dineos-1unt.onrender.com/v1",
+    "tenant_slug": "demo-bistro",
+    "collection": "DineOS v2 Backend API (Phase 1)",
+    "folder": "10 Platform (Super Admin)",
+    "run_date_utc": "2026-08-05T12:06:49+00:00",
+    "runner": "Newman 6.2.2 (Postman's official CLI collection runner)"
+  },
+  "results": [
+    {
+      "step": 1,
+      "folder": "10ad8395-ae4a-4b1f-a850-70947e3c74dc",
+      "name": "Platform Login",
+      "method": "POST",
+      "path": "/platform/auth/login/",
+      "fullUrl": "https://dineos-1unt.onrender.com/platform/auth/login/",
+      "requestBody": "{\"email\": \"super@dineos.platform\", \"password\": \"Demo@1234\"}",
+      "responseBody": "{\"access\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE3MTk2LCJpYXQiOjE3ODU5MzA3OTYsImp0aSI6IjIxZjZlOWU2MGQ4MDQzNGE5ZTg1MTQ1NmQ2YTk4ZjJiIiwidXNlcl9pZCI6ImRjYTM1NzJmLTgwMTgtNDk5ZC1iZjg4LTU1NWFhN2MyM2VkNiIsInBsYXRmb3JtX2FkbWluIjp0cnVlLCJuYW1lIjoiU3VwZXIgQWRtaW4ifQ.6THg2Wn6hoDanoDMJvuxHp0Fj2DP4z63HIDz5H_SQx8\"}",
+      "statusCode": 200,
+      "passFail": "PASS",
+      "auth": "None (public)",
+      "notes": ""
+    },
+    {
+      "step": 2,
+      "folder": "88d61d7b-4dd9-4813-9de5-f50e8535d604",
+      "name": "List Tenants",
+      "method": "GET",
+      "path": "/platform/tenants/",
+      "fullUrl": "https://dineos-1unt.onrender.com/platform/tenants/",
+      "requestBody": "(no request body — GET)",
+      "responseBody": "{\"count\":2,\"next\":null,\"previous\":null,\"results\":[{\"id\":1,\"name\":\"DineOS Demo Bistro\",\"slug\":\"demo-bistro\",\"is_active\":true,\"gst_percentage\":\"5.00\",\"service_charge_percentage\":\"0.00\",\"notifications_enabled\":true,\"kitchen_enabled\":true,\"billing_enabled\":true,\"realtime_enabled\":true,\"created_at\":\"2026-08-03T12:04:45.885687Z\"},{\"id\":2,\"name\":\"Spice Garden\",\"slug\":\"spice-garden\",\"is_active\":true,\"gst_percentage\":\"5.00\",\"service_charge_percentage\":\"0.00\",\"notifications_enabled\":true,\"kitchen_enabled\":true,\"billing_enabled\":true,\"realtime_enabled\":true,\"created_at\":\"2026-08-03T12:04:51.006381Z\"}]}",
+      "statusCode": 200,
+      "passFail": "PASS",
+      "auth": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE3MTk2LCJpYXQiOjE3ODU5MzA3OTYsImp0aSI6IjIxZjZlOWU2MGQ4MDQzNGE5ZTg1MTQ1NmQ2YTk4ZjJiIiwidXNlcl9pZCI6ImRjYTM1NzJmLTgwMTgtNDk5ZC1iZjg4LTU1NWFhN2MyM2VkNiIsInBsYXRmb3JtX2FkbWluIjp0cnVlLCJuYW1lIjoiU3VwZXIgQWRtaW4ifQ.6THg2Wn6hoDanoDMJvuxHp0Fj2DP4z63HIDz5H_SQx8",
+      "notes": ""
+    },
+    {
+      "step": 3,
+      "folder": "d56752e9-a4c1-4304-9b0e-93d18da3e44e",
+      "name": "Staff Token Rejected Here (should 401-403)",
+      "method": "GET",
+      "path": "/platform/tenants/",
+      "fullUrl": "https://dineos-1unt.onrender.com/platform/tenants/",
+      "requestBody": "(no request body — GET)",
+      "responseBody": "{\"detail\":\"Not a platform admin token.\",\"code\":\"token_not_valid\"}",
+      "statusCode": 401,
+      "passFail": "PASS",
+      "auth": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE3MTc4LCJpYXQiOjE3ODU5MzA3NzgsImp0aSI6IjIxMWRmYTllZGFiNDQxYjBiNzA2YzA3Y2I4ZDAxNDZhIiwidXNlcl9pZCI6ImFjYzUwMTRmLTA4ZTctNGMzYS1iMmZjLTBjYTIyOThjYzY3NyIsInJvbGUiOiJBRE1JTiIsIm5hbWUiOiJBZG1pbiIsInJlc3RhdXJhbnRfaWQiOiIxIn0.BgVtxaL0EzSHGgZv8U-m3FaUTfYCB5t5yprRni926q4",
+      "notes": "This request deliberately sends a tenant ADMIN token (not a platform/super-admin token) to a platform-only endpoint. 401 Unauthorized is the CORRECT, expected result — it confirms tenant staff tokens are properly rejected from platform routes. Reclassified PASS."
+    },
+    {
+      "step": 4,
+      "folder": "97a3bca9-6817-4214-a56b-12af6975fd7e",
+      "name": "Dashboard",
+      "method": "GET",
+      "path": "/platform/dashboard/",
+      "fullUrl": "https://dineos-1unt.onrender.com/platform/dashboard/",
+      "requestBody": "(no request body — GET)",
+      "responseBody": "{\"detail\":\"Authentication credentials were not provided.\"}",
+      "statusCode": 401,
+      "passFail": "FAIL",
+      "auth": "None (public)",
+      "notes": "FAIL — this request authenticates via Postman's native 'auth: bearer' field bound to {{json_web_token_0o6s}}, a collection variable that is never populated by any script in this collection (Platform Login's afterResponse script sets 'platform_token' instead). This is a defect in the Postman collection itself, not a verified backend issue — see Findings."
+    },
+    {
+      "step": 5,
+      "folder": "039cf588-7c64-421d-b565-75d57473a52b",
+      "name": "Activity Log",
+      "method": "GET",
+      "path": "/platform/activity/",
+      "fullUrl": "https://dineos-1unt.onrender.com/platform/activity/",
+      "requestBody": "(no request body — GET)",
+      "responseBody": "{\"detail\":\"Authentication credentials were not provided.\"}",
+      "statusCode": 401,
+      "passFail": "FAIL",
+      "auth": "None (public)",
+      "notes": "FAIL — this request authenticates via Postman's native 'auth: bearer' field bound to {{json_web_token_0o6s}}, a collection variable that is never populated by any script in this collection (Platform Login's afterResponse script sets 'platform_token' instead). This is a defect in the Postman collection itself, not a verified backend issue — see Findings."
+    },
+    {
+      "step": 6,
+      "folder": "fa0ccf9f-f719-4aee-8952-0c0f07341094",
+      "name": "Team List",
+      "method": "GET",
+      "path": "/platform/team/",
+      "fullUrl": "https://dineos-1unt.onrender.com/platform/team/",
+      "requestBody": "(no request body — GET)",
+      "responseBody": "{\"detail\":\"Authentication credentials were not provided.\"}",
+      "statusCode": 401,
+      "passFail": "FAIL",
+      "auth": "None (public)",
+      "notes": "FAIL — this request authenticates via Postman's native 'auth: bearer' field bound to {{json_web_token_0o6s}}, a collection variable that is never populated by any script in this collection (Platform Login's afterResponse script sets 'platform_token' instead). This is a defect in the Postman collection itself, not a verified backend issue — see Findings."
+    },
+    {
+      "step": 7,
+      "folder": "3cbe46fb-11cc-46fd-85bc-f3a64d04bd67",
+      "name": "Task Create",
+      "method": "GET",
+      "path": "/platform/team/",
+      "fullUrl": "https://dineos-1unt.onrender.com/platform/team/",
+      "requestBody": "(no request body — GET)",
+      "responseBody": "{\"detail\":\"Authentication credentials were not provided.\"}",
+      "statusCode": 401,
+      "passFail": "FAIL",
+      "auth": "None (public)",
+      "notes": "FAIL — this request authenticates via Postman's native 'auth: bearer' field bound to {{json_web_token_0o6s}}, a collection variable that is never populated by any script in this collection (Platform Login's afterResponse script sets 'platform_token' instead). This is a defect in the Postman collection itself, not a verified backend issue — see Findings."
+    }
+  ],
+  "findings": [
+    {
+      "title": "4 of 7 Platform (Super Admin) requests reference an unset token variable",
+      "severity": "Test-collection defect (unverified whether backend endpoints work)",
+      "description": "Dashboard, Activity Log, Team List, and Task Create all authenticate via Postman's native 'auth: bearer' field bound to {{json_web_token_0o6s}}. No script anywhere in the collection sets that variable — Platform Login's afterResponse script sets 'platform_token' instead (which List Tenants and Staff Token Rejected Here correctly reference via an Authorization header). As a result these 4 requests send an empty/literal bearer token and get 401. This looks like copy-paste drift when these requests were added to the collection — they were never pointed at the variable Platform Login actually populates. The underlying backend behavior for these 4 endpoints has not been independently verified yet.",
+      "evidence": {
+        "affectedRequests": "Dashboard, Activity Log, Team List, Task Create",
+        "brokenVariable": "{{json_web_token_0o6s}} (never set)",
+        "correctVariable": "{{platform_token}} (set by Platform Login's afterResponse script)"
+      }
+    },
+    {
+      "title": "'Task Create' request is a mislabeled duplicate of 'Team List'",
+      "severity": "Test-collection hygiene issue",
+      "description": "Task Create.request.yaml is byte-for-byte identical to Team List.request.yaml: same GET {{server_root}}/platform/team/, same broken auth variable. There is no actual task-creation request in the Platform folder despite the name.",
+      "evidence": {}
+    }
+  ]
+}

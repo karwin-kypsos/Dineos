@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{server_root}}/v1/admin/settings/"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: pm.test('status is 200', () => pm.response.to.have.status(200));
+    language: text/javascript
+order: 5000

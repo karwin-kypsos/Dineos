@@ -1,0 +1,18 @@
+$kind: http-request
+name: Platform Login — Step 1 (email + password)
+url: "{{server_root}}/platform/auth/login/"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"email": "{{platform_admin_email}}", "password": "Demo@1234"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const platformLoginData = pm.response.json();
+      if (platformLoginData.code) { pm.collectionVariables.set('platform_login_code', platformLoginData.code); }
+      pm.test('requires 2FA', () => pm.expect(platformLoginData.requires_2fa).to.eql(true));
+    language: text/javascript
+examples: .resources/Platform Login.resources/examples
+order: 1000

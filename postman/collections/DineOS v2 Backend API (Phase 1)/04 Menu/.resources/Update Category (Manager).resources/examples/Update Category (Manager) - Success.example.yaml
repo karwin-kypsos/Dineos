@@ -1,0 +1,14 @@
+$kind: http-example
+name: 'Update Category (Manager) - Success'
+originalRequest:
+  method: PUT
+  url: '{{base_url}}/menu/categories/3/'
+  headers:
+    Content-Type: application/json
+  body:
+    type: text
+    content: '{"name": "Starters (Updated)", "emoji": "🥗", "sort_order": 2}'
+code: 200
+body:
+  type: text
+  content: '{"id":3,"name":"Starters (Updated)","emoji":"🥗","sort_order":2,"is_active":true}'

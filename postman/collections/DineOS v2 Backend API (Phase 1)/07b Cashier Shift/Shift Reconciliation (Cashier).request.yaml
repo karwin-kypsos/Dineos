@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{base_url}}/cashier/shifts/{{shift_id}}/reconciliation/"
+method: GET
+headers:
+  Authorization: Bearer {{cashier_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const reconciliationData = pm.response.json();
+      pm.collectionVariables.set('cashier_cash_total', reconciliationData.cash);
+      pm.test('cash total is greater than 0', () => pm.expect(parseFloat(reconciliationData.cash)).to.be.above(0));
+    language: text/javascript
+order: 6000

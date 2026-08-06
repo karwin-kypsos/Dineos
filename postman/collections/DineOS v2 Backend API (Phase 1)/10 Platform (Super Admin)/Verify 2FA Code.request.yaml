@@ -1,0 +1,17 @@
+$kind: http-request
+name: Platform Login — Step 2 (verify 2FA code)
+url: "{{server_root}}/platform/auth/verify-2fa/"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"email": "{{platform_admin_email}}", "code": "{{platform_login_code}}"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const verify2faData = pm.response.json();
+      pm.collectionVariables.set('platform_token', verify2faData.access);
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+    language: text/javascript
+order: 1500

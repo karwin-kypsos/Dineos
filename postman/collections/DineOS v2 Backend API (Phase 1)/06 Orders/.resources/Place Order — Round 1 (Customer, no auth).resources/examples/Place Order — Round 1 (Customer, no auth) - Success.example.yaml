@@ -1,0 +1,14 @@
+$kind: http-example
+name: 'Place Order — Round 1 (Customer, no auth) - Success'
+originalRequest:
+  method: POST
+  url: '{{base_url}}/orders/'
+  headers:
+    Content-Type: application/json
+  body:
+    type: text
+    content: '{"session_id": "58aa2387-c88d-4e6d-acba-967f1080b234", "items": [{"menu_item": 3, "quantity": 2}]}'
+code: 201
+body:
+  type: text
+  content: '{"id":"e2ada04e-6fbd-4e83-b901-4e24c1dcde31","session":"58aa2387-c88d-4e6d-acba-967f1080b234","table":"72e00ee8-a87e-4b05-af40-9ec95d10de7d","round_number":1,"status":"NEW","placed_by":null,"notes":"","items":[{"id":1,"menu_item":3,"menu_item_name":"Paneer Tikka","quantity":2,"unit_price":"180.00","line_total":"360.00","notes":""}],"placed_at":"2026-08-05T11:53:28.967377Z","accepted_at":null,"ready_at":null,"collected_at":null,"served_at":null}'

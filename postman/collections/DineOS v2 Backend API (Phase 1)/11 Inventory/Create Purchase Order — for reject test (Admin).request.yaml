@@ -1,0 +1,21 @@
+$kind: http-request
+url: "{{base_url}}/inventory/purchase-orders/"
+method: POST
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "supplier_name": "Dairy Fresh",
+      "lines": [{"ingredient": "{{temp_ingredient_id}}", "quantity_ordered": "10.00", "unit_cost": "320.00"}]
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      const createRejectPoData = pm.response.json();
+      pm.collectionVariables.set('temp_purchase_order_id', createRejectPoData.id);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+    language: text/javascript
+order: 4800

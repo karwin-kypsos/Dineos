@@ -1,0 +1,158 @@
+$kind: http-example
+request:
+  url: "{{base_url}}/staff/"
+  method: GET
+  headers:
+    Authorization: Bearer {{admin_token}}
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    date: Wed, 05 Aug 2026 09:32:41 GMT
+    content-type: application/json
+    content-length: "603"
+    connection: keep-alive
+    allow: GET, POST, HEAD, OPTIONS
+    content-encoding: br
+    cross-origin-opener-policy: same-origin
+    referrer-policy: same-origin
+    rndr-id: 63429e94-4c36-4fd0
+    server: cloudflare
+    vary: origin, Accept-Encoding
+    x-content-type-options: nosniff
+    x-frame-options: DENY
+    x-render-origin-server: daphne
+    cf-cache-status: DYNAMIC
+    cf-ray: a264cbc6ed1a7ee2-MAA
+    alt-svc: h3=":443"; ma=86400
+  body:
+    type: json
+    content: |-
+      {
+        "count": 6,
+        "next": null,
+        "previous": null,
+        "results": [
+          {
+            "id": "b7d0425b-0000-4fd0-9658-ef497314a5d4",
+            "email": "newserver@demo-bistro.demo",
+            "name": "New Server",
+            "phone": "",
+            "role": "SERVER",
+            "role_id": 3,
+            "role_name": "server",
+            "is_active": false,
+            "restaurant": {
+              "id": 1,
+              "name": "DineOS Demo Bistro",
+              "slug": "demo-bistro",
+              "notifications_enabled": true,
+              "kitchen_enabled": true,
+              "billing_enabled": true,
+              "realtime_enabled": true
+            },
+            "created_at": "2026-08-05T05:00:07.993752Z"
+          },
+          {
+            "id": "40a1e5db-6dd8-4bba-bfa1-54f4a6cffefd",
+            "email": "shereena@krypsos.tech",
+            "name": "Shereena",
+            "phone": "",
+            "role": "MANAGER",
+            "role_id": 2,
+            "role_name": "manager",
+            "is_active": true,
+            "restaurant": {
+              "id": 1,
+              "name": "DineOS Demo Bistro",
+              "slug": "demo-bistro",
+              "notifications_enabled": true,
+              "kitchen_enabled": true,
+              "billing_enabled": true,
+              "realtime_enabled": true
+            },
+            "created_at": "2026-08-04T14:03:09.871617Z"
+          },
+          {
+            "id": "d411e5c8-c2c2-45c5-9268-d9307587818b",
+            "email": "cashier@demo-bistro.demo",
+            "name": "Cashier",
+            "phone": "",
+            "role": "CASHIER",
+            "role_id": 4,
+            "role_name": "cashier",
+            "is_active": true,
+            "restaurant": {
+              "id": 1,
+              "name": "DineOS Demo Bistro",
+              "slug": "demo-bistro",
+              "notifications_enabled": true,
+              "kitchen_enabled": true,
+              "billing_enabled": true,
+              "realtime_enabled": true
+            },
+            "created_at": "2026-08-03T12:04:50.968797Z"
+          },
+          {
+            "id": "ebbf095c-970e-4d9f-a6a5-ff0d4a8e8738",
+            "email": "server@demo-bistro.demo",
+            "name": "Server",
+            "phone": "",
+            "role": "SERVER",
+            "role_id": 3,
+            "role_name": "server",
+            "is_active": true,
+            "restaurant": {
+              "id": 1,
+              "name": "DineOS Demo Bistro",
+              "slug": "demo-bistro",
+              "notifications_enabled": true,
+              "kitchen_enabled": true,
+              "billing_enabled": true,
+              "realtime_enabled": true
+            },
+            "created_at": "2026-08-03T12:04:49.769319Z"
+          },
+          {
+            "id": "d318d38f-f2b7-450c-8b2e-0210e928ab73",
+            "email": "manager@demo-bistro.demo",
+            "name": "Manager",
+            "phone": "",
+            "role": "MANAGER",
+            "role_id": 2,
+            "role_name": "manager",
+            "is_active": true,
+            "restaurant": {
+              "id": 1,
+              "name": "DineOS Demo Bistro",
+              "slug": "demo-bistro",
+              "notifications_enabled": true,
+              "kitchen_enabled": true,
+              "billing_enabled": true,
+              "realtime_enabled": true
+            },
+            "created_at": "2026-08-03T12:04:48.480257Z"
+          },
+          {
+            "id": "acc5014f-08e7-4c3a-b2fc-0ca2298cc677",
+            "email": "admin@demo-bistro.demo",
+            "name": "Admin",
+            "phone": "",
+            "role": "ADMIN",
+            "role_id": 1,
+            "role_name": "org_admin",
+            "is_active": true,
+            "restaurant": {
+              "id": 1,
+              "name": "DineOS Demo Bistro",
+              "slug": "demo-bistro",
+              "notifications_enabled": true,
+              "kitchen_enabled": true,
+              "billing_enabled": true,
+              "realtime_enabled": true
+            },
+            "created_at": "2026-08-03T12:04:47.278027Z"
+          }
+        ]
+      }
+order: 1785922368911

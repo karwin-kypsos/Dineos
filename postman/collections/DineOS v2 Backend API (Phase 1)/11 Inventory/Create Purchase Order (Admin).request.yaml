@@ -1,0 +1,23 @@
+$kind: http-request
+url: "{{base_url}}/inventory/purchase-orders/"
+method: POST
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "supplier_name": "Local Grain Co.",
+      "supplier_notes": "Monthly restock",
+      "lines": [{"ingredient": "{{ingredient_id}}", "quantity_ordered": "25.00", "unit_cost": "85.00"}]
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      const createPoData = pm.response.json();
+      pm.collectionVariables.set('purchase_order_id', createPoData.id);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+      pm.test('status is PENDING', () => pm.expect(createPoData.status).to.eql('PENDING'));
+    language: text/javascript
+order: 4000

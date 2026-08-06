@@ -1,0 +1,9 @@
+$kind: http-example
+name: 'Today''s Prepared Dishes - Success'
+originalRequest:
+  method: GET
+  url: '{{base_url}}/prepared-dishes/today/'
+code: 200
+body:
+  type: text
+  content: '[{"id":5,"menu_item":1,"menu_item_name":"Chicken Biryani","date":"2026-08-05","portions_initial":20,"portions_remaining":20,"updated_at":"2026-08-05T04:59:53.216685Z"},{"id":7,"menu_item":3,"menu_item_name":"Paneer Tikka","date":"2026-08-05","portions_initial":15,"portions_remaining":15,"updated_at":"2026-08-05T11:53:26.898368Z"}]'

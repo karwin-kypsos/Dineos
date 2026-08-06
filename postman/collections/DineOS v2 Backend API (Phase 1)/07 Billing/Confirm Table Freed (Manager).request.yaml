@@ -1,0 +1,6 @@
+$kind: http-request
+url: "{{base_url}}/tables/"
+method: GET
+headers:
+  Authorization: Bearer {{manager_token}}
+order: 5000

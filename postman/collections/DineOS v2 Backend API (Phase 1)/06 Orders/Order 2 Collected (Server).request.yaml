@@ -1,0 +1,6 @@
+$kind: http-request
+url: "{{base_url}}/orders/{{order_2_id}}/collected/"
+method: PATCH
+headers:
+  Authorization: Bearer {{server_token}}
+order: 16000

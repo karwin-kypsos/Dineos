@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{base_url}}/orders/session/{{session_id}}/"
+method: GET
+order: 5000

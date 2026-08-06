@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{base_url}}/notifications/"
+method: GET
+headers:
+  Authorization: Bearer {{manager_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const notificationsData = pm.response.json();
+      const notificationsList = notificationsData.results || notificationsData;
+      if (notificationsList.length) { pm.collectionVariables.set('notification_id', notificationsList[0].id); }
+    language: text/javascript
+order: 1000

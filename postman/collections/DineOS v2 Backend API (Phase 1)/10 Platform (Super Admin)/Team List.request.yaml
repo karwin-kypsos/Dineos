@@ -1,0 +1,6 @@
+$kind: http-request
+url: "{{server_root}}/platform/team/"
+method: GET
+headers:
+  Authorization: Bearer {{platform_token}}
+order: 6464

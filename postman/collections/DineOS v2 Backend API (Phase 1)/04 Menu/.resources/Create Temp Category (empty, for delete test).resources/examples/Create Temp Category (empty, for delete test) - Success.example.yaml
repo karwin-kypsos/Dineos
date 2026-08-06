@@ -1,0 +1,14 @@
+$kind: http-example
+name: 'Create Temp Category (empty, for delete test) - Success'
+originalRequest:
+  method: POST
+  url: '{{base_url}}/menu/categories/'
+  headers:
+    Content-Type: application/json
+  body:
+    type: text
+    content: '{"name": "Temp Category", "emoji": "🗑️", "sort_order": 99}'
+code: 201
+body:
+  type: text
+  content: '{"id":4,"name":"Temp Category","emoji":"🗑️","sort_order":99,"is_active":true}'

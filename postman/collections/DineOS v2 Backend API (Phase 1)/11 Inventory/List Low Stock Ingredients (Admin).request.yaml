@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{base_url}}/inventory/ingredients/?low_stock=true"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const lowStockData = pm.response.json();
+      const results = Array.isArray(lowStockData) ? lowStockData : lowStockData.results;
+      const ids = results.map(i => i.id);
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('includes Paneer (0 stock, never restocked)', () => pm.expect(ids).to.include(pm.collectionVariables.get('temp_ingredient_id')));
+    language: text/javascript
+order: 3100

@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{base_url}}/auth/me/"
+method: GET
+headers:
+  Authorization: Bearer {{impersonation_token}}
+scripts:
+  - type: afterResponse
+    code: pm.test('status is 200', () => pm.response.to.have.status(200));
+    language: text/javascript
+order: 2550

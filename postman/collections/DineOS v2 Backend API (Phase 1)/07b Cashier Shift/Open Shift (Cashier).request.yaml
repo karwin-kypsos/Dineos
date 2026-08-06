@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{base_url}}/cashier/shifts/open/"
+method: POST
+headers:
+  Authorization: Bearer {{cashier_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const openShiftData = pm.response.json();
+      pm.collectionVariables.set('shift_id', openShiftData.id);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+    language: text/javascript
+order: 1000

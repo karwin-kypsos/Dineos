@@ -1,0 +1,16 @@
+$kind: http-request
+url: "{{base_url}}/auth/login/"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"email": "manager@{{tenant_slug}}.demo", "password": "Demo@1234"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const managerLoginData = pm.response.json();
+      pm.collectionVariables.set('manager_token', managerLoginData.access);
+    language: text/javascript
+examples: './.resources/Login — Manager.resources/examples'
+order: 2000

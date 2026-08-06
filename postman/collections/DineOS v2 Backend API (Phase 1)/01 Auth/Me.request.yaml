@@ -1,0 +1,18 @@
+$kind: http-request
+url: "{{base_url}}/auth/me/"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const meData = pm.response.json();
+      pm.test('includes own tenant feature flags', () => {
+        pm.expect(meData.restaurant).to.have.property('kitchen_enabled');
+        pm.expect(meData.restaurant).to.have.property('billing_enabled');
+        pm.expect(meData.restaurant).to.have.property('notifications_enabled');
+        pm.expect(meData.restaurant).to.have.property('realtime_enabled');
+      });
+    language: text/javascript
+examples: './.resources/Me.resources/examples'
+order: 5000

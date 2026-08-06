@@ -1,0 +1,19 @@
+$kind: http-request
+url: "{{base_url}}/bills/takeaway-payment/"
+method: POST
+headers:
+  Authorization: Bearer {{branch_cashier_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"order_id": "{{takeaway_order_id}}", "payment_method": "CASH"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const payTakeawayData = pm.response.json();
+      pm.collectionVariables.set('bill_id', payTakeawayData.id);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+      pm.test('payment_method is CASH', () => pm.expect(payTakeawayData.payment_method).to.eql('CASH'));
+      pm.test('paid_at is set', () => pm.expect(payTakeawayData.paid_at).to.not.be.null);
+    language: text/javascript
+order: 20100

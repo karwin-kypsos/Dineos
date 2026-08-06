@@ -1,0 +1,42 @@
+{
+  "environment": {
+    "server_root": "https://dineos-1unt.onrender.com",
+    "base_url": "https://dineos-1unt.onrender.com/v1",
+    "tenant_slug": "demo-bistro",
+    "collection": "DineOS v2 Backend API (Phase 1)",
+    "folder": "05 Prepared Dishes",
+    "run_date_utc": "2026-08-05T15:17:12+00:00",
+    "runner": "Newman 6.2.2 (Postman's official CLI collection runner)"
+  },
+  "results": [
+    {
+      "step": 1,
+      "folder": "39223245-d77b-4ad8-b052-d30c787629ed",
+      "name": "Add Portions (Manager)",
+      "method": "PATCH",
+      "path": "/v1/prepared-dishes/3/add-portions/",
+      "fullUrl": "https://dineos-1unt.onrender.com/v1/prepared-dishes/3/add-portions/",
+      "requestBody": "{\"additional_quantity\": 15}",
+      "responseBody": "{\"id\":7,\"menu_item\":3,\"menu_item_name\":\"Paneer Tikka\",\"date\":\"2026-08-05\",\"portions_initial\":15,\"portions_remaining\":15,\"updated_at\":\"2026-08-05T11:53:26.898368Z\"}",
+      "statusCode": 200,
+      "passFail": "PASS",
+      "auth": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE3MTg5LCJpYXQiOjE3ODU5MzA3ODksImp0aSI6IjdjZTZjZDdiOTY5NjQxN2ViZTJhYWM4MjgzMDMwZWQ1IiwidXNlcl9pZCI6ImQzMThkMzhmLWYyYjctNDUwYy04YjJlLTAyMTBlOTI4YWI3MyIsInJvbGUiOiJNQU5BR0VSIiwibmFtZSI6Ik1hbmFnZXIiLCJyZXN0YXVyYW50X2lkIjoiMSJ9.dy7gVakrdr2zDMScc_GFHttoXbqug6tvzNnTVlRRZyY",
+      "notes": ""
+    },
+    {
+      "step": 2,
+      "folder": "e4460945-7b35-4189-916b-830a6e43d991",
+      "name": "Today's Prepared Dishes",
+      "method": "GET",
+      "path": "/v1/prepared-dishes/today/",
+      "fullUrl": "https://dineos-1unt.onrender.com/v1/prepared-dishes/today/",
+      "requestBody": "(no request body — GET)",
+      "responseBody": "[{\"id\":5,\"menu_item\":1,\"menu_item_name\":\"Chicken Biryani\",\"date\":\"2026-08-05\",\"portions_initial\":20,\"portions_remaining\":20,\"updated_at\":\"2026-08-05T04:59:53.216685Z\"},{\"id\":7,\"menu_item\":3,\"menu_item_name\":\"Paneer Tikka\",\"date\":\"2026-08-05\",\"portions_initial\":15,\"portions_remaining\":15,\"updated_at\":\"2026-08-05T11:53:26.898368Z\"}]",
+      "statusCode": 200,
+      "passFail": "PASS",
+      "auth": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE3MTg5LCJpYXQiOjE3ODU5MzA3ODksImp0aSI6IjdjZTZjZDdiOTY5NjQxN2ViZTJhYWM4MjgzMDMwZWQ1IiwidXNlcl9pZCI6ImQzMThkMzhmLWYyYjctNDUwYy04YjJlLTAyMTBlOTI4YWI3MyIsInJvbGUiOiJNQU5BR0VSIiwibmFtZSI6Ik1hbmFnZXIiLCJyZXN0YXVyYW50X2lkIjoiMSJ9.dy7gVakrdr2zDMScc_GFHttoXbqug6tvzNnTVlRRZyY",
+      "notes": ""
+    }
+  ],
+  "findings": []
+}

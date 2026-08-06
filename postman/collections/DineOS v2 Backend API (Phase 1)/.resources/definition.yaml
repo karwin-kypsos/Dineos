@@ -1,0 +1,145 @@
+$kind: collection
+name: DineOS v2 Backend API (Phase 1)
+description: Sit-down restaurant OS — table sessions, QR ordering, kitchen, billing. Phase 1 endpoints only.
+variables:
+  - key: server_root
+    value: https://dineos-1unt.onrender.com
+    disabled: false
+  - key: base_url
+    value: "{{server_root}}/v1"
+    disabled: false
+  - key: tenant_slug
+    value: demo-bistro
+    disabled: false
+  - key: platform_token
+    value: ""
+    disabled: false
+  - key: admin_token
+    secret: true
+    disabled: false
+  - key: manager_token
+    value: ""
+    disabled: false
+  - key: server_token
+    secret: true
+    disabled: false
+  - key: cashier_token
+    secret: true
+    disabled: false
+  - key: kds_api_key
+    value: 81b07c39ac7f53efe6742e129273ea1e0ebf751116e9c7f317e4a4588d8e3dcd
+    disabled: false
+  - key: refresh_token
+    secret: true
+    disabled: false
+  - key: reset_token
+    value: ""
+    disabled: false
+  - key: table_id
+    value: ""
+    disabled: false
+  - key: table_number
+    value: "5"
+    disabled: false
+  - key: session_id
+    value: ""
+    disabled: false
+  - key: menu_item_id
+    value: ""
+    disabled: false
+  - key: category_id
+    value: ""
+    disabled: false
+  - key: temp_menu_item_id
+    value: ""
+    disabled: false
+  - key: temp_category_id
+    value: ""
+    disabled: false
+  - key: order_1_id
+    value: ""
+    disabled: false
+  - key: order_2_id
+    value: ""
+    disabled: false
+  - key: bill_id
+    value: ""
+    disabled: false
+  - key: staff_id
+    value: ""
+    disabled: false
+  - key: branch_id
+    value: ""
+    disabled: false
+  - key: temp_branch_id
+    value: ""
+    disabled: false
+  - key: notification_id
+    value: ""
+    disabled: false
+  - key: shift_id
+    value: ""
+    disabled: false
+  - key: cashier_cash_total
+    value: ""
+    disabled: false
+  - key: super_admin_token
+    secret: true
+    disabled: false
+  - key: json_web_token_0o6s
+    secret: true
+    disabled: false
+  - key: invite_token
+    value: ""
+    disabled: false
+  - key: new_admin_id
+    value: ""
+    disabled: false
+  - key: ingredient_id
+    value: ""
+    disabled: false
+  - key: temp_ingredient_id
+    value: ""
+    disabled: false
+  - key: purchase_order_id
+    value: ""
+    disabled: false
+  - key: temp_purchase_order_id
+    value: ""
+    disabled: false
+  - key: takeaway_order_id
+    value: ""
+    disabled: false
+  - key: platform_login_code
+    value: ""
+    disabled: false
+  - key: platform_admin_email
+    value: super@dineos.platform
+    disabled: false
+  - key: impersonation_session_id
+    value: ""
+    disabled: false
+  - key: impersonation_token
+    value: ""
+    disabled: false
+  - key: new_org_id
+    value: ""
+    disabled: false
+  - key: new_org_admin_invite_token
+    value: ""
+    disabled: false
+  - key: new_org_admin_email
+    value: ""
+    disabled: false
+  - key: team_member_id
+    value: ""
+    disabled: false
+  - key: branch_cashier_token
+    value: ""
+    disabled: false
+  - key: branch_cashier_id
+    value: ""
+    disabled: false
+  - key: branch_cashier_email
+    value: ""
+    disabled: false

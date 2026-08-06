@@ -1,0 +1,14 @@
+$kind: http-example
+name: 'Login â€” Server - Success'
+originalRequest:
+  method: POST
+  url: '{{base_url}}/auth/login/'
+  headers:
+    Content-Type: application/json
+  body:
+    type: text
+    content: '{"email": "server@demo-bistro.demo", "password": "Demo@1234"}'
+code: 200
+body:
+  type: text
+  content: '{"refresh":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc4NjQ1NDUyMCwiaWF0IjoxNzg1ODQ5NzIwLCJqdGkiOiI0ODAwMDgzMjRmODU0M2NjYThlZWFkNjBiODRmNzc0NSIsInVzZXJfaWQiOiJlYmJmMDk1Yy05NzBlLTRkOWYtYTZhNS1mZjBkNGE4ZTg3MzgiLCJyb2xlIjoiU0VSVkVSIiwibmFtZSI6IlNlcnZlciIsInJlc3RhdXJhbnRfaWQiOiIxIn0.RP4WlSZMI8DjElvwmiN9mN6rR9r7Wi2WwzwjriVZc7k","access":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg1OTM2MTIwLCJpYXQiOjE3ODU4NDk3MjAsImp0aSI6IjkwNjA3M2ZlMjQyNDQzNmJhZjVkN2YzZDU1MjBhODg2IiwidXNlcl9pZCI6ImViYmYwOTVjLTk3MGUtNGQ5Zi1hNmE1LWZmMGQ0YThlODczOCIsInJvbGUiOiJTRVJWRVIiLCJuYW1lIjoiU2VydmVyIiwicmVzdGF1cmFudF9pZCI6IjEifQ.sg13yKFRbXao6F82rcYYJgGY-gILunPiyfVgtyjW49M","role":"SERVER","role_id":3,"role_name":"server","name":"Server","restaurant_id":"1"}'

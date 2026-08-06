@@ -1,0 +1,49 @@
+$kind: http-example
+request:
+  url: "{{server_root}}/platform/auth/login/?email=admin@demo-bistro.demo&password=Demo@1234"
+  method: POST
+  headers:
+    Content-Type: application/json
+  queryParams:
+    - key: email
+      value: admin@demo-bistro.demo
+      disabled: false
+      description: |-
+        {
+            "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg1ODQ2NjczLCJpYXQiOjE3ODU3NjAyNzMsImp0aSI6IjZjOTJmN2EyM2Y0MzQxMTA5NWYwZjYxODMyZDQ2MzBlIiwidXNlcl9pZCI6IjU5NGZmZTM0LWFhNzctNGM4NS05M2JjLTZiYzM2OTA1ZTJiNCIsInBsYXRmb3JtX2FkbWluIjp0cnVlLCJuYW1lIjoiU3VwZXIgQWRtaW4ifQ.FC9D_dcjOxsjEP7IDZ-8mP-jGbr39oB2NuMZhkq53k4"
+        }
+    - key: password
+      value: Demo@1234
+      disabled: false
+      description: ""
+  body:
+    type: json
+    content: '{"email": "karwin@krypsos.tech","password": "Strongadmin123"}'
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    date: Mon, 03 Aug 2026 12:31:14 GMT
+    content-type: application/json
+    content-length: "286"
+    connection: keep-alive
+    allow: POST, OPTIONS
+    content-encoding: br
+    cross-origin-opener-policy: same-origin
+    referrer-policy: same-origin
+    rndr-id: 524f229a-fd38-4749
+    server: cloudflare
+    vary: origin, Accept-Encoding
+    x-content-type-options: nosniff
+    x-frame-options: DENY
+    x-render-origin-server: daphne
+    cf-cache-status: DYNAMIC
+    cf-ray: a255557cc964a27c-MAA
+    alt-svc: h3=":443"; ma=86400
+  body:
+    type: json
+    content: |-
+      {
+        "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg1ODQ2NjczLCJpYXQiOjE3ODU3NjAyNzMsImp0aSI6IjZjOTJmN2EyM2Y0MzQxMTA5NWYwZjYxODMyZDQ2MzBlIiwidXNlcl9pZCI6IjU5NGZmZTM0LWFhNzctNGM4NS05M2JjLTZiYzM2OTA1ZTJiNCIsInBsYXRmb3JtX2FkbWluIjp0cnVlLCJuYW1lIjoiU3VwZXIgQWRtaW4ifQ.FC9D_dcjOxsjEP7IDZ-8mP-jGbr39oB2NuMZhkq53k4"
+      }
+order: 1785760709087

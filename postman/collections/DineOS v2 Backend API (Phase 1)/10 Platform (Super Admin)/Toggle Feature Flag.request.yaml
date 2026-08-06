@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{server_root}}/platform/tenants/{{new_org_id}}/feature-flags/"
+method: PATCH
+headers:
+  Authorization: Bearer {{platform_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"kitchen_enabled": false}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const toggleFlagData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('kitchen_enabled turned off', () => pm.expect(toggleFlagData.kitchen_enabled).to.eql(false));
+    language: text/javascript
+order: 2200

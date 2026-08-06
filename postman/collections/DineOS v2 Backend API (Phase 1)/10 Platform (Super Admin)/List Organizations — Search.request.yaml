@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{server_root}}/platform/tenants/?search=Aura Test"
+method: GET
+headers:
+  Authorization: Bearer {{platform_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const searchOrgData = pm.response.json();
+      const results = Array.isArray(searchOrgData) ? searchOrgData : searchOrgData.results;
+      const ids = results.map(o => String(o.id));
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('search matches the newly created org', () => pm.expect(ids).to.include(String(pm.collectionVariables.get('new_org_id'))));
+    language: text/javascript
+order: 2060

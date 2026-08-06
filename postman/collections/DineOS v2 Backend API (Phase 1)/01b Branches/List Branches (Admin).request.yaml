@@ -1,0 +1,7 @@
+$kind: http-request
+url: "{{base_url}}/branches/"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+examples: .resources/List Branches (Admin).resources/examples
+order: 1000

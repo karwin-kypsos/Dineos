@@ -1,0 +1,14 @@
+$kind: http-request
+url: "{{base_url}}/inventory/purchase-orders/{{purchase_order_id}}/receive/"
+method: POST
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const receivePoData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('status is RECEIVED', () => pm.expect(receivePoData.status).to.eql('RECEIVED'));
+      pm.test('line fully received', () => pm.expect(receivePoData.lines[0].quantity_received).to.eql('25.00'));
+    language: text/javascript
+order: 4600

@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{server_root}}/platform/feature-flags/"
+method: GET
+headers:
+  Authorization: Bearer {{platform_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const flagsData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('includes kitchen_enabled', () => pm.expect(flagsData.map(f => f.key)).to.include('kitchen_enabled'));
+    language: text/javascript
+order: 1650

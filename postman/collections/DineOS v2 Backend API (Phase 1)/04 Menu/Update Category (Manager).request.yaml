@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/menu/categories/{{category_id}}/"
+method: PUT
+headers:
+  Authorization: Bearer {{manager_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"name": "Starters (Updated) {{$timestamp}}", "emoji": "🥗", "sort_order": 2}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const updateCategoryData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('name updated', () => pm.expect(updateCategoryData.name).to.include('Starters (Updated)'));
+    language: text/javascript
+order: 13000

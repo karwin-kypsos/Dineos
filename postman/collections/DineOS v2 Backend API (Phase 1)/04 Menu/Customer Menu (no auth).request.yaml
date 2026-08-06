@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{base_url}}/menu/customer/{{table_id}}/"
+method: GET
+order: 8000

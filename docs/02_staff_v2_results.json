@@ -1,0 +1,67 @@
+{
+  "environment": {
+    "server_root": "https://dineos-1unt.onrender.com",
+    "base_url": "https://dineos-1unt.onrender.com/v1",
+    "tenant_slug": "demo-bistro",
+    "collection": "DineOS v2 Backend API (Phase 1)",
+    "folder": "02 Staff",
+    "run_date_utc": "2026-08-05T11:32:08+00:00",
+    "runner": "Newman 6.2.2 (Postman's official CLI collection runner)"
+  },
+  "results": [
+    {
+      "step": 1,
+      "folder": "",
+      "name": "List Staff (Admin)",
+      "method": "GET",
+      "path": "/v1/staff/",
+      "fullUrl": "https://dineos-1unt.onrender.com/v1/staff/",
+      "requestBody": "(no request body — GET)",
+      "responseBody": "{\"count\":7,\"next\":null,\"previous\":null,\"results\":[{\"id\":\"17ccb2f4-0dda-40b9-bb2d-2b83eb3b43a5\",\"email\":\"newserver2@demo-bistro.demo\",\"name\":\"New Server\",\"phone\":\"\",\"role\":\"SERVER\",\"role_id\":3,\"role_name\":\"server\",\"is_active\":false,\"restaurant\":{\"id\":1,\"name\":\"DineOS Demo Bistro\",\"slug\":\"demo-bistro\",\"notifications_enabled\":true,\"kitchen_enabled\":true,\"billing_enabled\":true,\"realtime_enabled\":true},\"created_at\":\"2026-08-05T09:33:24.562840Z\"},{\"id\":\"b7d0425b-0000-4fd0-9658-ef497314a5d4\",\"email\":\"newserver@demo-bistro.demo\",\"name\":\"New Server\",\"phone\":\"\",\"role\":\"SERVER\",\"role_id\":3,\"role_name\":\"server\",\"is_active\":false,\"restaurant\":{\"id\":1,\"name\":\"DineOS Demo Bistro\",\"slug\":\"demo-bistro\",\"notifications_enabled\":true,\"kitchen_enabled\":true,\"billing_enabled\":true,\"realtime_enabled\":true},\"created_at\":\"2026-08-05T05:00:07.993752Z\"},{\"id\":\"40a1e5db-6dd8-4bba-bfa1-54f4a6cffefd\",\"email\":\"shereena@krypsos.tech\",\"name\":\"Shereena\",\"phone\":\"\",\"role\":\"MANAGER\",\"role_id\":2,\"role_name\":\"manager\",\"is_active\":true,\"restaurant\":{\"id\":1,\"name\":\"DineOS Demo Bistro\",\"slug\":\"demo-bistro\",\"notifications_enabled\":true,\"kitchen_enabled\":true,\"billing_enabled\":true,\"realtime_enabled\":true},\"created_at\":\"2026-08-04T14:03:09.871617Z\"},{\"id\":\"d411e5c8-c2c2-45c5-9268-d9307587818b\",\"email\":\"cashier@demo-bistro.demo\",\"name\":\"Cashier\",\"phone\":\"\",\"role\":\"CASHIER\",\"role_id\":4,\"role_name\":\"cashier\",\"is_active\":true,\"restaurant\":{\"id\":1,\"name\":\"DineOS Demo Bistro\",\"slug\":\"demo-bistro\",\"notifications_enabled\":true,\"kitchen_enabled\":true,\"billing_enabled\":true,\"realtime_enabled\":true},\"created_at\":\"2026-08-03T12:04:50.968797Z\"},{\"id\":\"ebbf095c-970e-4d9f-a6a5-ff0d4a8e8738\",\"email\":\"server@demo-bistro.demo\",\"name\":\"Server\",\"phone\":\"\",\"role\":\"SERVER\",\"role_id\":3,\"role_name\":\"server\",\"is_active\":true,\"restaurant\":{\"id\":1,\"name\":\"DineOS Demo Bistro\",\"slug\":\"demo-bistro\",\"notifications_enabled\":true,\"kitchen_enabled\":true,\"billing_enabled\":true,\"realtime_enabled\":true},\"created_at\":\"2026-08-03T12:04:49.769319Z\"},{\"id\":\"d318d38f-f2b7-450c-8b2e-0210e928ab73\",\"email\":\"manager@demo-bistro.demo\",\"name\":\"Manager\",\"phone\":\"\",\"role\":\"MANAGER\",\"role_id\":2,\"role_name\":\"manager\",\"is_active\":true,\"restaurant\":{\"id\":1,\"name\":\"DineOS Demo Bistro\",\"slug\":\"demo-bistro\",\"notifications_enabled\":true,\"kitchen_enabled\":true,\"billing_enabled\":true,\"realtime_enabled\":true},\"created_at\":\"2026-08-03T12:04:48.480257Z\"},{\"id\":\"acc5014f-08e7-4c3a-b2fc-0ca2298cc677\",\"email\":\"admin@demo-bistro.demo\",\"name\":\"Admin\",\"phone\":\"\",\"role\":\"ADMIN\",\"role_id\":1,\"role_name\":\"org_admin\",\"is_active\":true,\"restaurant\":{\"id\":1,\"name\":\"DineOS Demo Bistro\",\"slug\":\"demo-bistro\",\"notifications_enabled\":true,\"kitchen_enabled\":true,\"billing_enabled\":true,\"realtime_enabled\":true},\"created_at\":\"2026-08-03T12:04:47.278027Z\"}]}",
+      "statusCode": 200,
+      "passFail": "PASS",
+      "auth": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE1ODMzLCJpYXQiOjE3ODU5Mjk0MzMsImp0aSI6IjU4YmM3NjcwMDI1ZTQ0NWZhNDYzMmVmODYzMmZiNjA4IiwidXNlcl9pZCI6ImFjYzUwMTRmLTA4ZTctNGMzYS1iMmZjLTBjYTIyOThjYzY3NyIsInJvbGUiOiJBRE1JTiIsIm5hbWUiOiJBZG1pbiIsInJlc3RhdXJhbnRfaWQiOiIxIn0.--NIm-p9PB-VH24GaYHK4BY4vO3ZYvUd6MiIBTdQ20A",
+      "notes": ""
+    },
+    {
+      "step": 2,
+      "folder": "",
+      "name": "Create Staff (Admin)",
+      "method": "POST",
+      "path": "/v1/staff/",
+      "fullUrl": "https://dineos-1unt.onrender.com/v1/staff/",
+      "requestBody": "{\"email\": \"newserver.livetest.1785929409@demo-bistro.demo\", \"password\": \"Demo@1234\", \"role\": \"SERVER\", \"name\": \"New Server\"}",
+      "responseBody": "{\"id\":\"7e128064-8406-4f6d-888e-6ee61f0bc407\",\"email\":\"newserver.livetest.1785929409@demo-bistro.demo\",\"name\":\"New Server\",\"phone\":\"\",\"role\":\"SERVER\"}",
+      "statusCode": 201,
+      "passFail": "PASS",
+      "auth": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE1ODMzLCJpYXQiOjE3ODU5Mjk0MzMsImp0aSI6IjU4YmM3NjcwMDI1ZTQ0NWZhNDYzMmVmODYzMmZiNjA4IiwidXNlcl9pZCI6ImFjYzUwMTRmLTA4ZTctNGMzYS1iMmZjLTBjYTIyOThjYzY3NyIsInJvbGUiOiJBRE1JTiIsIm5hbWUiOiJBZG1pbiIsInJlc3RhdXJhbnRfaWQiOiIxIn0.--NIm-p9PB-VH24GaYHK4BY4vO3ZYvUd6MiIBTdQ20A",
+      "notes": "Original hardcoded test email (newserver@demo-bistro.demo) already existed from a prior run and returned 400 (see Findings below). Re-run here with a unique timestamped email to verify the live endpoint."
+    },
+    {
+      "step": 3,
+      "folder": "",
+      "name": "Deactivate Staff (Admin)",
+      "method": "PATCH",
+      "path": "/v1/staff/7e128064-8406-4f6d-888e-6ee61f0bc407/deactivate/",
+      "fullUrl": "https://dineos-1unt.onrender.com/v1/staff/7e128064-8406-4f6d-888e-6ee61f0bc407/deactivate/",
+      "requestBody": "",
+      "responseBody": "{\"id\":\"7e128064-8406-4f6d-888e-6ee61f0bc407\",\"email\":\"newserver.livetest.1785929409@demo-bistro.demo\",\"name\":\"New Server\",\"phone\":\"\",\"role\":\"SERVER\",\"role_id\":3,\"role_name\":\"server\",\"is_active\":false,\"restaurant\":{\"id\":1,\"name\":\"DineOS Demo Bistro\",\"slug\":\"demo-bistro\",\"notifications_enabled\":true,\"kitchen_enabled\":true,\"billing_enabled\":true,\"realtime_enabled\":true},\"created_at\":\"2026-08-05T11:30:39.891616Z\"}",
+      "statusCode": 200,
+      "passFail": "PASS",
+      "auth": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE1ODMzLCJpYXQiOjE3ODU5Mjk0MzMsImp0aSI6IjU4YmM3NjcwMDI1ZTQ0NWZhNDYzMmVmODYzMmZiNjA4IiwidXNlcl9pZCI6ImFjYzUwMTRmLTA4ZTctNGMzYS1iMmZjLTBjYTIyOThjYzY3NyIsInJvbGUiOiJBRE1JTiIsIm5hbWUiOiJBZG1pbiIsInJlc3RhdXJhbnRfaWQiOiIxIn0.--NIm-p9PB-VH24GaYHK4BY4vO3ZYvUd6MiIBTdQ20A",
+      "notes": "staff_id captured from the Create Staff response above (collection variable chaining)."
+    }
+  ],
+  "findings": [
+    {
+      "title": "Create Staff (Admin) test data is not idempotent",
+      "severity": "Test-data issue (not a backend defect)",
+      "description": "The 'Create Staff (Admin)' request body hardcodes the email newserver@demo-bistro.demo. The first live execution of the folder-as-defined returned 400 because that email (and newserver2@demo-bistro.demo) already exist in the tenant from earlier test runs, both left inactive. This makes the request fail on every re-run after the first. Re-running the same request with a unique email (newserver.livetest.<unix_ts>@demo-bistro.demo) succeeded with 201, and the subsequent Deactivate Staff call succeeded with 200 using the returned id, confirming the endpoints themselves work correctly. Recommendation: parametrize the email with a Postman dynamic variable (e.g. {{$timestamp}}) so the request collection is idempotent across runs.",
+      "evidence": {
+        "requestBody": "{\"email\": \"newserver@demo-bistro.demo\", \"password\": \"Demo@1234\", \"role\": \"SERVER\", \"name\": \"New Server\"}",
+        "responseBody": "{\"email\":[\"user with this email already exists.\"]}",
+        "statusCode": 400
+      }
+    }
+  ]
+}

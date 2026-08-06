@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{base_url}}/tables/{{table_id}}/session/"
+method: GET
+order: 4000

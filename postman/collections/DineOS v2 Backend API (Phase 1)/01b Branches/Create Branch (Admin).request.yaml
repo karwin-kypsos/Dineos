@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/branches/"
+method: POST
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"name": "Downtown Branch {{$timestamp}}", "address": "12 Main St"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const createBranchData = pm.response.json();
+      pm.collectionVariables.set('branch_id', createBranchData.id);
+    language: text/javascript
+examples: .resources/Create Branch (Admin).resources/examples
+order: 2000

@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/auth/login/"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"email": "admin@{{tenant_slug}}.demo", "password": "Demo@1234"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const adminLoginData = pm.response.json();
+      pm.collectionVariables.set('admin_token', adminLoginData.access);
+      pm.collectionVariables.set('refresh_token', adminLoginData.refresh);
+    language: text/javascript
+examples: './.resources/Login — Admin.resources/examples'
+order: 1000

@@ -1,0 +1,7 @@
+$kind: http-example
+name: 'Delete Temp Menu Item (Manager) - Success'
+originalRequest:
+  method: DELETE
+  url: '{{base_url}}/menu/4/'
+code: 204
+body: {}

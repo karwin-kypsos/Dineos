@@ -1,0 +1,9 @@
+$kind: http-example
+name: 'Staff Token Rejected Here (should 401-403) - Success'
+originalRequest:
+  method: GET
+  url: '{{server_root}}/platform/tenants/'
+code: 401
+body:
+  type: text
+  content: '{"detail":"Not a platform admin token.","code":"token_not_valid"}'

@@ -1,0 +1,7 @@
+$kind: http-example
+name: 'Delete Temp Category — Empty, Succeeds - Success'
+originalRequest:
+  method: DELETE
+  url: '{{base_url}}/menu/categories/4/'
+code: 204
+body: {}

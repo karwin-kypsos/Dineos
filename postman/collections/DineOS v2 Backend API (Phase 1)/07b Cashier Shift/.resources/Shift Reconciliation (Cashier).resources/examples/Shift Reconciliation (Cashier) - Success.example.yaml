@@ -1,0 +1,9 @@
+$kind: http-example
+name: 'Shift Reconciliation (Cashier) - Success'
+originalRequest:
+  method: GET
+  url: '{{base_url}}/cashier/shifts/ca904359-5707-4a89-94bd-eba9b30b02d0/reconciliation/'
+code: 200
+body:
+  type: text
+  content: '{"cash":"189.00","card":"0.00","upi":"0.00","total":"189.00"}'

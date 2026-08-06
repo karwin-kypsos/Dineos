@@ -1,0 +1,38 @@
+$kind: http-example
+name: 'Login — Manager - Success'
+request:
+  url: '{{base_url}}/auth/login/'
+  method: POST
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {"email": "manager@demo-bistro.demo", "password": "Demo@1234"}
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    - key: date
+      value: 'Tue, 04 Aug 2026 05:23:13 GMT'
+    - key: content-type
+      value: application/json
+    - key: content-length
+      value: '563'
+    - key: allow
+      value: 'POST, OPTIONS'
+    - key: content-encoding
+      value: br
+    - key: vary
+      value: 'origin, Accept-Encoding'
+  body:
+    type: json
+    content: |-
+      {
+        "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc4NjQyNTc5MywiaWF0IjoxNzg1ODIwOTkzLCJqdGkiOiIzMDUxOTYxMGI5YWM0OTBjYTVhYjQ4MjdkYjc2N2U2NSIsInVzZXJfaWQiOiJkMzE4ZDM4Zi1mMmI3LTQ1MGMtOGIyZS0wMjEwZTkyOGFiNzMiLCJyb2xlIjoiTUFOQUdFUiIsIm5hbWUiOiJNYW5hZ2VyIiwicmVzdGF1cmFudF9pZCI6IjEifQ.yOFvA6chP0oBOyaBgD8VYtyWeBO0LubQ5ahkU73pNjc",
+        "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg1OTA3MzkzLCJpYXQiOjE3ODU4MjA5OTMsImp0aSI6IjA1Yzk5YjkwMDM4ZDRmMzQ5NjhmNjgzOGFhZTQzNzAxIiwidXNlcl9pZCI6ImQzMThkMzhmLWYyYjctNDUwYy04YjJlLTAyMTBlOTI4YWI3MyIsInJvbGUiOiJNQU5BR0VSIiwibmFtZSI6Ik1hbmFnZXIiLCJyZXN0YXVyYW50X2lkIjoiMSJ9.xGJSf_f07e662TJ1zO2B56K6UtnEPlVAipSbj5oOD4w",
+        "role": "MANAGER",
+        "name": "Manager",
+        "restaurant_id": "1"
+      }
+order: 1000

@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{base_url}}/inventory/purchase-orders/{{purchase_order_id}}/mark-ordered/"
+method: POST
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const markOrderedData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('status is ORDERED', () => pm.expect(markOrderedData.status).to.eql('ORDERED'));
+    language: text/javascript
+order: 4400

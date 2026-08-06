@@ -1,0 +1,19 @@
+$kind: http-request
+name: Create Team Member (Platform)
+url: "{{server_root}}/platform/team/"
+method: POST
+headers:
+  Authorization: Bearer {{platform_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"email": "support-{{$timestamp}}@dineos.platform", "name": "Support Teammate", "access_level": "SUPPORT_READONLY", "password": "Demo@1234"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const createTeamData = pm.response.json();
+      pm.collectionVariables.set('team_member_id', createTeamData.id);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+      pm.test('access_level is SUPPORT_READONLY', () => pm.expect(createTeamData.access_level).to.eql('SUPPORT_READONLY'));
+    language: text/javascript
+order: 7000

@@ -1,0 +1,7 @@
+$kind: http-request
+name: Activity Log
+url: "{{server_root}}/platform/activity/"
+method: GET
+headers:
+  Authorization: Bearer {{platform_token}}
+order: 5000

@@ -1,0 +1,19 @@
+$kind: http-request
+url: "{{base_url}}/staff/"
+method: POST
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"email": "branch-cashier-{{$timestamp}}@{{tenant_slug}}.demo", "password": "Demo@1234", "role": "CASHIER", "name": "Branch Cashier", "branch": "{{branch_id}}"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const createBranchCashierData = pm.response.json();
+      pm.collectionVariables.set('branch_cashier_id', createBranchCashierData.id);
+      pm.collectionVariables.set('branch_cashier_email', createBranchCashierData.email);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+      pm.test('branch is set', () => pm.expect(createBranchCashierData.branch.id).to.eql(pm.collectionVariables.get('branch_id')));
+    language: text/javascript
+order: 2400

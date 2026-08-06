@@ -1,0 +1,11 @@
+$kind: http-request
+url: "{{base_url}}/auth/logout/"
+method: POST
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"refresh": "{{refresh_token}}"}'
+examples: './.resources/Logout.resources/examples'
+order: 9000

@@ -1,0 +1,14 @@
+$kind: http-request
+url: "{{server_root}}/platform/tenants/{{new_org_id}}/impersonate/"
+method: POST
+headers:
+  Authorization: Bearer {{platform_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const impersonateData = pm.response.json();
+      pm.collectionVariables.set('impersonation_token', impersonateData.access);
+      pm.collectionVariables.set('impersonation_session_id', impersonateData.impersonation_session_id);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+    language: text/javascript
+order: 2500

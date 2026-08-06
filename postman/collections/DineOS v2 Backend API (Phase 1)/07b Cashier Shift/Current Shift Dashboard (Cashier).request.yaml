@@ -1,0 +1,12 @@
+$kind: http-request
+url: "{{base_url}}/cashier/shifts/current/"
+method: GET
+headers:
+  Authorization: Bearer {{cashier_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const dashboardData = pm.response.json();
+      pm.test('paid_today_count is at least 1', () => pm.expect(dashboardData.paid_today_count).to.be.at.least(1));
+    language: text/javascript
+order: 5000

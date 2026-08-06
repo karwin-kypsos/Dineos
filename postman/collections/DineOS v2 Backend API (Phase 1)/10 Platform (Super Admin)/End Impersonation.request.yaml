@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{server_root}}/platform/impersonation-sessions/{{impersonation_session_id}}/end/"
+method: POST
+headers:
+  Authorization: Bearer {{platform_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const endImpersonationData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('is_active is false', () => pm.expect(endImpersonationData.is_active).to.eql(false));
+    language: text/javascript
+order: 2600

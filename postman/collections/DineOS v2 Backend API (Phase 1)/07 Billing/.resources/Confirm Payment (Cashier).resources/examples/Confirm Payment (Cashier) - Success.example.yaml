@@ -1,0 +1,14 @@
+$kind: http-example
+name: 'Confirm Payment (Cashier) - Success'
+originalRequest:
+  method: POST
+  url: '{{base_url}}/bills/payment/'
+  headers:
+    Content-Type: application/json
+  body:
+    type: text
+    content: '{"session_id": "58aa2387-c88d-4e6d-acba-967f1080b234", "payment_method": "CASH"}'
+code: 201
+body:
+  type: text
+  content: '{"id":"d83dc5bf-6c28-4beb-89be-0999f528a0df","session":"58aa2387-c88d-4e6d-acba-967f1080b234","subtotal":"540.00","tax_amount":"27.00","service_charge":"0.00","discount_amount":"0.00","total_amount":"567.00","payment_method":"CASH","processed_by":"d411e5c8-c2c2-45c5-9268-d9307587818b","paid_at":"2026-08-05T11:53:38.195635Z"}'

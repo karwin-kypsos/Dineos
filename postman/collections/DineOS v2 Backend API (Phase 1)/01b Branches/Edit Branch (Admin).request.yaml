@@ -1,0 +1,18 @@
+$kind: http-request
+url: "{{base_url}}/branches/{{branch_id}}/"
+method: PATCH
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"phone": "022-4455-6677", "photo_url": "https://cdn.dineos.demo/branches/downtown.jpg", "table_count": 8}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const editBranchData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('phone updated', () => pm.expect(editBranchData.phone).to.eql('022-4455-6677'));
+      pm.test('table_count updated', () => pm.expect(editBranchData.table_count).to.eql(8));
+    language: text/javascript
+order: 2500

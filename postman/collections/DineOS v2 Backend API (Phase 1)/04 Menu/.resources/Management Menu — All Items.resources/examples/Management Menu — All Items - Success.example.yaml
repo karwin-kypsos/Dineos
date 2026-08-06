@@ -1,0 +1,9 @@
+$kind: http-example
+name: 'Management Menu — All Items - Success'
+originalRequest:
+  method: GET
+  url: '{{base_url}}/menu/all/'
+code: 200
+body:
+  type: text
+  content: '{"count":2,"next":null,"previous":null,"results":[{"id":1,"category":1,"category_name":"Main Course","name":"Chicken Biryani","description":"Chicken Biryani — chef''s special","price":"220.00","image_url":"","is_available":true,"is_active":true,"portions_remaining_today":20,"created_at":"2026-08-03T12:04:50.992047Z","updated_at":"2026-08-03T12:04:50.992054Z"},{"id":3,"category":3,"category_name":"Starters","name":"Paneer Tikka","description":"Grilled paneer","price":"180.00","image_url":"","is_available":true,"is_active":true,"portions_remaining_today":null,"created_at":"2026-08-05T11:53:20.088449Z","updated_at":"2026-08-05T11:53:20.088462Z"}]}'

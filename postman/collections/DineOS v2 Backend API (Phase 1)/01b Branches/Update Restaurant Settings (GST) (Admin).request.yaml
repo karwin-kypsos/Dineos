@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{server_root}}/v1/admin/settings/"
+method: PATCH
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"gst_percentage": "6.00", "service_charge_percentage": "2.50"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const updateGstData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('gst_percentage updated', () => pm.expect(updateGstData.gst_percentage).to.eql('6.00'));
+    language: text/javascript
+order: 5100

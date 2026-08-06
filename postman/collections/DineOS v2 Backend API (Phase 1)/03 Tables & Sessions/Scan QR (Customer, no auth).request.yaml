@@ -1,0 +1,4 @@
+$kind: http-request
+url: "{{base_url}}/tables/qr/{{tenant_slug}}/{{table_number}}/"
+method: GET
+order: 2000

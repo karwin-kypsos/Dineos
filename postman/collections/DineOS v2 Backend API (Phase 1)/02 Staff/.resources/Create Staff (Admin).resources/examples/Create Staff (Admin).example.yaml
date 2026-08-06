@@ -1,0 +1,42 @@
+$kind: http-example
+request:
+  url: "{{base_url}}/staff/"
+  method: POST
+  headers:
+    Authorization: Bearer {{admin_token}}
+    Content-Type: application/json
+  body:
+    type: text
+    content: '{"email": "newserver2@{{tenant_slug}}.demo", "password": "Demo@1234", "role": "SERVER", "name": "New Server"}'
+response:
+  statusCode: 201
+  statusText: Created
+  headers:
+    date: Wed, 05 Aug 2026 09:33:24 GMT
+    content-type: application/json
+    content-length: "110"
+    connection: keep-alive
+    allow: GET, POST, HEAD, OPTIONS
+    content-encoding: br
+    cross-origin-opener-policy: same-origin
+    referrer-policy: same-origin
+    rndr-id: 15755b26-25cd-4231
+    server: cloudflare
+    vary: origin, Accept-Encoding
+    x-content-type-options: nosniff
+    x-frame-options: DENY
+    x-render-origin-server: daphne
+    cf-cache-status: DYNAMIC
+    cf-ray: a264cccbed2e7ee2-MAA
+    alt-svc: h3=":443"; ma=86400
+  body:
+    type: json
+    content: |-
+      {
+        "id": "17ccb2f4-0dda-40b9-bb2d-2b83eb3b43a5",
+        "email": "newserver2@demo-bistro.demo",
+        "name": "New Server",
+        "phone": "",
+        "role": "SERVER"
+      }
+order: 1785922414217

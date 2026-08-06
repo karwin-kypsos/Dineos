@@ -1,0 +1,14 @@
+$kind: http-example
+name: 'Close Shift — Discrepancy Rejected (Cashier) - Success'
+originalRequest:
+  method: POST
+  url: '{{base_url}}/cashier/shifts/ca904359-5707-4a89-94bd-eba9b30b02d0/close/'
+  headers:
+    Content-Type: application/json
+  body:
+    type: text
+    content: '{"counted_cash": "0.00"}'
+code: 409
+body:
+  type: text
+  content: '{"detail":"Counted cash does not match the system total.","discrepancy":"-189.00"}'

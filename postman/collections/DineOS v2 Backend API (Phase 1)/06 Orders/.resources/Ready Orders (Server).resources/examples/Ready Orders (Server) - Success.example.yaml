@@ -1,0 +1,9 @@
+$kind: http-example
+name: 'Ready Orders (Server) - Success'
+originalRequest:
+  method: GET
+  url: '{{base_url}}/orders/ready/'
+code: 200
+body:
+  type: text
+  content: '[]'

@@ -1,0 +1,28 @@
+{
+  "environment": {
+    "server_root": "https://dineos-1unt.onrender.com",
+    "base_url": "https://dineos-1unt.onrender.com/v1",
+    "tenant_slug": "demo-bistro",
+    "collection": "DineOS v2 Backend API (Phase 1)",
+    "folder": "09 Health",
+    "run_date_utc": "2026-08-05T12:06:47+00:00",
+    "runner": "Newman 6.2.2 (Postman's official CLI collection runner)"
+  },
+  "results": [
+    {
+      "step": 1,
+      "folder": "11b189a6-0fda-4b40-b46f-3535610386d7",
+      "name": "Health Check",
+      "method": "GET",
+      "path": "/healthz/",
+      "fullUrl": "https://dineos-1unt.onrender.com/healthz/",
+      "requestBody": "(no request body — GET)",
+      "responseBody": "{\"status\": \"ok\"}",
+      "statusCode": 200,
+      "passFail": "PASS",
+      "auth": "None (public)",
+      "notes": ""
+    }
+  ],
+  "findings": []
+}

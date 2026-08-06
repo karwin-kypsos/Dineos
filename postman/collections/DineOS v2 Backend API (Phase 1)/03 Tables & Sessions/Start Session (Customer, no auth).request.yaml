@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{base_url}}/tables/{{table_id}}/session/"
+method: POST
+scripts:
+  - type: afterResponse
+    code: |-
+      const startSessionData = pm.response.json();
+      pm.collectionVariables.set('session_id', startSessionData.id);
+    language: text/javascript
+order: 3000

@@ -1,0 +1,14 @@
+$kind: http-request
+url: "{{server_root}}/platform/activity/?action=TENANT_CREATED"
+method: GET
+headers:
+  Authorization: Bearer {{platform_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const filterActivityData = pm.response.json();
+      const results = Array.isArray(filterActivityData) ? filterActivityData : filterActivityData.results;
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('all rows are TENANT_CREATED', () => results.every(a => a.action === 'TENANT_CREATED'));
+    language: text/javascript
+order: 5100

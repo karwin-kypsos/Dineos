@@ -1,0 +1,56 @@
+{
+  "environment": {
+    "server_root": "https://dineos-1unt.onrender.com",
+    "base_url": "https://dineos-1unt.onrender.com/v1",
+    "tenant_slug": "demo-bistro",
+    "collection": "DineOS v2 Backend API (Phase 1)",
+    "folder": "08 Notifications",
+    "run_date_utc": "2026-08-05T15:17:14+00:00",
+    "runner": "Newman 6.2.2 (Postman's official CLI collection runner)"
+  },
+  "results": [
+    {
+      "step": 1,
+      "folder": "e2a51d77-f40b-45d7-beda-a7738dbe6e35",
+      "name": "List (Manager)",
+      "method": "GET",
+      "path": "/v1/notifications/",
+      "fullUrl": "https://dineos-1unt.onrender.com/v1/notifications/",
+      "requestBody": "(no request body — GET)",
+      "responseBody": "[{\"id\":8,\"type\":\"PAYMENT_CONFIRMED\",\"title\":\"Payment received — Table 5\",\"body\":\"Bill total: 189.00\",\"data\":{},\"order\":null,\"table\":\"72e00ee8-a87e-4b05-af40-9ec95d10de7d\",\"is_read\":false,\"created_at\":\"2026-08-05T11:53:41.629247Z\"},{\"id\":5,\"type\":\"PAYMENT_CONFIRMED\",\"title\":\"Payment received — Table 5\",\"body\":\"Bill total: 567.00\",\"data\":{},\"order\":null,\"table\":\"72e00ee8-a87e-4b05-af40-9ec95d10de7d\",\"is_read\":false,\"created_at\":\"2026-08-05T11:53:38.238524Z\"},{\"id\":3,\"type\":\"BILL_REQUESTED\",\"title\":\"Bill requested — Table 5\",\"body\":\"Customer is ready to pay.\",\"data\":{},\"order\":null,\"table\":\"72e00ee8-a87e-4b05-af40-9ec95d10de7d\",\"is_read\":false,\"created_at\":\"2026-08-05T11:53:37.112566Z\"}]",
+      "statusCode": 200,
+      "passFail": "PASS",
+      "auth": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE3MTg5LCJpYXQiOjE3ODU5MzA3ODksImp0aSI6IjdjZTZjZDdiOTY5NjQxN2ViZTJhYWM4MjgzMDMwZWQ1IiwidXNlcl9pZCI6ImQzMThkMzhmLWYyYjctNDUwYy04YjJlLTAyMTBlOTI4YWI3MyIsInJvbGUiOiJNQU5BR0VSIiwibmFtZSI6Ik1hbmFnZXIiLCJyZXN0YXVyYW50X2lkIjoiMSJ9.dy7gVakrdr2zDMScc_GFHttoXbqug6tvzNnTVlRRZyY",
+      "notes": ""
+    },
+    {
+      "step": 2,
+      "folder": "1627ba09-86b5-4659-a0d3-bd5c46e99d3d",
+      "name": "Unread Count (Manager)",
+      "method": "GET",
+      "path": "/v1/notifications/unread-count/",
+      "fullUrl": "https://dineos-1unt.onrender.com/v1/notifications/unread-count/",
+      "requestBody": "(no request body — GET)",
+      "responseBody": "{\"count\":3}",
+      "statusCode": 200,
+      "passFail": "PASS",
+      "auth": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE3MTg5LCJpYXQiOjE3ODU5MzA3ODksImp0aSI6IjdjZTZjZDdiOTY5NjQxN2ViZTJhYWM4MjgzMDMwZWQ1IiwidXNlcl9pZCI6ImQzMThkMzhmLWYyYjctNDUwYy04YjJlLTAyMTBlOTI4YWI3MyIsInJvbGUiOiJNQU5BR0VSIiwibmFtZSI6Ik1hbmFnZXIiLCJyZXN0YXVyYW50X2lkIjoiMSJ9.dy7gVakrdr2zDMScc_GFHttoXbqug6tvzNnTVlRRZyY",
+      "notes": ""
+    },
+    {
+      "step": 3,
+      "folder": "dbb90f1f-1b65-4390-97eb-c4f47e236d35",
+      "name": "Mark Read (Manager)",
+      "method": "PATCH",
+      "path": "/v1/notifications/8/read/",
+      "fullUrl": "https://dineos-1unt.onrender.com/v1/notifications/8/read/",
+      "requestBody": "",
+      "responseBody": "{\"id\":8,\"type\":\"PAYMENT_CONFIRMED\",\"title\":\"Payment received — Table 5\",\"body\":\"Bill total: 189.00\",\"data\":{},\"order\":null,\"table\":\"72e00ee8-a87e-4b05-af40-9ec95d10de7d\",\"is_read\":true,\"created_at\":\"2026-08-05T11:53:41.629247Z\"}",
+      "statusCode": 200,
+      "passFail": "PASS",
+      "auth": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg2MDE3MTg5LCJpYXQiOjE3ODU5MzA3ODksImp0aSI6IjdjZTZjZDdiOTY5NjQxN2ViZTJhYWM4MjgzMDMwZWQ1IiwidXNlcl9pZCI6ImQzMThkMzhmLWYyYjctNDUwYy04YjJlLTAyMTBlOTI4YWI3MyIsInJvbGUiOiJNQU5BR0VSIiwibmFtZSI6Ik1hbmFnZXIiLCJyZXN0YXVyYW50X2lkIjoiMSJ9.dy7gVakrdr2zDMScc_GFHttoXbqug6tvzNnTVlRRZyY",
+      "notes": ""
+    }
+  ],
+  "findings": []
+}

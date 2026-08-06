@@ -1,0 +1,6 @@
+$kind: http-request
+url: "{{base_url}}/orders/{{order_1_id}}/"
+method: GET
+headers:
+  X-KDS-API-Key: "{{kds_api_key}}"
+order: 4000

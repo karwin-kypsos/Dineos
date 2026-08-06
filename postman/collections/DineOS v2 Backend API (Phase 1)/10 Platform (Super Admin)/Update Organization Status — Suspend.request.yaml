@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{server_root}}/platform/tenants/{{new_org_id}}/status/"
+method: PATCH
+headers:
+  Authorization: Bearer {{platform_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"status": "SUSPENDED"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const suspendOrgData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('org status is SUSPENDED', () => pm.expect(suspendOrgData.status).to.eql('SUSPENDED'));
+    language: text/javascript
+order: 2100

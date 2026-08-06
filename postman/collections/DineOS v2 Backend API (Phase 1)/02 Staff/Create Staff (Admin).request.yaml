@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/staff/"
+method: POST
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"email": "newserver-{{$timestamp}}@{{tenant_slug}}.demo", "password": "Demo@1234", "role": "SERVER", "name": "New Server", "branch": "{{branch_id}}"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const createStaffData = pm.response.json();
+      pm.collectionVariables.set('staff_id', createStaffData.id);
+    language: text/javascript
+examples: .resources/Create Staff (Admin).resources/examples
+order: 2000

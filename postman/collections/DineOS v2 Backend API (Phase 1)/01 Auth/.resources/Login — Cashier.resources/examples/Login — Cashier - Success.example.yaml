@@ -1,0 +1,38 @@
+$kind: http-example
+name: 'Login — Cashier - Success'
+request:
+  url: '{{base_url}}/auth/login/'
+  method: POST
+  headers:
+    Content-Type: application/json
+  body:
+    type: json
+    content: |-
+      {"email": "cashier@demo-bistro.demo", "password": "Demo@1234"}
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    - key: date
+      value: 'Tue, 04 Aug 2026 05:23:52 GMT'
+    - key: content-type
+      value: application/json
+    - key: content-length
+      value: '560'
+    - key: allow
+      value: 'POST, OPTIONS'
+    - key: content-encoding
+      value: br
+    - key: vary
+      value: 'origin, Accept-Encoding'
+  body:
+    type: json
+    content: |-
+      {
+        "refresh": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6MTc4NjQyNTgzMiwiaWF0IjoxNzg1ODIxMDMyLCJqdGkiOiI0N2EwZDMzOTcwYWM0ZjlkODE5MDg3YzYyMTk2ZmJlZSIsInVzZXJfaWQiOiJkNDExZTVjOC1jMmMyLTQ1YzUtOTI2OC1kOTMwNzU4NzgxOGIiLCJyb2xlIjoiQ0FTSElFUiIsIm5hbWUiOiJDYXNoaWVyIiwicmVzdGF1cmFudF9pZCI6IjEifQ.LFZGWLqsK1p12eik3Legg9x3bj8jMYTkzhfDrk4IEcw",
+        "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzg1OTA3NDMyLCJpYXQiOjE3ODU4MjEwMzIsImp0aSI6ImFmMDJjNjk1MDczYTQ2NTVhM2Y2MjhkMWMzODUxMGNhIiwidXNlcl9pZCI6ImQ0MTFlNWM4LWMyYzItNDVjNS05MjY4LWQ5MzA3NTg3ODE4YiIsInJvbGUiOiJDQVNISUVSIiwibmFtZSI6IkNhc2hpZXIiLCJyZXN0YXVyYW50X2lkIjoiMSJ9.7-O0CPvs2FWtdOrOgAViWkmbRG2UhVyQTiYk1W3FDq8",
+        "role": "CASHIER",
+        "name": "Cashier",
+        "restaurant_id": "1"
+      }
+order: 1000

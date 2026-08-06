@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{base_url}}/branches/?search=Downtown"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const searchBranchData = pm.response.json();
+      const results = Array.isArray(searchBranchData) ? searchBranchData : searchBranchData.results;
+      const ids = results.map(b => b.id);
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('search matches the Downtown branch', () => pm.expect(ids).to.include(pm.collectionVariables.get('branch_id')));
+    language: text/javascript
+order: 4700

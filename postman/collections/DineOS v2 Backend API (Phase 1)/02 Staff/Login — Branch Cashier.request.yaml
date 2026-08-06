@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/auth/login/"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"email": "{{branch_cashier_email}}", "password": "Demo@1234"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const branchCashierLoginData = pm.response.json();
+      pm.collectionVariables.set('branch_cashier_token', branchCashierLoginData.access);
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('role_name is cashier', () => pm.expect(branchCashierLoginData.role_name).to.eql('cashier'));
+    language: text/javascript
+order: 2500

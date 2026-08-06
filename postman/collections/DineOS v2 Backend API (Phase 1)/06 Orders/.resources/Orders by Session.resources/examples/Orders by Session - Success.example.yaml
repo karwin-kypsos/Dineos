@@ -1,0 +1,9 @@
+$kind: http-example
+name: 'Orders by Session - Success'
+originalRequest:
+  method: GET
+  url: '{{base_url}}/orders/session/58aa2387-c88d-4e6d-acba-967f1080b234/'
+code: 200
+body:
+  type: text
+  content: '[{"id":"e2ada04e-6fbd-4e83-b901-4e24c1dcde31","session":"58aa2387-c88d-4e6d-acba-967f1080b234","table":"72e00ee8-a87e-4b05-af40-9ec95d10de7d","round_number":1,"status":"NEW","placed_by":null,"notes":"","items":[{"id":1,"menu_item":3,"menu_item_name":"Paneer Tikka","quantity":2,"unit_price":"180.00","line_total":"360.00","notes":""}],"placed_at":"2026-08-05T11:53:28.967377Z","accepted_at":null,"ready_at":null,"collected_at":null,"served_at":null},{"id":"4b46415d-c60e-4871-affc-aaba3d6a8822","session":"58aa2387-c88d-4e6d-acba-967f1080b234","table":"72e00ee8-a87e-4b05-af40-9ec95d10de7d","round_number":2,"status":"NEW","placed_by":"ebbf095c-970e-4d9f-a6a5-ff0d4a8e8738","notes":"","items":[{"id":2,"menu_item":3,"menu_item_name":"Paneer Tikka","quantity":1,"unit_price":"180.00","line_total":"180.00","notes":""}],"placed_at":"2026-08-05T11:53:29.510847Z","accepted_at":null,"ready_at":null,"collected_at":null,"served_at":null}]'

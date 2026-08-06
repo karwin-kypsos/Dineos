@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{server_root}}/platform/team/{{team_member_id}}/"
+method: PATCH
+headers:
+  Authorization: Bearer {{platform_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"name": "Support Teammate (Updated)", "access_level": "FULL_ADMIN"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const updateTeamData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('access_level updated', () => pm.expect(updateTeamData.access_level).to.eql('FULL_ADMIN'));
+    language: text/javascript
+order: 7100

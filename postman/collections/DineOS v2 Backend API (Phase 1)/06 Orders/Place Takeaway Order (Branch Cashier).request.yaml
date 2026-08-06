@@ -1,0 +1,24 @@
+$kind: http-request
+url: "{{base_url}}/orders/takeaway/"
+method: POST
+headers:
+  Authorization: Bearer {{branch_cashier_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "customer_name": "Rahul Sharma",
+      "customer_phone": "9998887770",
+      "items": [{"menu_item": {{menu_item_id}}, "quantity": 2, "notes": "Extra spicy"}]
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      const placeTakeawayData = pm.response.json();
+      pm.collectionVariables.set('takeaway_order_id', placeTakeawayData.id);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+      pm.test('order_type is TAKEAWAY', () => pm.expect(placeTakeawayData.order_type).to.eql('TAKEAWAY'));
+      pm.test('table is null', () => pm.expect(placeTakeawayData.table).to.eql(null));
+    language: text/javascript
+order: 20000

@@ -1,0 +1,7 @@
+$kind: http-request
+name: Dashboard
+url: "{{server_root}}/platform/dashboard/"
+method: GET
+headers:
+  Authorization: Bearer {{platform_token}}
+order: 4000

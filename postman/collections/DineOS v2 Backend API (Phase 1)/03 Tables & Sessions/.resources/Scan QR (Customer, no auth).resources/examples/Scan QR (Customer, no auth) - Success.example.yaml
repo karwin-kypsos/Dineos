@@ -1,0 +1,9 @@
+$kind: http-example
+name: 'Scan QR (Customer, no auth) - Success'
+originalRequest:
+  method: GET
+  url: '{{base_url}}/tables/qr/demo-bistro/5/'
+code: 200
+body:
+  type: text
+  content: '{"table":{"id":"72e00ee8-a87e-4b05-af40-9ec95d10de7d","table_number":"5","capacity":4,"status":"AVAILABLE","is_active":true,"active_session_id":null},"active_session":null}'

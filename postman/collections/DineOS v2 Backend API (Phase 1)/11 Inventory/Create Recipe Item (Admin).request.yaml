@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/inventory/recipe-items/"
+method: POST
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"menu_item": {{menu_item_id}}, "ingredient": "{{ingredient_id}}", "quantity_per_serving": "0.25"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const createRecipeItemData = pm.response.json();
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+      pm.test('links ingredient to menu item', () => pm.expect(createRecipeItemData.ingredient).to.eql(pm.collectionVariables.get('ingredient_id')));
+    language: text/javascript
+order: 3500
