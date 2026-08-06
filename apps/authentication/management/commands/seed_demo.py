@@ -39,12 +39,18 @@ class Command(BaseCommand):
                 User.objects.create_user(email=email, password="Demo@1234", role=role, name=user_name, restaurant=restaurant)
                 self.stdout.write(f"  Created user {email} / Demo@1234")
 
-        table, _ = Table.objects.get_or_create(restaurant=restaurant, table_number="5", defaults={"capacity": 4})
-        Table.objects.get_or_create(restaurant=restaurant, table_number="6", defaults={"capacity": 2})
+        # branch=None here on purpose: this is the legacy, ungrouped table set.
+        # A branch can have its own same-numbered tables (see restaurant.services.
+        # sync_branch_tables), so the lookup must stay branch-scoped or it can
+        # match more than one row once any branch has been created.
+        table, _ = Table.objects.get_or_create(
+            restaurant=restaurant, table_number="5", branch=None, defaults={"capacity": 4}
+        )
+        Table.objects.get_or_create(restaurant=restaurant, table_number="6", branch=None, defaults={"capacity": 2})
         self.stdout.write(f"  Table: {table.table_number} (id={table.id})")
 
         category, _ = Category.objects.get_or_create(
-            restaurant=restaurant, name="Main Course", defaults={"emoji": "🍽️", "sort_order": 1}
+            restaurant=restaurant, name="Main Course", branch=None, defaults={"emoji": "🍽️", "sort_order": 1}
         )
         menu_item, _ = MenuItem.objects.get_or_create(
             category=category,
