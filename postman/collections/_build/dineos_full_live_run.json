@@ -612,6 +612,40 @@
           ]
         },
         {
+          "name": "Reactivate Branch (Admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/branches/{{temp_branch_id}}/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"is_active\": true}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const reactivateBranchData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('branch is_active is true again', () => pm.expect(reactivateBranchData.is_active).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Get Restaurant Settings (GST) (Admin)",
           "request": {
             "method": "GET",
@@ -903,7 +937,19 @@
             "method": "GET",
             "header": [],
             "url": "{{base_url}}/tables/qr/{{tenant_slug}}/{{table_number}}/"
-          }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const scanQrData = pm.response.json();",
+                  "if (scanQrData.table && scanQrData.table.id) { pm.collectionVariables.set('table_id', scanQrData.table.id); }"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Start Session (Customer, no auth)",

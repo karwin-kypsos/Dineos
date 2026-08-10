@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/branches/{{temp_branch_id}}/"
+method: PATCH
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"is_active": true}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const reactivateBranchData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('branch is_active is true again', () => pm.expect(reactivateBranchData.is_active).to.eql(true));
+    language: text/javascript
+order: 4800

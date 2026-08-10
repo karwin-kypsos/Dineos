@@ -1,4 +1,10 @@
 $kind: http-request
 url: "{{base_url}}/tables/qr/{{tenant_slug}}/{{table_number}}/"
 method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      const scanQrData = pm.response.json();
+      if (scanQrData.table && scanQrData.table.id) { pm.collectionVariables.set('table_id', scanQrData.table.id); }
+    language: text/javascript
 order: 2000
