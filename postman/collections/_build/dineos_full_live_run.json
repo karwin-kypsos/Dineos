@@ -416,6 +416,32 @@
           ]
         },
         {
+          "name": "Get Branch by ID (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/branches/{{branch_id}}/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const branchDetailData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('returned branch matches branch_id', () => pm.expect(String(branchDetailData.id)).to.eql(String(pm.collectionVariables.get('branch_id'))));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Edit Branch (Admin)",
           "request": {
             "method": "PATCH",
@@ -1073,6 +1099,40 @@
           ]
         },
         {
+          "name": "Update Temp Menu Item - sort_order via PATCH (Manager)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{manager_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/menu/{{temp_menu_item_id}}/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"sort_order\": 3}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const patchSortOrderData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('sort_order updated', () => pm.expect(patchSortOrderData.sort_order).to.eql(3));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Delete Temp Menu Item (Manager)",
           "request": {
             "method": "DELETE",
@@ -1198,6 +1258,40 @@
                   "const updateCategoryData = pm.response.json();",
                   "pm.test('status is 200', () => pm.response.to.have.status(200));",
                   "pm.test('name updated', () => pm.expect(updateCategoryData.name).to.include('Starters (Updated)'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Category - sort_order via PATCH (Manager)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{manager_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/menu/categories/{{category_id}}/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"sort_order\": 7}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const patchCategorySortOrderData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('sort_order updated', () => pm.expect(patchCategorySortOrderData.sort_order).to.eql(7));"
                 ]
               }
             }
@@ -2940,6 +3034,32 @@
           }
         },
         {
+          "name": "Get Organization by ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platform_token}}"
+              }
+            ],
+            "url": "{{server_root}}/platform/tenants/{{new_org_id}}/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const orgDetailData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('returned org matches new_org_id', () => pm.expect(String(orgDetailData.id)).to.eql(String(pm.collectionVariables.get('new_org_id'))));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "List Organizations — Filter Active",
           "request": {
             "method": "GET",
@@ -3085,6 +3205,40 @@
                   "const reactivateOrgData = pm.response.json();",
                   "pm.test('status is 200', () => pm.response.to.have.status(200));",
                   "pm.test('org status is ACTIVE', () => pm.expect(reactivateOrgData.status).to.eql('ACTIVE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Organization Status — Set Trial",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platform_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{server_root}}/platform/tenants/{{new_org_id}}/status/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"status\": \"TRIAL\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const trialOrgData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('org status is TRIAL', () => pm.expect(trialOrgData.status).to.eql('TRIAL'));"
                 ]
               }
             }

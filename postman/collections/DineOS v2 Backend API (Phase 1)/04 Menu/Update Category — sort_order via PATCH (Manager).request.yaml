@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/menu/categories/{{category_id}}/"
+method: PATCH
+headers:
+  Authorization: Bearer {{manager_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"sort_order": 7}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const patchCategorySortOrderData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('sort_order updated', () => pm.expect(patchCategorySortOrderData.sort_order).to.eql(7));
+    language: text/javascript
+order: 13500

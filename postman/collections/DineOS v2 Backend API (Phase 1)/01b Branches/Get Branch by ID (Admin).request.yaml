@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{base_url}}/branches/{{branch_id}}/"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const branchDetailData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('returned branch matches branch_id', () => pm.expect(String(branchDetailData.id)).to.eql(String(pm.collectionVariables.get('branch_id'))));
+    language: text/javascript
+order: 2100

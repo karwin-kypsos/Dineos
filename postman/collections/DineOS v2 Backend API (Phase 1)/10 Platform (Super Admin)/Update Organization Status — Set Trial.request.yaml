@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{server_root}}/platform/tenants/{{new_org_id}}/status/"
+method: PATCH
+headers:
+  Authorization: Bearer {{platform_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"status": "TRIAL"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const trialOrgData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('org status is TRIAL', () => pm.expect(trialOrgData.status).to.eql('TRIAL'));
+    language: text/javascript
+order: 2170
