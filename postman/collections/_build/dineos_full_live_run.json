@@ -435,7 +435,15 @@
                 "exec": [
                   "const branchDetailData = pm.response.json();",
                   "pm.test('status is 200', () => pm.response.to.have.status(200));",
-                  "pm.test('returned branch matches branch_id', () => pm.expect(String(branchDetailData.id)).to.eql(String(pm.collectionVariables.get('branch_id'))));"
+                  "pm.test('returned branch matches branch_id', () => pm.expect(String(branchDetailData.id)).to.eql(String(pm.collectionVariables.get('branch_id'))));",
+                  "pm.test('tables is an array on retrieve', () => pm.expect(Array.isArray(branchDetailData.tables)).to.be.true);",
+                  "if (branchDetailData.tables.length > 0) {",
+                  "  const t = branchDetailData.tables[0];",
+                  "  pm.test('table has qr_url and qr_code', () => {",
+                  "    pm.expect(t.qr_url).to.be.a('string');",
+                  "    pm.expect(t.qr_code).to.match(/^data:image\\/png;base64,/);",
+                  "  });",
+                  "}"
                 ]
               }
             }
