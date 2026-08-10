@@ -34,12 +34,31 @@ class BranchManagerSummarySerializer(serializers.ModelSerializer):
 class BranchSerializer(serializers.ModelSerializer):
     manager = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), required=False, allow_null=True)
     manager_detail = BranchManagerSummarySerializer(source="manager", read_only=True)
+    tables = serializers.SerializerMethodField()
 
     class Meta:
         model = Branch
         fields = ["id", "name", "slug", "address", "phone", "photo_url", "manager", "manager_detail",
-                  "table_count", "is_active", "created_at"]
+                  "table_count", "is_active", "created_at", "tables"]
         read_only_fields = ["id", "slug", "created_at"]
+
+    def get_tables(self, obj):
+        # Only on retrieve/create/update, not list — generating a QR PNG per
+        # table is too costly to do for every branch on a list screen.
+        if self.context.get("view") is not None and self.context["view"].action == "list":
+            return None
+        from apps.restaurant.services import build_table_qr
+
+        result = []
+        for table in obj.tables.filter(is_active=True).order_by("table_number"):
+            qr_url, qr_code = build_table_qr(obj.restaurant.slug, obj.slug, table.table_number)
+            result.append({
+                "id": str(table.id),
+                "table_number": table.table_number,
+                "qr_url": qr_url,
+                "qr_code": qr_code,
+            })
+        return result
         # "restaurant" isn't a serializer field (perform_create supplies it), so
         # DRF can't auto-build a UniqueTogetherValidator for one_branch_name_per_restaurant
         # — without this, a duplicate name reaches the DB constraint directly and

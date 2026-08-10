@@ -217,6 +217,14 @@ DEFAULT_GST_PERCENTAGE = env.float("DEFAULT_GST_PERCENTAGE", default=5.0)
 DEFAULT_SERVICE_CHARGE_PERCENTAGE = env.float("DEFAULT_SERVICE_CHARGE_PERCENTAGE", default=0.0)
 
 # ---------------------------------------------------------------------------
+# Base URL of the customer-facing ordering web app that a table's printed QR
+# code opens (restaurant_slug/branch_slug/table_number is appended to this).
+# No such app is deployed yet, so this is a placeholder — update the env var
+# once a real domain exists; no code change needed.
+# ---------------------------------------------------------------------------
+CUSTOMER_APP_BASE_URL = env("CUSTOMER_APP_BASE_URL", default="https://order.dineos.app").rstrip("/")
+
+# ---------------------------------------------------------------------------
 # No email/SMS delivery is wired up yet. Until this is True, every
 # "sent" secret (2FA code, password-reset/invite token) is a fixed, known
 # value instead of a random one — see apps.platform.models._generate_2fa_code

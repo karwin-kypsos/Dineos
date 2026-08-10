@@ -1,4 +1,23 @@
+import base64
+import io
+
+import qrcode
+from django.conf import settings
 from django.db import transaction
+
+
+def build_table_qr(restaurant_slug, branch_slug, table_number):
+    """Returns (qr_url, qr_code_data_uri) for a table's printed QR code —
+    qr_url is what the code encodes (opens the customer ordering app),
+    qr_code_data_uri is a ready-to-render base64 PNG for <img src=...>."""
+    qr_url = f"{settings.CUSTOMER_APP_BASE_URL}/{restaurant_slug}/{branch_slug}/{table_number}"
+
+    img = qrcode.make(qr_url)
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+
+    return qr_url, f"data:image/png;base64,{encoded}"
 
 
 def sync_branch_tables(branch, new_count):
