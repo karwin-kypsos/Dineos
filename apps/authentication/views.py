@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models import Q
@@ -139,7 +141,11 @@ class StaffViewSet(viewsets.ModelViewSet):
 
         branch_id = self.request.query_params.get("branch")
         if branch_id:
-            qs = qs.filter(branch_id=branch_id)
+            try:
+                uuid.UUID(branch_id)
+                qs = qs.filter(branch_id=branch_id)
+            except ValueError:
+                pass  # malformed branch id — no filter applied, same as an unrecognized status filter elsewhere
 
         search = self.request.query_params.get("search", "").strip()
         if search:
