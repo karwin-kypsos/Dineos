@@ -1,0 +1,19 @@
+$kind: http-request
+url: "{{server_root}}/platform/tenants/{{new_org_id}}/plan/"
+method: PATCH
+headers:
+  Authorization: Bearer {{platform_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"plan_tier": "ENTERPRISE"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const planData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('plan_tier updated', () => pm.expect(planData.plan_tier).to.eql('ENTERPRISE'));
+      pm.test('max_branches cascaded from preset', () => pm.expect(planData.max_branches).to.eql(null));
+      pm.test('kitchen_enabled cascaded from preset', () => pm.expect(planData.kitchen_enabled).to.eql(true));
+    language: text/javascript
+order: 2030

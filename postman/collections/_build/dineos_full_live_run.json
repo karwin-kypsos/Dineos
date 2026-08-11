@@ -3114,6 +3114,112 @@
           ]
         },
         {
+          "name": "Update Organization Details",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platform_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{server_root}}/platform/tenants/{{new_org_id}}/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"contact_name\": \"Updated Contact Name\",\n  \"contact_phone\": \"9998887777\",\n  \"billing_email\": \"billing@updated-org.demo\",\n  \"primary_color\": \"#00AACC\",\n  \"gst_percentage\": \"7.50\",\n  \"service_charge_percentage\": \"3.00\",\n  \"max_branches\": 12,\n  \"default_manager_spending_limit\": \"5000.00\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const updateOrgData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('contact_name updated', () => pm.expect(updateOrgData.contact_name).to.eql('Updated Contact Name'));",
+                  "pm.test('billing_email updated', () => pm.expect(updateOrgData.billing_email).to.eql('billing@updated-org.demo'));",
+                  "pm.test('max_branches updated', () => pm.expect(updateOrgData.max_branches).to.eql(12));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Organization Plan",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platform_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{server_root}}/platform/tenants/{{new_org_id}}/plan/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"plan_tier\": \"ENTERPRISE\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const planData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('plan_tier updated', () => pm.expect(planData.plan_tier).to.eql('ENTERPRISE'));",
+                  "pm.test('max_branches cascaded from preset', () => pm.expect(planData.max_branches).to.eql(null));",
+                  "pm.test('kitchen_enabled cascaded from preset', () => pm.expect(planData.kitchen_enabled).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Organization Branding",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platform_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{server_root}}/platform/tenants/{{new_org_id}}/branding/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"primary_color\": \"#123ABC\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const brandingData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('primary_color updated', () => pm.expect(brandingData.primary_color).to.eql('#123ABC'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "List Organizations — Filter Active",
           "request": {
             "method": "GET",

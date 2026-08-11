@@ -1,0 +1,29 @@
+$kind: http-request
+url: "{{server_root}}/platform/tenants/{{new_org_id}}/"
+method: PATCH
+headers:
+  Authorization: Bearer {{platform_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "contact_name": "Updated Contact Name",
+      "contact_phone": "9998887777",
+      "billing_email": "billing@updated-org.demo",
+      "primary_color": "#00AACC",
+      "gst_percentage": "7.50",
+      "service_charge_percentage": "3.00",
+      "max_branches": 12,
+      "default_manager_spending_limit": "5000.00"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      const updateOrgData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('contact_name updated', () => pm.expect(updateOrgData.contact_name).to.eql('Updated Contact Name'));
+      pm.test('billing_email updated', () => pm.expect(updateOrgData.billing_email).to.eql('billing@updated-org.demo'));
+      pm.test('max_branches updated', () => pm.expect(updateOrgData.max_branches).to.eql(12));
+    language: text/javascript
+order: 2020

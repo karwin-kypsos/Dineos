@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{server_root}}/platform/tenants/{{new_org_id}}/branding/"
+method: PATCH
+headers:
+  Authorization: Bearer {{platform_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"primary_color": "#123ABC"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const brandingData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('primary_color updated', () => pm.expect(brandingData.primary_color).to.eql('#123ABC'));
+    language: text/javascript
+order: 2040
