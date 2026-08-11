@@ -233,7 +233,7 @@ CUSTOMER_APP_BASE_URL = env("CUSTOMER_APP_BASE_URL", default="https://order.dine
 # left off in production for that reason.
 #
 # Actual email SENDING (core.email.send_notification_email) is a separate,
-# independent switch from the above — it only requires EMAIL_HOST_USER to be
+# independent switch from the above — it only requires RESEND_API_KEY to be
 # set, works with EMAIL_DELIVERY_ENABLED left off, and exists purely so a
 # real inbox can see what these emails look like without destabilizing the
 # fixed-token test flow.
@@ -243,26 +243,23 @@ COMMON_VERIFICATION_TOKEN = env("COMMON_VERIFICATION_TOKEN", default="COMMON-TES
 COMMON_VERIFICATION_CODE = env("COMMON_VERIFICATION_CODE", default="123456")
 
 # ---------------------------------------------------------------------------
-# Real email sending (2FA codes, invite/reset tokens). EMAIL_HOST_USER blank
-# (the default) means core.email.send_notification_email is a no-op — safe
-# to leave unset. TEST_EMAIL_OVERRIDE, if set, redirects every outbound
-# email to that one address regardless of the real recipient — the seeded
-# test data mostly uses fake @dineos-test.demo addresses that can't receive
-# real mail, so this is how a real inbox gets to see them during testing.
+# Real email sending (2FA codes, invite/reset tokens) — via Resend's HTTPS
+# API (core.email.send_notification_email), not raw SMTP: most PaaS hosts
+# (Render included) block outbound SMTP ports entirely as an anti-spam
+# measure, so an SMTP-socket send there just fails with "Network is
+# unreachable" regardless of credentials. HTTPS is never blocked.
+#
+# RESEND_API_KEY blank (the default) means send_notification_email is a
+# no-op — safe to leave unset. DEFAULT_FROM_EMAIL defaults to Resend's
+# shared onboarding sender, which works without verifying a domain but can
+# only deliver to the email address that owns the Resend account — exactly
+# what TEST_EMAIL_OVERRIDE is for: it redirects every outbound email to one
+# address regardless of the real recipient, since seeded test data mostly
+# uses fake @dineos-test.demo addresses that can't receive real mail anyway.
 # ---------------------------------------------------------------------------
-EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
-EMAIL_HOST = env("EMAIL_HOST", default="smtp.gmail.com")
-EMAIL_PORT = env.int("EMAIL_PORT", default=587)
-EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
-EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
-EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
-DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER or "noreply@dineos.local")
+RESEND_API_KEY = env("RESEND_API_KEY", default="")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="DineOS <onboarding@resend.dev>")
 TEST_EMAIL_OVERRIDE = env("TEST_EMAIL_OVERRIDE", default="")
-# Without this, a blocked/unreachable SMTP connection hangs the socket
-# indefinitely — and since sending happens inline during login/invite/reset,
-# that hangs the whole HTTP request forever instead of just failing the
-# send (core.email.send_notification_email already catches the failure).
-EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=10)
 
 # ---------------------------------------------------------------------------
 # Logging — send everything to stdout so Render captures it

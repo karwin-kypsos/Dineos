@@ -27,11 +27,7 @@ services:
         sync: false
       - key: CORS_ALLOWED_ORIGINS
         sync: false
-      - key: EMAIL_BACKEND
-        sync: false
-      - key: EMAIL_HOST_USER
-        sync: false
-      - key: EMAIL_HOST_PASSWORD
+      - key: RESEND_API_KEY
         sync: false
       - key: DEFAULT_FROM_EMAIL
         sync: false
