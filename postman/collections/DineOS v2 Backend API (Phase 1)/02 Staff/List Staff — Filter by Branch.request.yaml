@@ -1,0 +1,19 @@
+$kind: http-request
+url: "{{base_url}}/staff/?branch={{branch_id}}"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const filterStaffData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('includes the branch-scoped cashier', () => {
+        const ids = filterStaffData.results.map(u => u.id);
+        pm.expect(ids).to.include(pm.collectionVariables.get('branch_cashier_id'));
+      });
+      pm.test('every result belongs to this branch', () => {
+        filterStaffData.results.forEach(u => pm.expect(u.branch.id).to.eql(pm.collectionVariables.get('branch_id')));
+      });
+    language: text/javascript
+order: 2450

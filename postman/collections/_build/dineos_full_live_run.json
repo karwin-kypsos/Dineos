@@ -730,6 +730,37 @@
           }
         },
         {
+          "name": "List Staff — Search",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/staff/?search=Admin"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const searchStaffData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('results match the search term', () => {",
+                  "  searchStaffData.results.forEach(u => {",
+                  "    const hit = u.name.toLowerCase().includes('admin') || u.email.toLowerCase().includes('admin');",
+                  "    pm.expect(hit).to.be.true;",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Create Staff (Admin)",
           "request": {
             "method": "POST",
@@ -858,6 +889,38 @@
                   "pm.collectionVariables.set('branch_cashier_email', createBranchCashierData.email);",
                   "pm.test('status is 201', () => pm.response.to.have.status(201));",
                   "pm.test('branch is set', () => pm.expect(createBranchCashierData.branch.id).to.eql(pm.collectionVariables.get('branch_id')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Staff — Filter by Branch",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/staff/?branch={{branch_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const filterStaffData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('includes the branch-scoped cashier', () => {",
+                  "  const ids = filterStaffData.results.map(u => u.id);",
+                  "  pm.expect(ids).to.include(pm.collectionVariables.get('branch_cashier_id'));",
+                  "});",
+                  "pm.test('every result belongs to this branch', () => {",
+                  "  filterStaffData.results.forEach(u => pm.expect(u.branch.id).to.eql(pm.collectionVariables.get('branch_id')));",
+                  "});"
                 ]
               }
             }

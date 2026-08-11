@@ -1,0 +1,18 @@
+$kind: http-request
+url: "{{base_url}}/staff/?search=Admin"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const searchStaffData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('results match the search term', () => {
+        searchStaffData.results.forEach(u => {
+          const hit = u.name.toLowerCase().includes('admin') || u.email.toLowerCase().includes('admin');
+          pm.expect(hit).to.be.true;
+        });
+      });
+    language: text/javascript
+order: 1100
