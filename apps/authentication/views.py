@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -134,7 +135,17 @@ class StaffViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdmin]
 
     def get_queryset(self):
-        return User.objects.filter(restaurant=self.request.user.restaurant)
+        qs = User.objects.filter(restaurant=self.request.user.restaurant)
+
+        branch_id = self.request.query_params.get("branch")
+        if branch_id:
+            qs = qs.filter(branch_id=branch_id)
+
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            qs = qs.filter(Q(name__icontains=search) | Q(email__icontains=search))
+
+        return qs
 
     def get_serializer_class(self):
         if self.action == "create":
