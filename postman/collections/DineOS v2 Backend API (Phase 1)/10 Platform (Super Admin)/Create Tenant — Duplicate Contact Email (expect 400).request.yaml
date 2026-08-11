@@ -1,0 +1,25 @@
+$kind: http-request
+url: "{{server_root}}/platform/tenants/"
+method: POST
+headers:
+  Authorization: Bearer {{platform_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "name": "Duplicate Contact Email Test {{$timestamp}}",
+      "slug": "dup-contact-email-test-{{$timestamp}}",
+      "contact_name": "Test Org Admin",
+      "contact_email": "{{new_org_admin_email}}",
+      "contact_phone": "9876543210",
+      "plan_tier": "GROWTH"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      const dupEmailData = pm.response.json();
+      pm.test('status is 400 (contact_email already in use)', () => pm.response.to.have.status(400));
+      pm.test('error names the field', () => pm.expect(dupEmailData.contact_email).to.exist);
+    language: text/javascript
+order: 1850

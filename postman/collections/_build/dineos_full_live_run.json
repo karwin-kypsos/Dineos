@@ -3108,6 +3108,40 @@
           ]
         },
         {
+          "name": "Create Tenant — Duplicate Contact Email (expect 400)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platform_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{server_root}}/platform/tenants/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Duplicate Contact Email Test {{$timestamp}}\",\n  \"slug\": \"dup-contact-email-test-{{$timestamp}}\",\n  \"contact_name\": \"Test Org Admin\",\n  \"contact_email\": \"{{new_org_admin_email}}\",\n  \"contact_phone\": \"9876543210\",\n  \"plan_tier\": \"GROWTH\"\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const dupEmailData = pm.response.json();",
+                  "pm.test('status is 400 (contact_email already in use)', () => pm.response.to.have.status(400));",
+                  "pm.test('error names the field', () => pm.expect(dupEmailData.contact_email).to.exist);"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Accept Org Admin Invite (Set Password)",
           "request": {
             "method": "POST",
