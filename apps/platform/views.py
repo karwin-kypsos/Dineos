@@ -303,6 +303,61 @@ class TenantViewSet(viewsets.ModelViewSet):
             )
         return Response(RestaurantSerializer(restaurant).data)
 
+    @action(detail=True, methods=["patch"], url_path="plan")
+    def update_plan(self, request, pk=None):
+        """Organization Detail's Plan tier control. Unlike Create Tenant
+        (which only fills max_branches/flags for fields the caller didn't
+        already specify), changing plan here fully re-derives both from
+        the new plan's preset — "move this org onto GROWTH" means it gets
+        GROWTH's defaults, overwriting any prior manual overrides. If a
+        Super Admin needs a custom limit alongside a given plan, set it
+        via PATCH /platform/tenants/{id}/ (max_branches) or
+        /feature-flags/ afterward — this endpoint is for the plan switch
+        itself, not for preserving one-off customizations through it."""
+
+        restaurant = self.get_object()
+        plan_tier = request.data.get("plan_tier")
+        if plan_tier not in Restaurant.PlanTier.values:
+            return Response(
+                {"plan_tier": f"Must be one of {list(Restaurant.PlanTier.values)}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        preset = PLAN_PRESETS.get(plan_tier, PLAN_PRESETS["STARTER"])
+        restaurant.plan_tier = plan_tier
+        restaurant.max_branches = preset["max_branches"]
+        for flag, value in preset["flags"].items():
+            setattr(restaurant, flag, value)
+        restaurant.save(update_fields=["plan_tier", "max_branches", *preset["flags"].keys()])
+
+        PlatformActivityLog.objects.create(
+            actor=request.user,
+            action="PLAN_CHANGED",
+            restaurant=restaurant,
+            description=f"Changed '{restaurant.name}' to the {restaurant.get_plan_tier_display()} plan",
+        )
+        return Response(RestaurantSerializer(restaurant).data)
+
+    @action(detail=True, methods=["patch"], url_path="branding")
+    def update_branding(self, request, pk=None):
+        """Organization Detail's brand color picker — instant-save, same
+        one-field pattern as /feature-flags/."""
+
+        restaurant = self.get_object()
+        if "primary_color" not in request.data:
+            return Response({"primary_color": "This field is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        restaurant.primary_color = request.data["primary_color"]
+        restaurant.save(update_fields=["primary_color"])
+
+        PlatformActivityLog.objects.create(
+            actor=request.user,
+            action="TENANT_UPDATED",
+            restaurant=restaurant,
+            description=f"Changed brand color for '{restaurant.name}'",
+        )
+        return Response(RestaurantSerializer(restaurant).data)
+
 
 class DashboardView(APIView):
     """Super Admin app's Dashboard screen — platform-wide summary numbers.
