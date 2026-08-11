@@ -197,9 +197,23 @@ class TenantViewSet(viewsets.ModelViewSet):
         from decimal import Decimal
 
         from django.conf import settings
+        from django.db import transaction
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        # User.email is unique platform-wide (not scoped per restaurant), so
+        # a contact_email already in use anywhere would otherwise reach
+        # User.objects.create_user() below and raise an unhandled
+        # IntegrityError -> 500, after the restaurant row was already
+        # committed (an orphaned org with no admin, silently left behind).
+        # Checked up front, before anything is created.
+        contact_email = serializer.validated_data.get("contact_email")
+        if contact_email and User.objects.filter(email=contact_email).exists():
+            return Response(
+                {"contact_email": "A staff account with this email already exists on the platform."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         extra = {}
         if "gst_percentage" not in request.data:
@@ -215,24 +229,30 @@ class TenantViewSet(viewsets.ModelViewSet):
             if flag not in request.data:
                 extra[flag] = value
 
-        restaurant = serializer.save(**extra)
-        PlatformActivityLog.objects.create(
-            actor=self.request.user,
-            action="TENANT_CREATED",
-            restaurant=restaurant,
-            description=f"Created tenant '{restaurant.name}' ({restaurant.slug})",
-        )
-
-        data = RestaurantSerializer(restaurant).data
-        if restaurant.contact_email:
-            admin_name = restaurant.contact_name or "Admin"
-            admin = User.objects.create_user(
-                email=restaurant.contact_email, password=None, name=admin_name,
-                role=User.Role.ADMIN, restaurant=restaurant,
+        # Atomic so a failure anywhere in here (e.g. an unforeseen race on
+        # contact_email between the check above and this running) rolls
+        # back the restaurant row too, instead of leaving an orphaned org
+        # with no admin behind.
+        with transaction.atomic():
+            restaurant = serializer.save(**extra)
+            PlatformActivityLog.objects.create(
+                actor=self.request.user,
+                action="TENANT_CREATED",
+                restaurant=restaurant,
+                description=f"Created tenant '{restaurant.name}' ({restaurant.slug})",
             )
-            invite = issue_invite(admin)
-            data["admin_user_id"] = str(admin.id)
-            data["invite_token"] = invite.token
+
+            data = RestaurantSerializer(restaurant).data
+            if restaurant.contact_email:
+                admin_name = restaurant.contact_name or "Admin"
+                admin = User.objects.create_user(
+                    email=restaurant.contact_email, password=None, name=admin_name,
+                    role=User.Role.ADMIN, restaurant=restaurant,
+                )
+                invite = issue_invite(admin)
+                data["admin_user_id"] = str(admin.id)
+                data["invite_token"] = invite.token
+
         return Response(data, status=status.HTTP_201_CREATED)
 
     def perform_update(self, serializer):
