@@ -540,7 +540,7 @@
                 "value": "Bearer {{admin_token}}"
               }
             ],
-            "url": "{{base_url}}/branches/?status=active"
+            "url": "{{base_url}}/branches/?status=active&page_size=200"
           },
           "event": [
             {
@@ -601,7 +601,7 @@
                 "value": "Bearer {{admin_token}}"
               }
             ],
-            "url": "{{base_url}}/branches/?search=Downtown"
+            "url": "{{base_url}}/branches/?search=Downtown&page_size=200"
           },
           "event": [
             {
@@ -820,8 +820,11 @@
                 "type": "text/javascript",
                 "exec": [
                   "const inviteStaffData = pm.response.json();",
-                  "pm.collectionVariables.set('invite_token', inviteStaffData.invite_token);",
+                  "pm.collectionVariables.set('staff_temp_password', inviteStaffData.temp_password);",
+                  "pm.collectionVariables.set('invited_staff_email', inviteStaffData.email);",
                   "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('temp_password is returned (backend-generated, not Admin-typed)', () => pm.expect(inviteStaffData.temp_password).to.be.a('string'));",
+                  "pm.test('no invite_token (staff no longer uses the token/email-link flow)', () => pm.expect(inviteStaffData.invite_token).to.be.undefined);",
                   "pm.test('must_change_password is true', () => pm.expect(inviteStaffData.must_change_password).to.eql(true));"
                 ]
               }
@@ -829,7 +832,7 @@
           ]
         },
         {
-          "name": "Accept Staff Invite (Set Password)",
+          "name": "Login as Invited Staff (Temp Password)",
           "request": {
             "method": "POST",
             "header": [
@@ -838,10 +841,10 @@
                 "value": "application/json"
               }
             ],
-            "url": "{{base_url}}/auth/reset-password/",
+            "url": "{{base_url}}/auth/login/",
             "body": {
               "mode": "raw",
-              "raw": "{\"token\": \"{{invite_token}}\", \"new_password\": \"Demo@1234\"}"
+              "raw": "{\"email\": \"{{invited_staff_email}}\", \"password\": \"{{staff_temp_password}}\"}"
             }
           },
           "event": [
@@ -850,9 +853,72 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "const acceptStaffInviteData = pm.response.json();",
+                  "const staffTempLoginData = pm.response.json();",
+                  "pm.collectionVariables.set('invited_staff_token', staffTempLoginData.access);",
+                  "pm.test('status is 200 (login succeeds immediately with the temp password)', () => pm.response.to.have.status(200));",
+                  "pm.test('must_change_password is true', () => pm.expect(staffTempLoginData.must_change_password).to.eql(true));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change Password (Invited Staff)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{invited_staff_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/auth/change-password/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"current_password\": \"{{staff_temp_password}}\", \"new_password\": \"Demo@1234\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify must_change_password Cleared",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/auth/login/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"{{invited_staff_email}}\", \"password\": \"Demo@1234\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const clearedLoginData = pm.response.json();",
                   "pm.test('status is 200', () => pm.response.to.have.status(200));",
-                  "pm.test('role is SERVER', () => pm.expect(acceptStaffInviteData.role).to.eql('SERVER'));"
+                  "pm.test('must_change_password is now false', () => pm.expect(clearedLoginData.must_change_password).to.eql(false));"
                 ]
               }
             }
@@ -1711,7 +1777,7 @@
                 "value": "Bearer {{admin_token}}"
               }
             ],
-            "url": "{{base_url}}/inventory/ingredients/?low_stock=true"
+            "url": "{{base_url}}/inventory/ingredients/?low_stock=true&page_size=200"
           },
           "event": [
             {
@@ -4097,6 +4163,18 @@
     },
     {
       "key": "branch_cashier_email",
+      "value": ""
+    },
+    {
+      "key": "staff_temp_password",
+      "value": ""
+    },
+    {
+      "key": "invited_staff_email",
+      "value": ""
+    },
+    {
+      "key": "invited_staff_token",
       "value": ""
     }
   ]

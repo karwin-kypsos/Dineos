@@ -1,5 +1,5 @@
 $kind: http-request
-url: "{{base_url}}/branches/?search=Downtown"
+url: "{{base_url}}/branches/?search=Downtown&page_size=200"
 method: GET
 headers:
   Authorization: Bearer {{admin_token}}

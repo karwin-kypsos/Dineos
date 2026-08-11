@@ -1,5 +1,5 @@
 $kind: http-request
-url: "{{base_url}}/inventory/ingredients/?low_stock=true"
+url: "{{base_url}}/inventory/ingredients/?low_stock=true&page_size=200"
 method: GET
 headers:
   Authorization: Bearer {{admin_token}}

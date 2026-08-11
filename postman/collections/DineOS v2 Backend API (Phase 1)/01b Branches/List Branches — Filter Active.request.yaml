@@ -1,5 +1,5 @@
 $kind: http-request
-url: "{{base_url}}/branches/?status=active"
+url: "{{base_url}}/branches/?status=active&page_size=200"
 method: GET
 headers:
   Authorization: Bearer {{admin_token}}
