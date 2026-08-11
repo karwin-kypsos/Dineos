@@ -1,3 +1,4 @@
+import secrets
 import uuid
 
 from django.conf import settings
@@ -124,7 +125,8 @@ class ChangePasswordView(APIView):
         if not user.check_password(serializer.validated_data["current_password"]):
             raise ValidationError({"current_password": "Current password is incorrect."})
         user.set_password(serializer.validated_data["new_password"])
-        user.save(update_fields=["password"])
+        user.must_change_password = False
+        user.save(update_fields=["password", "must_change_password"])
         return Response({"detail": "Password changed."})
 
 
@@ -161,23 +163,39 @@ class StaffViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        temp_password = None
+        if not request.data.get("password"):
+            # No password supplied — the Add Staff form has no password
+            # field at all; a human-chosen "temp password" tends to be
+            # weak/guessable and there's no reason for Admin to invent one
+            # anyway, so the backend generates a secure random one instead.
+            temp_password = secrets.token_urlsafe(9)
+
         # Always the calling Admin's own restaurant — never client-supplied,
         # so one restaurant's Admin can never create a user in another's.
-        user = serializer.save(restaurant=self.request.user.restaurant)
+        user = serializer.save(
+            restaurant=self.request.user.restaurant,
+            **({"password": temp_password, "must_change_password": True} if temp_password else {}),
+        )
 
-        invite_token = None
-        if not request.data.get("password"):
-            # No password supplied — this is an invite. There's no email
-            # delivery wired up yet, so the token is handed back directly;
-            # the caller (Admin) relays the accept-invite link themselves
-            # until real email sending exists.
-            from . import services
+        if temp_password is not None:
+            from core.email import send_notification_email
 
-            invite_token = services.issue_invite(user).token
+            send_notification_email(
+                subject="Your DineOS staff account",
+                body=(
+                    f"Hi {user.name or 'there'},\n\n"
+                    f"An account has been created for you on DineOS. Log in with:\n\n"
+                    f"Email: {user.email}\nTemporary password: {temp_password}\n\n"
+                    f"You'll be asked to set your own password the first time you log in."
+                ),
+                to_email=user.email,
+            )
 
         data = UserSerializer(user).data
-        if invite_token is not None:
-            data["invite_token"] = invite_token
+        if temp_password is not None:
+            data["temp_password"] = temp_password
         return Response(data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["patch"])

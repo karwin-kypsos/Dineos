@@ -15,7 +15,7 @@ def _platform_login(client, email, password):
     return verify.data["access"]
 
 
-def test_creating_staff_without_password_issues_invite(admin_client):
+def test_creating_staff_without_password_generates_temp_password(admin_client):
     _, client = admin_client
 
     response = client.post(
@@ -23,12 +23,19 @@ def test_creating_staff_without_password_issues_invite(admin_client):
     )
 
     assert response.status_code == 201, response.data
-    assert "invite_token" in response.data
+    assert "temp_password" in response.data
+    assert "invite_token" not in response.data
     assert response.data["must_change_password"] is True
 
     user = User.objects.get(email="invited@test.dineos")
-    assert user.has_usable_password() is False
-    assert PasswordResetToken.objects.filter(user=user).exists()
+    # Immediately usable — unlike the org-admin invite flow (see
+    # test_organization_creation_with_contact_email_invites_first_admin),
+    # staff creation never leaves the account passwordless: Admin has no
+    # password field on the Add Staff form, so the backend generates one
+    # the account can log in with right away, forcing a change afterward
+    # instead of gating login on an emailed link.
+    assert user.has_usable_password() is True
+    assert not PasswordResetToken.objects.filter(user=user).exists()
 
 
 def test_creating_staff_with_password_skips_invite(admin_client):
@@ -47,34 +54,39 @@ def test_creating_staff_with_password_skips_invite(admin_client):
     assert user.must_change_password is False
 
 
-def test_invited_staff_cannot_login_until_invite_accepted(admin_client):
+def test_invited_staff_logs_in_with_temp_password_then_must_change_it(admin_client):
     _, client = admin_client
     create = client.post(
         "/v1/staff/", {"email": "pending@test.dineos", "role": "SERVER", "name": "Pending"}, format="json",
     )
-    token = create.data["invite_token"]
+    temp_password = create.data["temp_password"]
 
     api_client = APIClient()
-    blocked_login = api_client.post(
-        "/v1/auth/login/", {"email": "pending@test.dineos", "password": "anything"}, format="json",
+    # Login succeeds immediately with the generated temp password — the
+    # frontend is expected to see must_change_password: true here and
+    # force a change-password screen before loading anything else.
+    login = api_client.post(
+        "/v1/auth/login/", {"email": "pending@test.dineos", "password": temp_password}, format="json",
     )
-    assert blocked_login.status_code == 401
+    assert login.status_code == 200, login.data
+    assert login.data["must_change_password"] is True
 
-    accept = api_client.post(
-        "/v1/auth/reset-password/", {"token": token, "new_password": "MyNewPass1"}, format="json",
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    change = api_client.patch(
+        "/v1/auth/change-password/",
+        {"current_password": temp_password, "new_password": "MyNewPass1"},
+        format="json",
     )
-    assert accept.status_code == 200, accept.data
-    assert accept.data["role"] == "SERVER"
-    assert "access" in accept.data and "refresh" in accept.data
+    assert change.status_code == 200, change.data
 
     user = User.objects.get(email="pending@test.dineos")
     assert user.must_change_password is False
-    assert user.has_usable_password() is True
 
-    now_login = api_client.post(
+    now_login = APIClient().post(
         "/v1/auth/login/", {"email": "pending@test.dineos", "password": "MyNewPass1"}, format="json",
     )
     assert now_login.status_code == 200
+    assert now_login.data["must_change_password"] is False
 
 
 def test_organization_creation_with_contact_email_invites_first_admin():

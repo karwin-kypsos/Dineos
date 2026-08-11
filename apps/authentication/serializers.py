@@ -56,6 +56,7 @@ class DineOSTokenObtainPairSerializer(TokenObtainPairSerializer):
         data["role_name"] = ROLE_METADATA[self.user.role]["name"]
         data["name"] = self.user.name
         data["restaurant_id"] = str(self.user.restaurant_id)
+        data["must_change_password"] = self.user.must_change_password
         return data
 
 
