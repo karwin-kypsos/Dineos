@@ -258,6 +258,11 @@ EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER or "noreply@dineos.local")
 TEST_EMAIL_OVERRIDE = env("TEST_EMAIL_OVERRIDE", default="")
+# Without this, a blocked/unreachable SMTP connection hangs the socket
+# indefinitely — and since sending happens inline during login/invite/reset,
+# that hangs the whole HTTP request forever instead of just failing the
+# send (core.email.send_notification_email already catches the failure).
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=10)
 
 # ---------------------------------------------------------------------------
 # Logging — send everything to stdout so Render captures it
