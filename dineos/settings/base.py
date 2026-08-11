@@ -225,16 +225,39 @@ DEFAULT_SERVICE_CHARGE_PERCENTAGE = env.float("DEFAULT_SERVICE_CHARGE_PERCENTAGE
 CUSTOMER_APP_BASE_URL = env("CUSTOMER_APP_BASE_URL", default="https://order.dineos.app").rstrip("/")
 
 # ---------------------------------------------------------------------------
-# No email/SMS delivery is wired up yet. Until this is True, every
-# "sent" secret (2FA code, password-reset/invite token) is a fixed, known
-# value instead of a random one — see apps.platform.models._generate_2fa_code
-# and apps.authentication.models._generate_reset_token — so the full
-# verification flow is still testable end-to-end without a real inbox.
-# Flip this on (no other code changes needed) once real delivery exists.
+# Until EMAIL_DELIVERY_ENABLED is True, every "sent" secret (2FA code,
+# password-reset/invite token) is a fixed, known value instead of a random
+# one — see apps.platform.models._generate_2fa_code and
+# apps.authentication.models._generate_reset_token — so the Postman suite
+# stays deterministic and testable without reading a real inbox. Deliberately
+# left off in production for that reason.
+#
+# Actual email SENDING (core.email.send_notification_email) is a separate,
+# independent switch from the above — it only requires EMAIL_HOST_USER to be
+# set, works with EMAIL_DELIVERY_ENABLED left off, and exists purely so a
+# real inbox can see what these emails look like without destabilizing the
+# fixed-token test flow.
 # ---------------------------------------------------------------------------
 EMAIL_DELIVERY_ENABLED = env.bool("EMAIL_DELIVERY_ENABLED", default=False)
 COMMON_VERIFICATION_TOKEN = env("COMMON_VERIFICATION_TOKEN", default="COMMON-TEST-TOKEN")
 COMMON_VERIFICATION_CODE = env("COMMON_VERIFICATION_CODE", default="123456")
+
+# ---------------------------------------------------------------------------
+# Real email sending (2FA codes, invite/reset tokens). EMAIL_HOST_USER blank
+# (the default) means core.email.send_notification_email is a no-op — safe
+# to leave unset. TEST_EMAIL_OVERRIDE, if set, redirects every outbound
+# email to that one address regardless of the real recipient — the seeded
+# test data mostly uses fake @dineos-test.demo addresses that can't receive
+# real mail, so this is how a real inbox gets to see them during testing.
+# ---------------------------------------------------------------------------
+EMAIL_BACKEND = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
+EMAIL_HOST = env("EMAIL_HOST", default="smtp.gmail.com")
+EMAIL_PORT = env.int("EMAIL_PORT", default=587)
+EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=True)
+EMAIL_HOST_USER = env("EMAIL_HOST_USER", default="")
+EMAIL_HOST_PASSWORD = env("EMAIL_HOST_PASSWORD", default="")
+DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default=EMAIL_HOST_USER or "noreply@dineos.local")
+TEST_EMAIL_OVERRIDE = env("TEST_EMAIL_OVERRIDE", default="")
 
 # ---------------------------------------------------------------------------
 # Logging — send everything to stdout so Render captures it

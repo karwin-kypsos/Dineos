@@ -14,4 +14,4 @@ def issue_invite(user):
     user.set_unusable_password()
     user.must_change_password = True
     user.save(update_fields=["password", "must_change_password"])
-    return PasswordResetToken.issue(user, ttl_minutes=INVITE_TTL_MINUTES)
+    return PasswordResetToken.issue(user, ttl_minutes=INVITE_TTL_MINUTES, kind="invite")

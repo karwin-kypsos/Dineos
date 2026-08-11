@@ -27,6 +27,16 @@ services:
         sync: false
       - key: CORS_ALLOWED_ORIGINS
         sync: false
+      - key: EMAIL_BACKEND
+        sync: false
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
+        sync: false
+      - key: TEST_EMAIL_OVERRIDE
+        sync: false
 
   - type: worker
     name: dineos-worker

@@ -89,8 +89,28 @@ class PasswordResetToken(models.Model):
         ordering = ["-created_at"]
 
     @classmethod
-    def issue(cls, user, ttl_minutes=30):
-        return cls.objects.create(user=user, expires_at=timezone.now() + timedelta(minutes=ttl_minutes))
+    def issue(cls, user, ttl_minutes=30, kind="reset"):
+        token_obj = cls.objects.create(user=user, expires_at=timezone.now() + timedelta(minutes=ttl_minutes))
+
+        from core.email import send_notification_email
+
+        if kind == "invite":
+            subject = "You're invited to DineOS"
+            body = (
+                f"Hi {user.name or 'there'},\n\n"
+                f"You've been invited to join DineOS. Use this token to set your password and activate "
+                f"your account:\n\n{token_obj.token}\n\n"
+                f"This invite expires in {ttl_minutes // 1440} day(s)."
+            )
+        else:
+            subject = "Reset your DineOS password"
+            body = (
+                f"Hi {user.name or 'there'},\n\n"
+                f"Use this token to reset your DineOS password:\n\n{token_obj.token}\n\n"
+                f"This token expires in {ttl_minutes} minutes. If you didn't request this, you can ignore this email."
+            )
+        send_notification_email(subject=subject, body=body, to_email=user.email)
+        return token_obj
 
     @property
     def is_valid(self):

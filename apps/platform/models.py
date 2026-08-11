@@ -84,7 +84,16 @@ class PlatformLoginCode(models.Model):
 
     @classmethod
     def issue(cls, admin, ttl_minutes=5):
-        return cls.objects.create(admin=admin, expires_at=timezone.now() + timedelta(minutes=ttl_minutes))
+        login_code = cls.objects.create(admin=admin, expires_at=timezone.now() + timedelta(minutes=ttl_minutes))
+
+        from core.email import send_notification_email
+
+        send_notification_email(
+            subject="Your DineOS Super Admin verification code",
+            body=f"Your 6-digit verification code is: {login_code.code}\n\nThis code expires in {ttl_minutes} minutes.",
+            to_email=admin.email,
+        )
+        return login_code
 
     @property
     def is_valid(self):
