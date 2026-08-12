@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{base_url}}/auth/me/"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const meAfterSelectData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('selection survives a fresh /me/ call (persisted, not session-only)', () => pm.expect(meAfterSelectData.branch.id).to.eql(pm.collectionVariables.get('branch_id')));
+    language: text/javascript
+order: 2160

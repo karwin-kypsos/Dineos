@@ -12,6 +12,8 @@ scripts:
       const adminLoginData = pm.response.json();
       pm.collectionVariables.set('admin_token', adminLoginData.access);
       pm.collectionVariables.set('refresh_token', adminLoginData.refresh);
+      pm.test('branch is present (Admin has no fixed branch, so this is the resolved/default one)', () => pm.expect(adminLoginData.branch).to.not.be.null);
+      pm.test('available_branches is a non-empty list for Admin', () => pm.expect(adminLoginData.available_branches.length).to.be.above(0));
     language: text/javascript
 examples: './.resources/Login — Admin.resources/examples'
 order: 1000

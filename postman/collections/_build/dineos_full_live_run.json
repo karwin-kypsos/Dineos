@@ -153,7 +153,9 @@
                 "exec": [
                   "const adminLoginData = pm.response.json();",
                   "pm.collectionVariables.set('admin_token', adminLoginData.access);",
-                  "pm.collectionVariables.set('refresh_token', adminLoginData.refresh);"
+                  "pm.collectionVariables.set('refresh_token', adminLoginData.refresh);",
+                  "pm.test('branch is present (Admin has no fixed branch, so this is the resolved/default one)', () => pm.expect(pm.response.json().branch).to.not.be.null);",
+                  "pm.test('available_branches is a non-empty list for Admin', () => pm.expect(pm.response.json().available_branches.length).to.be.above(0));"
                 ]
               }
             }
@@ -444,6 +446,66 @@
                   "    pm.expect(t.qr_code).to.match(/^data:image\\/png;base64,/);",
                   "  });",
                   "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Select Branch (Admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/auth/select-branch/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"branch_id\": \"{{branch_id}}\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const selectBranchData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('branch reflects the selection', () => pm.expect(selectBranchData.branch.id).to.eql(pm.collectionVariables.get('branch_id')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify Branch Selection Persists (Me)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/auth/me/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const meAfterSelectData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('selection survives a fresh /me/ call (persisted, not session-only)', () => pm.expect(meAfterSelectData.branch.id).to.eql(pm.collectionVariables.get('branch_id')));"
                 ]
               }
             }
@@ -1179,6 +1241,37 @@
             ],
             "url": "{{base_url}}/menu/categories/"
           }
+        },
+        {
+          "name": "List Categories — Filter by Branch",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/menu/categories/?branch={{branch_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const categoriesByBranchData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('every result belongs to the filtered branch or is global (branch-less)', () => {",
+                  "  categoriesByBranchData.results.forEach(c => {",
+                  "    const ok = c.branch === null || c.branch === pm.collectionVariables.get('branch_id');",
+                  "    pm.expect(ok).to.be.true;",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Create Menu Item (Manager)",

@@ -1,0 +1,18 @@
+$kind: http-request
+url: "{{base_url}}/menu/categories/?branch={{branch_id}}"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const categoriesByBranchData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('every result belongs to the filtered branch or is global (branch-less)', () => {
+        categoriesByBranchData.results.forEach(c => {
+          const ok = c.branch === null || c.branch === pm.collectionVariables.get('branch_id');
+          pm.expect(ok).to.be.true;
+        });
+      });
+    language: text/javascript
+order: 2050
