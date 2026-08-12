@@ -115,6 +115,31 @@ class MeView(generics.RetrieveAPIView):
         return self.request.user
 
 
+class SelectBranchView(APIView):
+    """Persists the Org Admin's branch-switcher choice so it survives the
+    login being skipped on later app opens (see resolve_branch_context in
+    serializers.py, used by both /v1/auth/login/ and /v1/auth/me/).
+    No-op-safe for Manager/Server/Cashier -- they're pinned to their own
+    user.branch, which this never touches."""
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        from apps.restaurant.models import Branch
+
+        branch_id = request.data.get("branch_id")
+        if not branch_id:
+            return Response({"branch_id": "This field is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        branch = Branch.objects.filter(id=branch_id, restaurant_id=request.user.restaurant_id).first()
+        if branch is None:
+            return Response({"branch_id": "Branch not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        request.user.selected_branch = branch
+        request.user.save(update_fields=["selected_branch"])
+        return Response(UserSerializer(request.user).data)
+
+
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]
 

@@ -38,6 +38,28 @@ class TenantSummarySerializer(serializers.ModelSerializer):
         ]
 
 
+def resolve_branch_context(user):
+    """Returns (branch_data, available_branches_data) for the branch
+    switcher. Manager/Server/Cashier are pinned to their own user.branch —
+    available_branches is None for them (nothing to switch between).
+    Admin has no fixed branch, so this resolves to: their last-selected
+    branch (user.selected_branch, persisted so it survives the login being
+    skipped on later app opens) -> else the restaurant's first active
+    branch by name -> else None if the restaurant has no branches yet.
+    """
+    if user.branch is not None:
+        return BranchSummarySerializer(user.branch).data, None
+
+    branches = list(Branch.objects.filter(restaurant_id=user.restaurant_id, is_active=True).order_by("name"))
+    selected = user.selected_branch if (user.selected_branch and user.selected_branch.is_active) else None
+    if selected is None and branches:
+        selected = branches[0]
+
+    branch_data = BranchSummarySerializer(selected).data if selected else None
+    available_data = BranchSummarySerializer(branches, many=True).data
+    return branch_data, available_data
+
+
 class DineOSTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
@@ -57,19 +79,23 @@ class DineOSTokenObtainPairSerializer(TokenObtainPairSerializer):
         data["name"] = self.user.name
         data["restaurant_id"] = str(self.user.restaurant_id)
         data["must_change_password"] = self.user.must_change_password
+        branch_data, available_data = resolve_branch_context(self.user)
+        data["branch"] = branch_data
+        data["available_branches"] = available_data
         return data
 
 
 class UserSerializer(serializers.ModelSerializer):
     restaurant = TenantSummarySerializer(read_only=True)
-    branch = BranchSummarySerializer(read_only=True)
+    branch = serializers.SerializerMethodField()
+    available_branches = serializers.SerializerMethodField()
     role_id = serializers.SerializerMethodField()
     role_name = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = ["id", "email", "name", "phone", "address", "role", "role_id", "role_name",
-                  "is_active", "must_change_password", "restaurant", "branch", "created_at"]
+                  "is_active", "must_change_password", "restaurant", "branch", "available_branches", "created_at"]
         read_only_fields = ["id", "must_change_password", "created_at"]
 
     def get_role_id(self, obj):
@@ -77,6 +103,12 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_role_name(self, obj):
         return ROLE_METADATA[obj.role]["name"]
+
+    def get_branch(self, obj):
+        return resolve_branch_context(obj)[0]
+
+    def get_available_branches(self, obj):
+        return resolve_branch_context(obj)[1]
 
 
 class UserCreateSerializer(serializers.ModelSerializer):

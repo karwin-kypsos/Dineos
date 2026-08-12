@@ -1,3 +1,5 @@
+import uuid
+
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.db import models as dj_models
@@ -21,6 +23,27 @@ from .serializers import (
     MenuItemSerializer,
     PreparedPortionSerializer,
 )
+
+
+def _effective_branch(request):
+    """Explicit ?branch=<id> takes priority (e.g. an Org Admin viewing a
+    specific branch's menu via the branch switcher — Admin has no
+    user.branch of their own to fall back on); otherwise the caller's own
+    fixed branch (Manager/Server/Cashier). Malformed/foreign ids are
+    ignored rather than raising, same as List Staff's ?branch= filter."""
+    branch_id = request.query_params.get("branch")
+    if branch_id:
+        try:
+            uuid.UUID(branch_id)
+        except ValueError:
+            branch_id = None
+        else:
+            from apps.restaurant.models import Branch
+
+            branch = Branch.objects.filter(id=branch_id, restaurant_id=request.tenant.id).first()
+            if branch is not None:
+                return branch
+    return getattr(request.user, "branch", None)
 
 
 def _available_today_queryset(restaurant, branch=None):
@@ -58,7 +81,7 @@ class OrderTakingMenuView(APIView):
         return [IsAnyStaff()]
 
     def get(self, request):
-        items = _available_today_queryset(request.tenant, getattr(request.user, "branch", None)).select_related("category")
+        items = _available_today_queryset(request.tenant, _effective_branch(request)).select_related("category")
         return Response(MenuItemCustomerSerializer(items, many=True).data)
 
     def post(self, request):
@@ -80,7 +103,7 @@ class MenuItemViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = MenuItem.objects.filter(category__restaurant=self.request.tenant).select_related("category")
-        branch = getattr(self.request.user, "branch", None)
+        branch = _effective_branch(self.request)
         if branch is not None:
             qs = qs.filter(dj_models.Q(category__branch=branch) | dj_models.Q(category__branch__isnull=True))
         return qs
@@ -110,7 +133,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = Category.objects.filter(restaurant=self.request.tenant)
-        branch = getattr(self.request.user, "branch", None)
+        branch = _effective_branch(self.request)
         if branch is not None:
             qs = qs.filter(dj_models.Q(branch=branch) | dj_models.Q(branch__isnull=True))
         return qs

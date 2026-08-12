@@ -36,6 +36,14 @@ class User(AbstractBaseUser, PermissionsMixin):
     branch = models.ForeignKey(
         "restaurant.Branch", on_delete=models.SET_NULL, null=True, blank=True, related_name="staff"
     )
+    # Only meaningful for branch-less staff (Admin) — Manager/Server/Cashier
+    # are pinned to `branch` above and this is ignored for them. Persists
+    # the Org Admin's branch-switcher choice across logins, since login is
+    # skipped on subsequent app opens and the switcher needs to restore
+    # exactly where the Admin left off.
+    selected_branch = models.ForeignKey(
+        "restaurant.Branch", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
     email = models.EmailField(unique=True)
     name = models.CharField(max_length=255, blank=True)
     phone = models.CharField(max_length=32, blank=True)
