@@ -7,12 +7,13 @@ from .models import Ingredient, PurchaseOrder, PurchaseOrderLine, RecipeItem, St
 
 class IngredientSerializer(serializers.ModelSerializer):
     is_low_stock = serializers.BooleanField(read_only=True)
+    stock_status = serializers.CharField(read_only=True)
 
     class Meta:
         model = Ingredient
         fields = [
             "id", "branch", "name", "unit", "current_stock", "unit_cost", "minimum_stock_level",
-            "supplier_name", "supplier_notes", "is_low_stock", "is_active", "created_at",
+            "supplier_name", "supplier_notes", "is_low_stock", "stock_status", "is_active", "created_at",
         ]
         read_only_fields = ["id", "current_stock", "created_at"]
         validators = []  # conditional UniqueConstraints — see apps/menu CategorySerializer for why

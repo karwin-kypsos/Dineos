@@ -48,6 +48,19 @@ class Ingredient(models.Model):
     def is_low_stock(self):
         return self.current_stock <= self.minimum_stock_level
 
+    @property
+    def stock_status(self):
+        """Three-tier classification for the frontend's stock filter/badge.
+        critical: out of stock (<= 0) — needs an urgent reorder.
+        low: below the reorder point but some is still on hand.
+        healthy: above the reorder point.
+        """
+        if self.current_stock <= 0:
+            return "critical"
+        if self.current_stock <= self.minimum_stock_level:
+            return "low"
+        return "healthy"
+
 
 class StockMovement(models.Model):
     class MovementType(models.TextChoices):

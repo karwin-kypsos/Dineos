@@ -32,6 +32,13 @@ class IngredientViewSet(viewsets.ModelViewSet):
         qs = _branch_scoped(qs, self.request)
         if self.request.query_params.get("low_stock") == "true":
             qs = qs.filter(current_stock__lte=dj_models.F("minimum_stock_level"))
+        stock_status = self.request.query_params.get("stock_status")
+        if stock_status == "critical":
+            qs = qs.filter(current_stock__lte=0)
+        elif stock_status == "low":
+            qs = qs.filter(current_stock__gt=0, current_stock__lte=dj_models.F("minimum_stock_level"))
+        elif stock_status == "healthy":
+            qs = qs.filter(current_stock__gt=dj_models.F("minimum_stock_level"))
         return qs
 
     def get_permissions(self):
