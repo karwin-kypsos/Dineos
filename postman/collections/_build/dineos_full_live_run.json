@@ -31,7 +31,9 @@
                 "exec": [
                   "const adminLoginData = pm.response.json();",
                   "pm.collectionVariables.set('admin_token', adminLoginData.access);",
-                  "pm.collectionVariables.set('refresh_token', adminLoginData.refresh);"
+                  "pm.collectionVariables.set('refresh_token', adminLoginData.refresh);",
+                  "pm.test('branch is present (Admin has no fixed branch, so this is the resolved/default one)', () => pm.expect(adminLoginData.branch).to.not.be.null);",
+                  "pm.test('available_branches is a non-empty list for Admin', () => pm.expect(adminLoginData.available_branches.length).to.be.above(0));"
                 ]
               }
             }
@@ -154,8 +156,8 @@
                   "const adminLoginData = pm.response.json();",
                   "pm.collectionVariables.set('admin_token', adminLoginData.access);",
                   "pm.collectionVariables.set('refresh_token', adminLoginData.refresh);",
-                  "pm.test('branch is present (Admin has no fixed branch, so this is the resolved/default one)', () => pm.expect(pm.response.json().branch).to.not.be.null);",
-                  "pm.test('available_branches is a non-empty list for Admin', () => pm.expect(pm.response.json().available_branches.length).to.be.above(0));"
+                  "pm.test('branch is present (Admin has no fixed branch, so this is the resolved/default one)', () => pm.expect(adminLoginData.branch).to.not.be.null);",
+                  "pm.test('available_branches is a non-empty list for Admin', () => pm.expect(adminLoginData.available_branches.length).to.be.above(0));"
                 ]
               }
             }
@@ -1470,7 +1472,7 @@
           ]
         },
         {
-          "name": "Update Temp Menu Item - sort_order via PATCH (Manager)",
+          "name": "Update Temp Menu Item — sort_order via PATCH (Manager)",
           "request": {
             "method": "PATCH",
             "header": [
@@ -1635,7 +1637,7 @@
           ]
         },
         {
-          "name": "Update Category - sort_order via PATCH (Manager)",
+          "name": "Update Category — sort_order via PATCH (Manager)",
           "request": {
             "method": "PATCH",
             "header": [
@@ -2245,6 +2247,160 @@
                   "const rejectPoData = pm.response.json();",
                   "pm.test('status is 200', () => pm.response.to.have.status(200));",
                   "pm.test('status is REJECTED', () => pm.expect(rejectPoData.status).to.eql('REJECTED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create AI Test Ingredient (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/inventory/ingredients/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"AI Insights Test Ingredient {{$timestamp}}\", \"unit\": \"KG\", \"minimum_stock_level\": \"5.00\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const createAiTestIngredientData = pm.response.json();",
+                  "pm.collectionVariables.set('ai_test_ingredient_id', createAiTestIngredientData.id);",
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('stock_status is critical (0 stock)', () => pm.expect(createAiTestIngredientData.stock_status).to.eql('critical'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Generate AI Insights (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/inventory/ai-insights/generate/",
+            "body": {
+              "mode": "raw",
+              "raw": ""
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const generateAiInsightsData = pm.response.json();",
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "const ours = generateAiInsightsData.find(i => i.ingredient === pm.collectionVariables.get('ai_test_ingredient_id'));",
+                  "pm.test('our critical-stock test ingredient was flagged', () => pm.expect(ours).to.not.be.undefined);",
+                  "if (ours) {",
+                  "    pm.collectionVariables.set('ai_insight_id', ours.id);",
+                  "    pm.test('severity is CRITICAL', () => pm.expect(ours.severity).to.eql('CRITICAL'));",
+                  "    pm.test('headline is a non-empty Groq-generated string', () => pm.expect(ours.headline.length).to.be.above(0));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List AI Insights (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/inventory/ai-insights/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const listAiInsightsData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "const results = listAiInsightsData.results || listAiInsightsData;",
+                  "const ours = results.find(i => i.id === pm.collectionVariables.get('ai_insight_id'));",
+                  "pm.test('our insight appears in the undismissed list', () => pm.expect(ours).to.not.be.undefined);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dismiss AI Insight (Admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/inventory/ai-insights/{{ai_insight_id}}/dismiss/",
+            "body": {
+              "mode": "raw",
+              "raw": ""
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const dismissAiInsightData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('is_dismissed is true', () => pm.expect(dismissAiInsightData.is_dismissed).to.eql(true));",
+                  "pm.test('dismissed_at is set', () => pm.expect(dismissAiInsightData.dismissed_at).to.not.be.null);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deactivate AI Test Ingredient (cleanup)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/inventory/ingredients/{{ai_test_ingredient_id}}/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 204', () => pm.response.to.have.status(204));"
                 ]
               }
             }
@@ -3202,6 +3358,30 @@
                   "const ids = lowStockAlertsData.map(a => a.ingredient_id);",
                   "pm.test('status is 200', () => pm.response.to.have.status(200));",
                   "pm.test('flags the never-restocked Paneer ingredient', () => pm.expect(ids).to.include(pm.collectionVariables.get('temp_ingredient_id')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deactivate Temp Ingredient (cleanup)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/inventory/ingredients/{{temp_ingredient_id}}/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 204', () => pm.response.to.have.status(204));"
                 ]
               }
             }
@@ -4410,18 +4590,6 @@
     },
     {
       "key": "branch_cashier_email",
-      "value": ""
-    },
-    {
-      "key": "staff_temp_password",
-      "value": ""
-    },
-    {
-      "key": "invited_staff_email",
-      "value": ""
-    },
-    {
-      "key": "invited_staff_token",
       "value": ""
     }
   ]

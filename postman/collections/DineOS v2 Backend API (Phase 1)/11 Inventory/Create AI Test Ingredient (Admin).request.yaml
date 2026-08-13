@@ -1,0 +1,18 @@
+$kind: http-request
+url: "{{base_url}}/inventory/ingredients/"
+method: POST
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"name": "AI Insights Test Ingredient {{$timestamp}}", "unit": "KG", "minimum_stock_level": "5.00"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const createAiTestIngredientData = pm.response.json();
+      pm.collectionVariables.set('ai_test_ingredient_id', createAiTestIngredientData.id);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+      pm.test('stock_status is critical (0 stock)', () => pm.expect(createAiTestIngredientData.stock_status).to.eql('critical'));
+    language: text/javascript
+order: 5000

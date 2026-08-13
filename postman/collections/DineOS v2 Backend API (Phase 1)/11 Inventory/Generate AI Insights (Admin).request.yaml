@@ -1,0 +1,22 @@
+$kind: http-request
+url: "{{base_url}}/inventory/ai-insights/generate/"
+method: POST
+headers:
+  Authorization: Bearer {{admin_token}}
+body:
+  type: text
+  content: ""
+scripts:
+  - type: afterResponse
+    code: |-
+      const generateAiInsightsData = pm.response.json();
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+      const ours = generateAiInsightsData.find(i => i.ingredient === pm.collectionVariables.get('ai_test_ingredient_id'));
+      pm.test('our critical-stock test ingredient was flagged', () => pm.expect(ours).to.not.be.undefined);
+      if (ours) {
+          pm.collectionVariables.set('ai_insight_id', ours.id);
+          pm.test('severity is CRITICAL', () => pm.expect(ours.severity).to.eql('CRITICAL'));
+          pm.test('headline is a non-empty Groq-generated string', () => pm.expect(ours.headline.length).to.be.above(0));
+      }
+    language: text/javascript
+order: 5100

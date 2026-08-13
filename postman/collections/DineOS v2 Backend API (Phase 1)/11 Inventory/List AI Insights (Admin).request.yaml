@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{base_url}}/inventory/ai-insights/"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const listAiInsightsData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      const results = listAiInsightsData.results || listAiInsightsData;
+      const ours = results.find(i => i.id === pm.collectionVariables.get('ai_insight_id'));
+      pm.test('our insight appears in the undismissed list', () => pm.expect(ours).to.not.be.undefined);
+    language: text/javascript
+order: 5200

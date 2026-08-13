@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/inventory/ai-insights/{{ai_insight_id}}/dismiss/"
+method: PATCH
+headers:
+  Authorization: Bearer {{admin_token}}
+body:
+  type: text
+  content: ""
+scripts:
+  - type: afterResponse
+    code: |-
+      const dismissAiInsightData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('is_dismissed is true', () => pm.expect(dismissAiInsightData.is_dismissed).to.eql(true));
+      pm.test('dismissed_at is set', () => pm.expect(dismissAiInsightData.dismissed_at).to.not.be.null);
+    language: text/javascript
+order: 5300
