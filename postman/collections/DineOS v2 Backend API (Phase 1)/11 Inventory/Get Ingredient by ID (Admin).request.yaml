@@ -1,0 +1,14 @@
+$kind: http-request
+url: "{{base_url}}/inventory/ingredients/{{temp_ingredient_id}}/"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const ingredientDetailData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('returned ingredient matches temp_ingredient_id', () => pm.expect(ingredientDetailData.id).to.eql(pm.collectionVariables.get('temp_ingredient_id')));
+      pm.test('stock_status is present', () => pm.expect(ingredientDetailData.stock_status).to.be.a('string'));
+    language: text/javascript
+order: 3050

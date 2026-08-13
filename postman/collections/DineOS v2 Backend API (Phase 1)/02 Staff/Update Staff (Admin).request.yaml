@@ -1,0 +1,18 @@
+$kind: http-request
+url: "{{base_url}}/staff/{{staff_id}}/"
+method: PATCH
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"name": "New Server (Updated)", "phone": "9998887777"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const updateStaffData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('name updated', () => pm.expect(updateStaffData.name).to.eql('New Server (Updated)'));
+      pm.test('phone updated', () => pm.expect(updateStaffData.phone).to.eql('9998887777'));
+    language: text/javascript
+order: 2060

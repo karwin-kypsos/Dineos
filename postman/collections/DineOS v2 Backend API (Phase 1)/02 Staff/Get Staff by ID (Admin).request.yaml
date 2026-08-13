@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{base_url}}/staff/{{staff_id}}/"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const staffDetailData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('returned staff matches staff_id', () => pm.expect(staffDetailData.id).to.eql(pm.collectionVariables.get('staff_id')));
+    language: text/javascript
+order: 2050

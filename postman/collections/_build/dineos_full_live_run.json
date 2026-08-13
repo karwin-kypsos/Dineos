@@ -856,6 +856,67 @@
           ]
         },
         {
+          "name": "Get Staff by ID (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/staff/{{staff_id}}/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const staffDetailData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('returned staff matches staff_id', () => pm.expect(staffDetailData.id).to.eql(pm.collectionVariables.get('staff_id')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Staff (Admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/staff/{{staff_id}}/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"New Server (Updated)\", \"phone\": \"9998887777\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const updateStaffData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('name updated', () => pm.expect(updateStaffData.name).to.eql('New Server (Updated)'));",
+                  "pm.test('phone updated', () => pm.expect(updateStaffData.phone).to.eql('9998887777'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Invite Staff (No Password)",
           "request": {
             "method": "POST",
@@ -1861,6 +1922,33 @@
           ]
         },
         {
+          "name": "Get Ingredient by ID (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/inventory/ingredients/{{temp_ingredient_id}}/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const ingredientDetailData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('returned ingredient matches temp_ingredient_id', () => pm.expect(ingredientDetailData.id).to.eql(pm.collectionVariables.get('temp_ingredient_id')));",
+                  "pm.test('stock_status is present', () => pm.expect(ingredientDetailData.stock_status).to.be.a('string'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "List Low Stock Ingredients (Admin)",
           "request": {
             "method": "GET",
@@ -1883,6 +1971,38 @@
                   "const ids = results.map(i => i.id);",
                   "pm.test('status is 200', () => pm.response.to.have.status(200));",
                   "pm.test('includes Paneer (0 stock, never restocked)', () => pm.expect(ids).to.include(pm.collectionVariables.get('temp_ingredient_id')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Ingredients — Filter by Stock Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/inventory/ingredients/?stock_status=critical&page_size=200"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const stockStatusData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('includes Paneer (0 stock, never restocked)', () => {",
+                  "  const ids = stockStatusData.results.map(i => i.id);",
+                  "  pm.expect(ids).to.include(pm.collectionVariables.get('temp_ingredient_id'));",
+                  "});",
+                  "pm.test('every result really is critical (0 stock)', () => {",
+                  "  stockStatusData.results.forEach(i => pm.expect(parseFloat(i.current_stock)).to.be.at.most(0));",
+                  "});"
                 ]
               }
             }
