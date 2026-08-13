@@ -1158,6 +1158,40 @@
             ],
             "url": "{{base_url}}/staff/{{staff_id}}/deactivate/"
           }
+        },
+        {
+          "name": "Reactivate Staff (Admin)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/staff/{{staff_id}}/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"is_active\": true}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const reactivateStaffData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('is_active is true again', () => pm.expect(reactivateStaffData.is_active).to.eql(true));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },

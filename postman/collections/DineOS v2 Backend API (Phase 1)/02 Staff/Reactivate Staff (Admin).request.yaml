@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/staff/{{staff_id}}/"
+method: PATCH
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"is_active": true}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const reactivateStaffData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('is_active is true again', () => pm.expect(reactivateStaffData.is_active).to.eql(true));
+    language: text/javascript
+order: 3100
