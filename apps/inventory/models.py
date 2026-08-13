@@ -159,3 +159,38 @@ class RecipeItem(models.Model):
 
     def __str__(self):
         return f"{self.menu_item.name} uses {self.quantity_per_serving} {self.ingredient.unit} {self.ingredient.name}"
+
+
+class AIInsight(models.Model):
+    """A Groq-generated stock observation — 'AI Insights' / 'AI Alert' /
+    'AI Daily Insight' feed on the Manager Home / Stock screens. Persisted
+    (not computed fresh per request) so the feed is cheap to read and each
+    insight can be dismissed independently of the next generation run."""
+
+    class Severity(models.TextChoices):
+        CRITICAL = "CRITICAL", "Critical"
+        ALERT = "ALERT", "Alert"
+        TIP = "TIP", "Tip"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    restaurant = models.ForeignKey("restaurant.Restaurant", on_delete=models.CASCADE, related_name="ai_insights")
+    branch = models.ForeignKey(
+        "restaurant.Branch", on_delete=models.SET_NULL, null=True, blank=True, related_name="ai_insights"
+    )
+    ingredient = models.ForeignKey(
+        Ingredient, on_delete=models.CASCADE, null=True, blank=True, related_name="ai_insights"
+    )
+    severity = models.CharField(max_length=8, choices=Severity.choices)
+    headline = models.CharField(max_length=255)
+    reason_breakdown = models.TextField(blank=True)
+    recommended_action = models.CharField(max_length=255, blank=True)
+    is_dismissed = models.BooleanField(default=False)
+    generated_at = models.DateTimeField(auto_now_add=True)
+    dismissed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "ai_insights"
+        ordering = ["-generated_at"]
+
+    def __str__(self):
+        return f"[{self.severity}] {self.headline}"

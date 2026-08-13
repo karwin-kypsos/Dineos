@@ -202,7 +202,8 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_ALWAYS_EAGER", default=False)
 
 # ---------------------------------------------------------------------------
-# AI / Groq (reserved for Phase 2)
+# AI / Groq (Phase 2 — AI Insights live; Prep Forecast, Chat, End-of-Day
+# Report still to come)
 # ---------------------------------------------------------------------------
 GROQ_API_KEY = env("GROQ_API_KEY", default="")
 GROQ_MODEL = env("GROQ_MODEL", default="llama-3.3-70b-versatile")

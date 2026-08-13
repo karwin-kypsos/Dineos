@@ -1,10 +1,11 @@
 from rest_framework.routers import DefaultRouter
 
-from .views import IngredientViewSet, PurchaseOrderViewSet, RecipeItemViewSet
+from .views import AIInsightViewSet, IngredientViewSet, PurchaseOrderViewSet, RecipeItemViewSet
 
 router = DefaultRouter()
 router.register("ingredients", IngredientViewSet, basename="ingredient")
 router.register("purchase-orders", PurchaseOrderViewSet, basename="purchase-order")
 router.register("recipe-items", RecipeItemViewSet, basename="recipe-item")
+router.register("ai-insights", AIInsightViewSet, basename="ai-insight")
 
 urlpatterns = router.urls

@@ -1,6 +1,12 @@
-from django.db import transaction
+import json
+from datetime import timedelta
+from decimal import Decimal
 
-from .models import Ingredient, PurchaseOrder, PurchaseOrderLine, StockMovement
+from django.db import models as dj_models
+from django.db import transaction
+from django.utils import timezone
+
+from .models import AIInsight, Ingredient, PurchaseOrder, PurchaseOrderLine, StockMovement
 
 
 class InsufficientStockError(Exception):
@@ -125,3 +131,136 @@ def receive_purchase_order(po_id, recorded_by=None):
     po.status = PurchaseOrder.Status.RECEIVED
     po.save(update_fields=["status"])
     return po
+
+
+def _usage_in_window(ingredient, start, end):
+    total = StockMovement.objects.filter(
+        ingredient=ingredient, movement_type=StockMovement.MovementType.USAGE,
+        recorded_at__gte=start, recorded_at__lt=end,
+    ).aggregate(total=dj_models.Sum("quantity"))["total"]
+    return total or Decimal("0")
+
+
+def compute_ingredient_stats(ingredient, window_days=7):
+    """Pure numeric analysis, no AI involved — compares this window's usage
+    rate against the prior window of equal length to detect a trend, and
+    projects days-until-stockout from the current window's daily rate.
+    Used both to decide which ingredients are worth an AI insight and as
+    the factual grounding handed to Groq so it can't invent numbers.
+    """
+    now = timezone.now()
+    window_start = now - timedelta(days=window_days)
+    prior_start = window_start - timedelta(days=window_days)
+
+    recent_usage = _usage_in_window(ingredient, window_start, now)
+    prior_usage = _usage_in_window(ingredient, prior_start, window_start)
+
+    daily_rate = recent_usage / window_days if recent_usage else Decimal("0")
+    prior_daily_rate = prior_usage / window_days if prior_usage else Decimal("0")
+
+    trend_pct = None
+    if prior_daily_rate > 0:
+        trend_pct = round(float((daily_rate - prior_daily_rate) / prior_daily_rate) * 100, 1)
+
+    days_until_stockout = float(ingredient.current_stock / daily_rate) if daily_rate > 0 else None
+
+    last_restock = (
+        StockMovement.objects.filter(ingredient=ingredient, movement_type=StockMovement.MovementType.RESTOCK)
+        .order_by("-recorded_at").first()
+    )
+
+    return {
+        "ingredient": ingredient,
+        "daily_usage_rate": daily_rate,
+        "prior_daily_usage_rate": prior_daily_rate,
+        "trend_pct": trend_pct,
+        "days_until_stockout": days_until_stockout,
+        "last_restocked_at": last_restock.recorded_at if last_restock else None,
+    }
+
+
+def _worth_flagging(ingredient, stats):
+    """Which ingredients get an AI insight this run — anything already
+    low/critical, trending sharply upward in usage even while still
+    healthy (an early warning before it becomes low), or projected to run
+    out within 3 days regardless of its current minimum_stock_level."""
+    if ingredient.stock_status in ("critical", "low"):
+        return True
+    if stats["trend_pct"] is not None and stats["trend_pct"] >= 25:
+        return True
+    if stats["days_until_stockout"] is not None and stats["days_until_stockout"] <= 3:
+        return True
+    return False
+
+
+AI_INSIGHTS_SYSTEM_PROMPT = (
+    "You are the inventory analyst for a restaurant management app. Given "
+    "structured stock-movement facts for a list of ingredients, return ONLY "
+    "a JSON object of the shape {\"insights\": [...]}. Each item must have: "
+    "ingredient_id (string, copied exactly from the matching input item), "
+    "severity (one of CRITICAL, ALERT, TIP), headline (one short sentence a "
+    "manager reads at a glance, citing the actual numbers given), "
+    "reason_breakdown (1-2 sentences explaining why this was flagged, "
+    "referencing the specific facts provided), recommended_action (one "
+    "short actionable sentence, e.g. a suggested restock quantity). Never "
+    "invent numbers not present in the input. Use CRITICAL only when "
+    "stock_status is \"critical\" or estimated_days_until_stockout <= 1, "
+    "ALERT for low stock or a fast-rising trend, TIP for everything else."
+)
+
+
+@transaction.atomic
+def generate_ai_insights(restaurant, branch=None):
+    """Manager Home / Stock screens' 'AI Insights' feed. Flags ingredients
+    worth surfacing via pure stock-movement math (no AI needed for that
+    part), then hands their facts to Groq in a single batched call to
+    phrase the headline/reasoning/recommendation — one call regardless of
+    how many ingredients are flagged, not one per ingredient.
+    """
+    from core.ai_client import generate_json
+
+    qs = Ingredient.objects.filter(restaurant=restaurant, is_active=True)
+    if branch is not None:
+        qs = qs.filter(dj_models.Q(branch=branch) | dj_models.Q(branch__isnull=True))
+
+    flagged = [stats for stats in (compute_ingredient_stats(i) for i in qs) if _worth_flagging(stats["ingredient"], stats)]
+    if not flagged:
+        return []
+
+    facts = [
+        {
+            "ingredient_id": str(s["ingredient"].id),
+            "ingredient_name": s["ingredient"].name,
+            "unit": s["ingredient"].unit,
+            "current_stock": float(s["ingredient"].current_stock),
+            "minimum_stock_level": float(s["ingredient"].minimum_stock_level),
+            "stock_status": s["ingredient"].stock_status,
+            "daily_usage_rate": float(s["daily_usage_rate"]),
+            "usage_trend_pct_vs_prior_week": s["trend_pct"],
+            "estimated_days_until_stockout": s["days_until_stockout"],
+            "last_restocked_at": s["last_restocked_at"].isoformat() if s["last_restocked_at"] else None,
+        }
+        for s in flagged
+    ]
+
+    result = generate_json(AI_INSIGHTS_SYSTEM_PROMPT, json.dumps({"ingredients": facts}))
+    raw_insights = result.get("insights", []) if isinstance(result, dict) else []
+
+    by_id = {str(s["ingredient"].id): s["ingredient"] for s in flagged}
+    created = []
+    for item in raw_insights:
+        ingredient = by_id.get(item.get("ingredient_id"))
+        if ingredient is None:
+            continue
+        severity = item.get("severity")
+        if severity not in AIInsight.Severity.values:
+            severity = AIInsight.Severity.TIP
+        created.append(
+            AIInsight.objects.create(
+                restaurant=restaurant, branch=branch, ingredient=ingredient, severity=severity,
+                headline=item.get("headline", "")[:255],
+                reason_breakdown=item.get("reason_breakdown", ""),
+                recommended_action=item.get("recommended_action", "")[:255],
+            )
+        )
+    return created

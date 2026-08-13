@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
-from .models import Ingredient, PurchaseOrder, PurchaseOrderLine, RecipeItem, StockMovement
+from .models import AIInsight, Ingredient, PurchaseOrder, PurchaseOrderLine, RecipeItem, StockMovement
 
 
 class IngredientSerializer(serializers.ModelSerializer):
@@ -112,3 +112,22 @@ class RecipeItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = RecipeItem
         fields = ["id", "menu_item", "menu_item_name", "ingredient", "ingredient_name", "unit", "quantity_per_serving"]
+
+
+class AIInsightSerializer(serializers.ModelSerializer):
+    ingredient_name = serializers.SerializerMethodField()
+    unit = serializers.SerializerMethodField()
+
+    def get_ingredient_name(self, obj):
+        return obj.ingredient.name if obj.ingredient else None
+
+    def get_unit(self, obj):
+        return obj.ingredient.unit if obj.ingredient else None
+
+    class Meta:
+        model = AIInsight
+        fields = [
+            "id", "branch", "ingredient", "ingredient_name", "unit", "severity", "headline",
+            "reason_breakdown", "recommended_action", "is_dismissed", "generated_at", "dismissed_at",
+        ]
+        read_only_fields = fields

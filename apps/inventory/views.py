@@ -1,14 +1,17 @@
 from django.db import models as dj_models
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from core.ai_client import AIUnavailableError
 from core.permissions import IsAdminOrManager, IsAnyStaff
 
 from . import services
-from .models import Ingredient, PurchaseOrder, RecipeItem
+from .models import AIInsight, Ingredient, PurchaseOrder, RecipeItem
 from .serializers import (
     AddStockSerializer,
+    AIInsightSerializer,
     IngredientSerializer,
     PurchaseOrderCreateSerializer,
     PurchaseOrderSerializer,
@@ -152,3 +155,39 @@ class RecipeItemViewSet(viewsets.ModelViewSet):
         if ingredient_id:
             qs = qs.filter(ingredient_id=ingredient_id)
         return qs
+
+
+class AIInsightViewSet(viewsets.ReadOnlyModelViewSet):
+    """Manager Home / Stock screens' 'AI Insights' feed — read-only list +
+    two actions: generate (Groq call, creates fresh rows) and dismiss
+    (per-insight, matching the swipeable/dismissable alert cards in the app).
+    """
+
+    serializer_class = AIInsightSerializer
+    permission_classes = [IsAdminOrManager]
+    http_method_names = ["get", "post", "patch", "head", "options"]
+
+    def get_queryset(self):
+        qs = AIInsight.objects.filter(restaurant=self.request.tenant)
+        qs = _branch_scoped(qs, self.request)
+        if self.request.query_params.get("include_dismissed") != "true":
+            qs = qs.filter(is_dismissed=False)
+        return qs
+
+    @action(detail=False, methods=["post"])
+    def generate(self, request):
+        try:
+            insights = services.generate_ai_insights(
+                request.tenant, branch=getattr(request.user, "branch", None)
+            )
+        except AIUnavailableError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response(AIInsightSerializer(insights, many=True).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["patch"])
+    def dismiss(self, request, pk=None):
+        insight = self.get_object()
+        insight.is_dismissed = True
+        insight.dismissed_at = timezone.now()
+        insight.save(update_fields=["is_dismissed", "dismissed_at"])
+        return Response(AIInsightSerializer(insight).data)
