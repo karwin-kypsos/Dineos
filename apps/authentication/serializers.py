@@ -86,16 +86,25 @@ class DineOSTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 
 class UserSerializer(serializers.ModelSerializer):
+    """General-purpose staff representation — List/Get/Create/Update/
+    Deactivate Staff. branch here is just the record's own fixed FK
+    (cheap, no query beyond the normal join). Do NOT add the branch
+    switcher's resolve_branch_context()/available_branches here: that's
+    the CALLER's own identity context, not a property of an arbitrary
+    staff record, and computing it per row would run an extra "list every
+    active branch" query for every Admin-role row returned by List Staff.
+    See MeSerializer below for where that enrichment actually belongs.
+    """
+
     restaurant = TenantSummarySerializer(read_only=True)
-    branch = serializers.SerializerMethodField()
-    available_branches = serializers.SerializerMethodField()
+    branch = BranchSummarySerializer(read_only=True)
     role_id = serializers.SerializerMethodField()
     role_name = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = ["id", "email", "name", "phone", "address", "role", "role_id", "role_name",
-                  "is_active", "must_change_password", "restaurant", "branch", "available_branches", "created_at"]
+                  "is_active", "must_change_password", "restaurant", "branch", "created_at"]
         read_only_fields = ["id", "must_change_password", "created_at"]
 
     def get_role_id(self, obj):
@@ -103,6 +112,19 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_role_name(self, obj):
         return ROLE_METADATA[obj.role]["name"]
+
+
+class MeSerializer(UserSerializer):
+    """GET /v1/auth/me/ only — adds the branch switcher's resolved branch
+    + available_branches for the CALLING user, same shape as the login
+    response. Kept off the base UserSerializer so List/Get/Update Staff
+    don't pay for or return this for every other staff record."""
+
+    branch = serializers.SerializerMethodField()
+    available_branches = serializers.SerializerMethodField()
+
+    class Meta(UserSerializer.Meta):
+        fields = UserSerializer.Meta.fields + ["available_branches"]
 
     def get_branch(self, obj):
         return resolve_branch_context(obj)[0]

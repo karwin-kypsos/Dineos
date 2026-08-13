@@ -22,6 +22,7 @@ from .serializers import (
     ChangePasswordSerializer,
     DineOSTokenObtainPairSerializer,
     ForgotPasswordSerializer,
+    MeSerializer,
     ResetPasswordSerializer,
     UserCreateSerializer,
     UserSerializer,
@@ -108,7 +109,7 @@ class ResetPasswordView(APIView):
 
 
 class MeView(generics.RetrieveAPIView):
-    serializer_class = UserSerializer
+    serializer_class = MeSerializer
     permission_classes = [IsAuthenticated]
 
     def get_object(self):
@@ -137,7 +138,7 @@ class SelectBranchView(APIView):
 
         request.user.selected_branch = branch
         request.user.save(update_fields=["selected_branch"])
-        return Response(UserSerializer(request.user).data)
+        return Response(MeSerializer(request.user).data)
 
 
 class ChangePasswordView(APIView):
