@@ -1,0 +1,32 @@
+$kind: http-request
+url: "{{base_url}}/menu/"
+method: POST
+headers:
+  Authorization: Bearer {{manager_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "category": {{category_id}},
+      "name": "Paneer Tikka Recipe Test",
+      "price": "180.00",
+      "description": "Grilled paneer",
+      "recipe_items": [
+        {"ingredient": "{{recipe_test_ginger_id}}", "quantity_per_serving": "0.010"},
+        {"ingredient": "{{recipe_test_chicken_id}}", "quantity_per_serving": "0.250"}
+      ]
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      const createMenuItemWithRecipeData = pm.response.json();
+      pm.collectionVariables.set('recipe_test_menu_item_id', createMenuItemWithRecipeData.id);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+      pm.test('recipe has 2 lines', () => pm.expect(createMenuItemWithRecipeData.recipe.length).to.eql(2));
+      pm.test('each recipe line shows the ingredient\'s own unit', () => {
+          const units = createMenuItemWithRecipeData.recipe.map(r => r.unit).sort();
+          pm.expect(units).to.eql(['G', 'KG']);
+      });
+    language: text/javascript
+order: 3100

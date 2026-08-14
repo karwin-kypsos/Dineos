@@ -1,0 +1,14 @@
+$kind: http-request
+url: "{{base_url}}/menu/all/?search=zzzznonexistentzzzz"
+method: GET
+headers:
+  Authorization: Bearer {{manager_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const searchMenuData = pm.response.json();
+      const results = searchMenuData.results || searchMenuData;
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('no match for a garbage search term', () => pm.expect(results.length).to.eql(0));
+    language: text/javascript
+order: 9060

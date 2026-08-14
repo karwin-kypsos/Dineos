@@ -1,0 +1,11 @@
+$kind: http-request
+url: "{{base_url}}/inventory/ingredients/{{recipe_test_chicken_id}}/"
+method: DELETE
+headers:
+  Authorization: Bearer {{manager_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('chicken deactivated, status is 204', () => pm.response.to.have.status(204));
+    language: text/javascript
+order: 3130

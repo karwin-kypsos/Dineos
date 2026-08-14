@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/inventory/ingredients/"
+method: POST
+headers:
+  Authorization: Bearer {{manager_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"name": "Ginger Recipe Test {{$timestamp}}", "unit": "G"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const createGingerData = pm.response.json();
+      pm.collectionVariables.set('recipe_test_ginger_id', createGingerData.id);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+    language: text/javascript
+order: 3080

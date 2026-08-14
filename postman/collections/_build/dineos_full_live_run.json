@@ -1404,6 +1404,185 @@
           ]
         },
         {
+          "name": "Create Recipe Test Ingredient — Ginger (Manager)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{manager_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/inventory/ingredients/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"Ginger Recipe Test {{$timestamp}}\", \"unit\": \"G\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const createGingerData = pm.response.json();",
+                  "pm.collectionVariables.set('recipe_test_ginger_id', createGingerData.id);",
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Recipe Test Ingredient — Chicken (Manager)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{manager_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/inventory/ingredients/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"Chicken Recipe Test {{$timestamp}}\", \"unit\": \"KG\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const createChickenData = pm.response.json();",
+                  "pm.collectionVariables.set('recipe_test_chicken_id', createChickenData.id);",
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Menu Item with Recipe (Manager)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{manager_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/menu/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"category\": {{category_id}},\n  \"name\": \"Paneer Tikka Recipe Test\",\n  \"price\": \"180.00\",\n  \"description\": \"Grilled paneer\",\n  \"recipe_items\": [\n    {\"ingredient\": \"{{recipe_test_ginger_id}}\", \"quantity_per_serving\": \"0.010\"},\n    {\"ingredient\": \"{{recipe_test_chicken_id}}\", \"quantity_per_serving\": \"0.250\"}\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const createMenuItemWithRecipeData = pm.response.json();",
+                  "pm.collectionVariables.set('recipe_test_menu_item_id', createMenuItemWithRecipeData.id);",
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('recipe has 2 lines', () => pm.expect(createMenuItemWithRecipeData.recipe.length).to.eql(2));",
+                  "pm.test('each recipe line shows the ingredient\\'s own unit', () => {",
+                  "    const units = createMenuItemWithRecipeData.recipe.map(r => r.unit).sort();",
+                  "    pm.expect(units).to.eql(['G', 'KG']);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deactivate Recipe Test Data (cleanup)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{manager_token}}"
+              }
+            ],
+            "url": "{{base_url}}/menu/{{recipe_test_menu_item_id}}/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('menu item deactivated, status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deactivate Recipe Test Ingredients (cleanup)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{manager_token}}"
+              }
+            ],
+            "url": "{{base_url}}/inventory/ingredients/{{recipe_test_ginger_id}}/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('ginger deactivated, status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deactivate Recipe Test Ingredients — Chicken (cleanup)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{manager_token}}"
+              }
+            ],
+            "url": "{{base_url}}/inventory/ingredients/{{recipe_test_chicken_id}}/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('chicken deactivated, status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "Create Temp Menu Item (for update-delete test)",
           "request": {
             "method": "POST",
@@ -1562,6 +1741,62 @@
             ],
             "url": "{{base_url}}/menu/all/"
           }
+        },
+        {
+          "name": "Management Menu — Filter by Category",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{manager_token}}"
+              }
+            ],
+            "url": "{{base_url}}/menu/all/?category={{category_id}}"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const filterByCategoryData = pm.response.json();",
+                  "const results = filterByCategoryData.results || filterByCategoryData;",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('every item belongs to the requested category', () => {",
+                  "    results.forEach(item => pm.expect(item.category).to.eql(Number(pm.collectionVariables.get('category_id'))));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Management Menu — Search by Name",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{manager_token}}"
+              }
+            ],
+            "url": "{{base_url}}/menu/all/?search=zzzznonexistentzzzz"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const searchMenuData = pm.response.json();",
+                  "const results = searchMenuData.results || searchMenuData;",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('no match for a garbage search term', () => pm.expect(results.length).to.eql(0));"
+                ]
+              }
+            }
+          ]
         },
         {
           "name": "Menu Item Detail",
