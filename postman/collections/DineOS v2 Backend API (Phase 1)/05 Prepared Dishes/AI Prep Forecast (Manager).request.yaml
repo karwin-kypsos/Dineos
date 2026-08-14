@@ -1,0 +1,26 @@
+$kind: http-request
+url: "{{base_url}}/prepared-dishes/prep-forecast/"
+method: GET
+headers:
+  Authorization: Bearer {{manager_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const prepForecastData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('response has target_date/weekday/lookback_occurrences/forecasts', () => {
+          pm.expect(prepForecastData).to.have.property('target_date');
+          pm.expect(prepForecastData).to.have.property('weekday');
+          pm.expect(prepForecastData).to.have.property('lookback_occurrences');
+          pm.expect(prepForecastData.forecasts).to.be.an('array');
+      });
+      if (prepForecastData.forecasts.length > 0) {
+          const first = prepForecastData.forecasts[0];
+          pm.test('each forecast has a Groq-generated headline and app-computed quantity', () => {
+              pm.expect(first.headline.length).to.be.above(0);
+              pm.expect(first.suggested_prep_quantity).to.be.a('number');
+              pm.expect(first.occurrence_quantities.length).to.eql(prepForecastData.lookback_occurrences);
+          });
+      }
+    language: text/javascript
+order: 2500
