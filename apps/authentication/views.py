@@ -230,3 +230,31 @@ class StaffViewSet(viewsets.ModelViewSet):
         user.is_active = False
         user.save(update_fields=["is_active"])
         return Response(UserSerializer(user).data)
+
+    def destroy(self, request, *args, **kwargs):
+        """Permanently deletes the account (name/email/role gone entirely —
+        distinct from deactivate above, which just blocks login and keeps
+        the record). Two-step like the Super Admin tenant delete: the first
+        call (no ?confirm=true) deletes nothing and returns 409 describing
+        who this would remove; only a second call with ?confirm=true
+        actually performs it. Prefer deactivate for the normal 'remove this
+        staff member' flow — this is for genuinely erasing a mistaken or
+        duplicate account.
+        """
+        user = self.get_object()
+
+        if request.query_params.get("confirm") != "true":
+            return Response(
+                {
+                    "detail": (
+                        "This permanently deletes this staff account — unlike deactivate, the record "
+                        "itself is gone, not just blocked from logging in. This cannot be undone. Prefer "
+                        "PATCH .../deactivate/ for the normal remove-a-staff-member flow. Resend this "
+                        "request with ?confirm=true to proceed with permanent deletion."
+                    ),
+                    "staff_member": {"name": user.name, "email": user.email, "role": user.role},
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        return super().destroy(request, *args, **kwargs)
