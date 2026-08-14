@@ -108,3 +108,75 @@ def test_low_stock_alerts_isolated_across_restaurants(manager_client):
     assert response.status_code == 200
     names = {a["name"] for a in response.data}
     assert "Foreign Critical" not in names
+
+
+def test_ai_eod_report_returns_503_when_groq_unconfigured(admin_client, table, menu_item):
+    _, client = admin_client
+    from apps.orders import services as order_services
+    from apps.billing import services as billing_services
+    from apps.tables import services as table_services
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    billing_services.pay_bill(session.id, "CASH", None)
+
+    response = client.get("/v1/admin/ai/eod-report/")
+
+    assert response.status_code == 503
+
+
+def test_ai_eod_report_combines_today_data_with_ai_summary(admin_client, table, menu_item, chicken, monkeypatch):
+    _, client = admin_client
+    from apps.orders import services as order_services
+    from apps.billing import services as billing_services
+    from apps.tables import services as table_services
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    billing_services.pay_bill(session.id, "CASH", None)
+    chicken.current_stock = Decimal("1.00")
+    chicken.save(update_fields=["current_stock"])
+
+    captured = {}
+
+    def fake_generate_json(system_prompt, user_prompt, **kwargs):
+        import json
+
+        facts = json.loads(user_prompt)
+        captured["facts"] = facts
+        return {
+            "summary": "Today brought in solid revenue with one table served.",
+            "recommendations": [
+                {"headline": "Restock Chicken before tomorrow.", "reasoning": "Only 1.00 KG left, below the 5.00 KG minimum."}
+            ],
+        }
+
+    monkeypatch.setattr("core.ai_client.generate_json", fake_generate_json)
+
+    response = client.get("/v1/admin/ai/eod-report/")
+
+    assert response.status_code == 200, response.data
+    assert response.data["tables_served"] == 1
+    assert response.data["ai_summary"] == "Today brought in solid revenue with one table served."
+    assert len(response.data["recommendations_for_tomorrow"]) == 1
+    assert "Chicken" in response.data["recommendations_for_tomorrow"][0]["headline"]
+
+    # Facts sent to Groq are grounded in the real low-stock ingredient.
+    low_stock_names = [i["name"] for i in captured["facts"]["low_or_critical_stock_ingredients"]]
+    assert "Chicken" in low_stock_names
+
+
+def test_ai_eod_report_rejects_bad_date_format(admin_client):
+    _, client = admin_client
+
+    response = client.get("/v1/admin/ai/eod-report/?date=not-a-date")
+
+    assert response.status_code == 400
+
+
+def test_ai_eod_report_requires_admin_or_manager(server_client):
+    _, client = server_client
+
+    response = client.get("/v1/admin/ai/eod-report/")
+
+    assert response.status_code == 403

@@ -86,9 +86,6 @@ class EndOfDayReviewView(APIView):
     def get(self, request):
         from datetime import datetime
 
-        from apps.inventory.models import StockMovement
-
-        restaurant = request.tenant
         date_param = request.query_params.get("date")
         if date_param:
             try:
@@ -98,47 +95,7 @@ class EndOfDayReviewView(APIView):
         else:
             review_date = timezone.localdate()
 
-        from apps.billing.services import daily_collections
-
-        collections = daily_collections(restaurant, review_date)
-        collections["bills"] = None  # full bill objects aren't JSON-serializable here; counts/totals only
-
-        day_start = timezone.make_aware(datetime.combine(review_date, datetime.min.time()))
-        day_end = day_start + timezone.timedelta(days=1)
-
-        orders_qs = Order.objects.filter(
-            Q(table__restaurant=restaurant) | Q(branch__restaurant=restaurant),
-            placed_at__gte=day_start, placed_at__lt=day_end,
-        )
-        movements = StockMovement.objects.filter(
-            ingredient__restaurant=restaurant, recorded_at__gte=day_start, recorded_at__lt=day_end,
-        )
-        wastage = movements.filter(movement_type=StockMovement.MovementType.WASTAGE)
-        restocks = movements.filter(movement_type=StockMovement.MovementType.RESTOCK)
-        wastage_cost = sum(
-            (m.quantity * (m.unit_cost_at_time or Decimal("0")) for m in wastage), Decimal("0")
-        )
-
-        staff_ids = set(orders_qs.exclude(placed_by__isnull=True).values_list("placed_by_id", flat=True))
-        staff_ids |= set(
-            Bill.objects.filter(
-                Q(session__table__restaurant=restaurant) | Q(order__branch__restaurant=restaurant),
-                paid_at__gte=day_start, paid_at__lt=day_end,
-            ).exclude(processed_by__isnull=True).values_list("processed_by_id", flat=True)
-        )
-
-        low_stock_count = sum(1 for i in Ingredient.objects.filter(restaurant=restaurant, is_active=True) if i.is_low_stock)
-
-        return Response({
-            **collections,
-            "orders_placed": orders_qs.count(),
-            "orders_cancelled": orders_qs.filter(status="CANCELLED").count(),
-            "wastage_entries_count": wastage.count(),
-            "wastage_total_cost": wastage_cost,
-            "restock_entries_count": restocks.count(),
-            "low_stock_count_at_review": low_stock_count,
-            "staff_active_count": len(staff_ids),
-        })
+        return Response(services.compute_eod_data(request.tenant, review_date))
 
 
 class LowStockAlertsView(APIView):
@@ -226,3 +183,33 @@ class ChatMessagesView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class AIEndOfDayReportView(APIView):
+    """AI End of Day Report — same underlying numbers as the manual End of
+    Day Review (services.compute_eod_data), plus a Groq-phrased summary
+    and 'Recommendations for Tomorrow' drawn from tomorrow's AI Prep
+    Forecast and today's low/critical stock. Defaults to today;
+    ?date=YYYY-MM-DD for a past day. Stateless — recomputed fresh each call.
+    """
+
+    permission_classes = [IsAdminOrManager]
+
+    def get(self, request):
+        from datetime import datetime
+
+        date_param = request.query_params.get("date")
+        if date_param:
+            try:
+                review_date = datetime.strptime(date_param, "%Y-%m-%d").date()
+            except ValueError:
+                return Response({"date": "Expected format YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            review_date = timezone.localdate()
+
+        try:
+            report = services.generate_eod_report(request.tenant, review_date)
+        except AIUnavailableError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        return Response(report)
