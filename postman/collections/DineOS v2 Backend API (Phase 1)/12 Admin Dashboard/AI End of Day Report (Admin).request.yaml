@@ -1,0 +1,19 @@
+$kind: http-request
+url: "{{base_url}}/admin/ai/eod-report/"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const aiEodReportData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('has the same numbers as End of Day Review', () => {
+          pm.expect(aiEodReportData).to.have.property('total_collected');
+          pm.expect(aiEodReportData).to.have.property('tables_served');
+          pm.expect(aiEodReportData).to.have.property('wastage_total_cost');
+      });
+      pm.test('ai_summary is a non-empty Groq-generated string', () => pm.expect(aiEodReportData.ai_summary.length).to.be.above(0));
+      pm.test('recommendations_for_tomorrow is an array', () => pm.expect(aiEodReportData.recommendations_for_tomorrow).to.be.an('array'));
+    language: text/javascript
+order: 2500
