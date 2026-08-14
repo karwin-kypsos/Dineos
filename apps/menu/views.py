@@ -11,6 +11,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.ai_client import AIUnavailableError
 from core.permissions import IsAdminOrManager, IsAnyStaff
 from core.tenancy import TenantObjectPermission, get_branch_from_table, get_tenant_from_table
 
@@ -46,6 +47,26 @@ def _effective_branch(request):
     return getattr(request.user, "branch", None)
 
 
+def _apply_category_and_search(qs, request):
+    """?category=<id> narrows to one category; ?search=<text> matches the
+    dish name (case-insensitive substring). Malformed ?category= is ignored
+    rather than raising, same convention as the branch/staff filters."""
+    category_id = request.query_params.get("category")
+    if category_id:
+        try:
+            category_id = int(category_id)
+        except ValueError:
+            category_id = None
+        if category_id is not None:
+            qs = qs.filter(category_id=category_id)
+
+    search = request.query_params.get("search", "").strip()
+    if search:
+        qs = qs.filter(name__icontains=search)
+
+    return qs
+
+
 def _available_today_queryset(restaurant, branch=None):
     today_zero_ids = PreparedPortion.objects.filter(
         date=timezone.localdate(), portions_remaining=0
@@ -66,7 +87,7 @@ class CustomerMenuView(APIView):
         if restaurant is None:
             return Response({"detail": "Table not found."}, status=status.HTTP_404_NOT_FOUND)
         branch = get_branch_from_table(table_id)
-        items = _available_today_queryset(restaurant, branch).select_related("category")
+        items = _apply_category_and_search(_available_today_queryset(restaurant, branch), request).select_related("category")
         return Response(MenuItemCustomerSerializer(items, many=True).data)
 
 
@@ -81,11 +102,13 @@ class OrderTakingMenuView(APIView):
         return [IsAnyStaff()]
 
     def get(self, request):
-        items = _available_today_queryset(request.tenant, _effective_branch(request)).select_related("category")
+        items = _apply_category_and_search(
+            _available_today_queryset(request.tenant, _effective_branch(request)), request
+        ).select_related("category")
         return Response(MenuItemCustomerSerializer(items, many=True).data)
 
     def post(self, request):
-        serializer = MenuItemSerializer(data=request.data)
+        serializer = MenuItemSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         # Category must belong to the caller's own restaurant — never trust
         # a client-supplied category id blindly (cross-tenant injection).
@@ -106,7 +129,7 @@ class MenuItemViewSet(viewsets.ModelViewSet):
         branch = _effective_branch(self.request)
         if branch is not None:
             qs = qs.filter(dj_models.Q(category__branch=branch) | dj_models.Q(category__branch__isnull=True))
-        return qs
+        return _apply_category_and_search(qs, self.request)
 
     def get_permissions(self):
         base = [IsAnyStaff()] if self.action in ("list", "retrieve") else [IsAdminOrManager()]
@@ -163,6 +186,58 @@ class PreparedDishesTodayView(APIView):
             date=timezone.localdate(), menu_item__category__restaurant=request.tenant
         ).select_related("menu_item")
         return Response(PreparedPortionSerializer(portions, many=True).data)
+
+
+class PrepForecastView(APIView):
+    """Prep Log screens' 'AI Prep Forecast' — 'Based on last 4 Tuesdays:
+    Chicken Biryani averaged 24 servings.' Stateless (recomputed fresh each
+    call, not persisted) since it's a live planning aid for whichever date
+    is being prepped for, not a dismissible alert. ?date=YYYY-MM-DD defaults
+    to today; ?branch=<id> narrows to one branch; ?lookback=<n> overrides
+    the default 4 occurrences.
+    """
+
+    permission_classes = [IsAdminOrManager]
+
+    def get(self, request):
+        from datetime import datetime
+
+        date_param = request.query_params.get("date")
+        if date_param:
+            try:
+                target_date = datetime.strptime(date_param, "%Y-%m-%d").date()
+            except ValueError:
+                return Response({"date": "Expected format YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            target_date = timezone.localdate()
+
+        branch = None
+        branch_id = request.query_params.get("branch")
+        if branch_id:
+            try:
+                branch = request.tenant.branches.get(id=branch_id)
+            except (ValueError, request.tenant.branches.model.DoesNotExist):
+                return Response({"branch": "Branch not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        lookback = request.query_params.get("lookback")
+        try:
+            lookback = int(lookback) if lookback else 4
+        except ValueError:
+            return Response({"lookback": "Must be an integer."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            forecasts, target_date = services.generate_prep_forecast(
+                request.tenant, branch=branch, target_date=target_date, lookback_occurrences=lookback
+            )
+        except AIUnavailableError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        return Response({
+            "target_date": target_date.isoformat(),
+            "weekday": target_date.strftime("%A"),
+            "lookback_occurrences": lookback,
+            "forecasts": forecasts,
+        })
 
 
 class AddPortionsView(APIView):

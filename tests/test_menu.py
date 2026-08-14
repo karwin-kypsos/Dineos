@@ -136,3 +136,136 @@ def test_deleting_empty_category_succeeds(manager_client, restaurant):
     response = client.delete(f"/v1/menu/categories/{empty_category.id}/")
     assert response.status_code == 204
     assert not Category.objects.filter(id=empty_category.id).exists()
+
+
+def test_list_menu_filter_by_category(manager_client, menu_item):
+    from apps.menu.models import Category, MenuItem
+
+    _, client = manager_client
+    other_category = Category.objects.create(restaurant=menu_item.category.restaurant, name="Drinks")
+    MenuItem.objects.create(category=other_category, name="Lemonade", price=60)
+
+    response = client.get(f"/v1/menu/all/?category={menu_item.category_id}")
+
+    assert response.status_code == 200
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    names = {item["name"] for item in results}
+    assert names == {menu_item.name}
+
+
+def test_list_menu_search_by_name(manager_client, menu_item):
+    _, client = manager_client
+
+    response = client.get("/v1/menu/all/?search=biryani")
+    assert response.status_code == 200
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    assert {item["name"] for item in results} == {menu_item.name}
+
+    response = client.get("/v1/menu/all/?search=nonexistent-dish")
+    assert response.status_code == 200
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    assert results == []
+
+
+def test_create_menu_item_with_recipe_items(manager_client, menu_item):
+    from decimal import Decimal
+
+    from apps.inventory.models import Ingredient, RecipeItem
+
+    _, client = manager_client
+    restaurant = menu_item.category.restaurant
+    ginger = Ingredient.objects.create(restaurant=restaurant, name="Ginger", unit="G")
+    chicken = Ingredient.objects.create(restaurant=restaurant, name="Chicken", unit="KG")
+
+    response = client.post(
+        "/v1/menu/",
+        {
+            "category": menu_item.category_id,
+            "name": "Paneer Tikka",
+            "price": "180.00",
+            "description": "Grilled paneer",
+            "recipe_items": [
+                {"ingredient": str(ginger.id), "quantity_per_serving": "0.010"},
+                {"ingredient": str(chicken.id), "quantity_per_serving": "0.250"},
+            ],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    assert len(response.data["recipe"]) == 2
+    units = {line["unit"] for line in response.data["recipe"]}
+    assert units == {"G", "KG"}
+    assert RecipeItem.objects.filter(menu_item_id=response.data["id"]).count() == 2
+    ginger_line = RecipeItem.objects.get(menu_item_id=response.data["id"], ingredient=ginger)
+    assert ginger_line.quantity_per_serving == Decimal("0.010")
+
+
+def test_create_menu_item_rejects_duplicate_ingredient_in_recipe(manager_client, menu_item):
+    from apps.inventory.models import Ingredient
+
+    _, client = manager_client
+    chicken = Ingredient.objects.create(restaurant=menu_item.category.restaurant, name="Chicken", unit="KG")
+
+    response = client.post(
+        "/v1/menu/",
+        {
+            "category": menu_item.category_id,
+            "name": "Chicken 65",
+            "price": "150.00",
+            "recipe_items": [
+                {"ingredient": str(chicken.id), "quantity_per_serving": "0.100"},
+                {"ingredient": str(chicken.id), "quantity_per_serving": "0.050"},
+            ],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 400
+
+
+def test_create_menu_item_rejects_ingredient_from_another_restaurant(manager_client, menu_item):
+    from apps.inventory.models import Ingredient
+    from apps.restaurant.models import Restaurant
+
+    _, client = manager_client
+    foreign_restaurant = Restaurant.objects.create(name="Foreign Kitchen", slug="foreign-kitchen-menu")
+    foreign_ingredient = Ingredient.objects.create(restaurant=foreign_restaurant, name="Butter", unit="KG")
+
+    response = client.post(
+        "/v1/menu/",
+        {
+            "category": menu_item.category_id,
+            "name": "Butter Naan",
+            "price": "60.00",
+            "recipe_items": [{"ingredient": str(foreign_ingredient.id), "quantity_per_serving": "0.020"}],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 400
+
+
+def test_update_menu_item_replaces_recipe_items(manager_client, menu_item):
+    from apps.inventory.models import Ingredient, RecipeItem
+
+    _, client = manager_client
+    restaurant = menu_item.category.restaurant
+    ginger = Ingredient.objects.create(restaurant=restaurant, name="Ginger", unit="G")
+    RecipeItem.objects.create(menu_item=menu_item, ingredient=ginger, quantity_per_serving="0.005")
+    garlic = Ingredient.objects.create(restaurant=restaurant, name="Garlic", unit="G")
+
+    response = client.put(
+        f"/v1/menu/{menu_item.id}/",
+        {
+            "category": menu_item.category_id,
+            "name": menu_item.name,
+            "price": "220.00",
+            "recipe_items": [{"ingredient": str(garlic.id), "quantity_per_serving": "0.008"}],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 200, response.data
+    assert RecipeItem.objects.filter(menu_item=menu_item).count() == 1
+    assert RecipeItem.objects.get(menu_item=menu_item).ingredient == garlic
