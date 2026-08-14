@@ -1,0 +1,19 @@
+$kind: http-request
+url: "{{base_url}}/admin/ai/chat/messages/"
+method: POST
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"content": "How was our revenue today, and is anything running low on stock?"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const sendChatMessageData = pm.response.json();
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+      pm.test('message echoes what we sent', () => pm.expect(sendChatMessageData.message.content).to.eql('How was our revenue today, and is anything running low on stock?'));
+      pm.test('reply is a non-empty Groq-generated string', () => pm.expect(sendChatMessageData.reply.content.length).to.be.above(0));
+      pm.test('reply role is ASSISTANT', () => pm.expect(sendChatMessageData.reply.role).to.eql('ASSISTANT'));
+    language: text/javascript
+order: 3200

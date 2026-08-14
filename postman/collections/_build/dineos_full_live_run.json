@@ -3660,6 +3660,71 @@
               }
             }
           ]
+        },
+        {
+          "name": "AI Chat — Send Message (Admin)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/admin/ai/chat/messages/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"content\": \"How was our revenue today, and is anything running low on stock?\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const sendChatMessageData = pm.response.json();",
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));",
+                  "pm.test('message echoes what we sent', () => pm.expect(sendChatMessageData.message.content).to.eql('How was our revenue today, and is anything running low on stock?'));",
+                  "pm.test('reply is a non-empty Groq-generated string', () => pm.expect(sendChatMessageData.reply.content.length).to.be.above(0));",
+                  "pm.test('reply role is ASSISTANT', () => pm.expect(sendChatMessageData.reply.role).to.eql('ASSISTANT'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AI Chat — List History (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/admin/ai/chat/messages/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const listChatData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('includes the message just sent', () => {",
+                  "    const found = listChatData.some(m => m.content === 'How was our revenue today, and is anything running low on stock?');",
+                  "    pm.expect(found).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
