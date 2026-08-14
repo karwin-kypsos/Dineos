@@ -271,6 +271,53 @@ class TenantViewSet(viewsets.ModelViewSet):
             ),
         )
 
+    def destroy(self, request, *args, **kwargs):
+        """Permanently deletes an organization and cascades away everything
+        under it (staff, branches, menu, inventory, orders, AI insights —
+        every FK to Restaurant is on_delete=CASCADE). Irreversible, so this
+        is two-step: the first call (no ?confirm=true) never deletes
+        anything — it returns 409 with a count of exactly what would be
+        destroyed, so the frontend can show a real confirmation dialog
+        instead of a blind 'are you sure?'. Only a second call with
+        ?confirm=true actually performs the delete."""
+        from django.db.models import Q
+
+        from apps.orders.models import Order
+
+        restaurant = self.get_object()
+
+        if request.query_params.get("confirm") != "true":
+            orders_count = Order.objects.filter(
+                Q(table__restaurant=restaurant) | Q(branch__restaurant=restaurant)
+            ).count()
+            return Response(
+                {
+                    "detail": (
+                        "This will permanently delete this organization and everything in it. "
+                        "This cannot be undone. Resend this request with ?confirm=true to proceed."
+                    ),
+                    "organization": restaurant.name,
+                    "will_delete": {
+                        "staff_count": restaurant.staff.count(),
+                        "branches_count": restaurant.branches.count(),
+                        "menu_categories_count": restaurant.menu_categories.count(),
+                        "ingredients_count": restaurant.ingredients.count(),
+                        "purchase_orders_count": restaurant.purchase_orders.count(),
+                        "tables_count": restaurant.tables.count(),
+                        "orders_count": orders_count,
+                        "ai_insights_count": restaurant.ai_insights.count(),
+                    },
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        name = restaurant.name
+        PlatformActivityLog.objects.create(
+            actor=request.user, action="TENANT_DELETED", restaurant=restaurant,
+            description=f"Permanently deleted organization '{name}' and all its data",
+        )
+        return super().destroy(request, *args, **kwargs)
+
     @action(detail=True, methods=["patch"], url_path="status")
     def update_status(self, request, pk=None):
         """Organization Detail's Active/Suspended toggle. Suspending

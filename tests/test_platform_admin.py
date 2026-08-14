@@ -55,6 +55,55 @@ class TestActivityLog:
 
 
 @pytest.mark.django_db
+class TestTenantDelete:
+    def _seed(self):
+        from apps.authentication.models import User
+        from apps.menu.models import Category
+        from apps.restaurant.models import Branch
+
+        restaurant = Restaurant.objects.create(name="To Delete", slug="to-delete")
+        Branch.objects.create(restaurant=restaurant, name="Main")
+        User.objects.create_user(email="staff@to-delete.demo", password="Test@1234", role="MANAGER", name="Manager", restaurant=restaurant)
+        Category.objects.create(restaurant=restaurant, name="Mains")
+        return restaurant
+
+    def test_delete_without_confirm_returns_409_and_does_not_delete(self, platform_admin_client):
+        _, client = platform_admin_client
+        restaurant = self._seed()
+
+        resp = client.delete(f"/platform/tenants/{restaurant.id}/")
+
+        assert resp.status_code == 409
+        assert resp.data["organization"] == "To Delete"
+        assert resp.data["will_delete"]["staff_count"] == 1
+        assert resp.data["will_delete"]["branches_count"] == 1
+        assert resp.data["will_delete"]["menu_categories_count"] == 1
+        assert Restaurant.objects.filter(id=restaurant.id).exists()
+
+    def test_delete_with_confirm_deletes_everything_and_logs_it(self, platform_admin_client):
+        admin, client = platform_admin_client
+        restaurant = self._seed()
+        restaurant_id = restaurant.id
+
+        resp = client.delete(f"/platform/tenants/{restaurant_id}/?confirm=true")
+
+        assert resp.status_code == 204
+        assert not Restaurant.objects.filter(id=restaurant_id).exists()
+
+        log = PlatformActivityLog.objects.filter(action="TENANT_DELETED").first()
+        assert log is not None
+        assert "To Delete" in log.description
+        assert log.restaurant is None  # SET_NULL after the cascade
+        assert log.actor == admin
+
+    def test_delete_requires_platform_auth(self, api_client):
+        restaurant = Restaurant.objects.create(name="Protected", slug="protected-delete")
+        resp = api_client.delete(f"/platform/tenants/{restaurant.id}/?confirm=true")
+        assert resp.status_code in (401, 403)
+        assert Restaurant.objects.filter(id=restaurant.id).exists()
+
+
+@pytest.mark.django_db
 class TestTeam:
     def test_create_team_member(self, platform_admin_client):
         _, client = platform_admin_client

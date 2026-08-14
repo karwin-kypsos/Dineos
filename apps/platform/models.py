@@ -147,6 +147,7 @@ class PlatformActivityLog(models.Model):
         ("TEAM_MEMBER_REMOVED", "Team member removed"),
         ("TENANT_IMPERSONATED", "Support access started"),
         ("IMPERSONATION_ENDED", "Support access ended"),
+        ("TENANT_DELETED", "Organization permanently deleted"),
     ]
 
     id = models.BigAutoField(primary_key=True)
