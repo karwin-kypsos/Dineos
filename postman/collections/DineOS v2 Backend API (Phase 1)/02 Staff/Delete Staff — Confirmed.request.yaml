@@ -1,0 +1,11 @@
+$kind: http-request
+url: "{{base_url}}/staff/{{delete_test_staff_id}}/?confirm=true"
+method: DELETE
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('status is 204', () => pm.response.to.have.status(204));
+    language: text/javascript
+order: 3220

@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/staff/"
+method: POST
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"name": "Delete Safety Test", "email": "delete-safety-test-{{$timestamp}}@demo-bistro.demo", "role": "SERVER"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const createDeleteTestStaffData = pm.response.json();
+      pm.collectionVariables.set('delete_test_staff_id', createDeleteTestStaffData.id);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+    language: text/javascript
+order: 3200

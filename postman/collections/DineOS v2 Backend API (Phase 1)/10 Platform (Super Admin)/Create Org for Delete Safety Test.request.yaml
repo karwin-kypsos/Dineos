@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{server_root}}/platform/tenants/"
+method: POST
+headers:
+  Authorization: Bearer {{platform_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"name": "Delete Safety Test {{$timestamp}}", "slug": "delete-safety-test-{{$timestamp}}"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const createDeleteTestOrgData = pm.response.json();
+      pm.collectionVariables.set('delete_test_org_id', createDeleteTestOrgData.id);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+    language: text/javascript
+order: 7900

@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{base_url}}/staff/{{delete_test_staff_id}}/"
+method: DELETE
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const deleteStaffNoConfirmData = pm.response.json();
+      pm.test('status is 409', () => pm.response.to.have.status(409));
+      pm.test('nothing was deleted yet', () => pm.expect(deleteStaffNoConfirmData.staff_member).to.not.be.undefined);
+    language: text/javascript
+order: 3210

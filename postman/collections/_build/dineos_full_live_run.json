@@ -1194,6 +1194,90 @@
               }
             }
           ]
+        },
+        {
+          "name": "Create Staff for Delete Safety Test",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{base_url}}/staff/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"Delete Safety Test\", \"email\": \"delete-safety-test-{{$timestamp}}@demo-bistro.demo\", \"role\": \"SERVER\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const createDeleteTestStaffData = pm.response.json();",
+                  "pm.collectionVariables.set('delete_test_staff_id', createDeleteTestStaffData.id);",
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Staff — Without Confirm (expect 409)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/staff/{{delete_test_staff_id}}/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const deleteStaffNoConfirmData = pm.response.json();",
+                  "pm.test('status is 409', () => pm.response.to.have.status(409));",
+                  "pm.test('nothing was deleted yet', () => pm.expect(deleteStaffNoConfirmData.staff_member).to.not.be.undefined);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Staff — Confirmed",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/staff/{{delete_test_staff_id}}/?confirm=true"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -4670,6 +4754,90 @@
               }
             ],
             "url": "{{server_root}}/platform/team/{{team_member_id}}/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Org for Delete Safety Test",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platform_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{server_root}}/platform/tenants/",
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"Delete Safety Test {{$timestamp}}\", \"slug\": \"delete-safety-test-{{$timestamp}}\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const createDeleteTestOrgData = pm.response.json();",
+                  "pm.collectionVariables.set('delete_test_org_id', createDeleteTestOrgData.id);",
+                  "pm.test('status is 201', () => pm.response.to.have.status(201));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Organization — Without Confirm (expect 409)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platform_token}}"
+              }
+            ],
+            "url": "{{server_root}}/platform/tenants/{{delete_test_org_id}}/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const deleteNoConfirmData = pm.response.json();",
+                  "pm.test('status is 409', () => pm.response.to.have.status(409));",
+                  "pm.test('nothing was deleted yet', () => pm.expect(deleteNoConfirmData.will_delete).to.not.be.undefined);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Organization — Confirmed",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{platform_token}}"
+              }
+            ],
+            "url": "{{server_root}}/platform/tenants/{{delete_test_org_id}}/?confirm=true"
           },
           "event": [
             {
