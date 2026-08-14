@@ -41,3 +41,27 @@ def generate_json(system_prompt, user_prompt, *, timeout=20):
     except (TypeError, ValueError) as e:
         logger.error("Groq returned non-JSON content: %r", raw)
         raise AIUnavailableError("AI returned an unparseable response.") from e
+
+
+def generate_reply(system_prompt, messages, *, timeout=20):
+    """Plain conversational completion for AI Chat — unlike generate_json,
+    this returns free-form text (no JSON mode), since a chat reply is meant
+    to be read directly, not parsed. `messages` is the conversation history
+    as [{"role": "user"|"assistant", "content": ...}, ...], oldest first."""
+    if not settings.GROQ_API_KEY:
+        raise AIUnavailableError("AI features are not configured yet (GROQ_API_KEY unset).")
+
+    from groq import Groq
+
+    client = Groq(api_key=settings.GROQ_API_KEY, timeout=timeout)
+    try:
+        completion = client.chat.completions.create(
+            model=settings.GROQ_MODEL,
+            messages=[{"role": "system", "content": system_prompt}, *messages],
+            temperature=0.4,
+        )
+    except Exception as e:
+        logger.exception("Groq API call failed")
+        raise AIUnavailableError(f"AI request failed: {e}") from e
+
+    return completion.choices[0].message.content or ""

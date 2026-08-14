@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.db.models import Q, Sum
 from django.utils import timezone
+from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -9,7 +10,12 @@ from apps.billing.models import Bill
 from apps.inventory.models import Ingredient, PurchaseOrder
 from apps.orders.models import Order
 from apps.tables.models import Table
+from core.ai_client import AIUnavailableError
 from core.permissions import IsAdminOrManager
+
+from . import services
+from .models import ChatMessage
+from .serializers import ChatMessageSerializer, SendChatMessageSerializer
 
 
 class AdminDashboardView(APIView):
@@ -187,3 +193,36 @@ class LowStockAlertsView(APIView):
         severity_order = {"CRITICAL": 0, "WARNING": 1, "OK": 2}
         alerts.sort(key=lambda a: severity_order[a["severity"]])
         return Response(alerts)
+
+
+class ChatMessagesView(APIView):
+    """AI Chat screen — 'Ask AI anything...'. GET returns the caller's own
+    conversation history (oldest first); POST sends a new message and
+    returns both it and the assistant's reply. One thread per user, not
+    shared across the restaurant's team.
+    """
+
+    permission_classes = [IsAdminOrManager]
+
+    def get(self, request):
+        messages = ChatMessage.objects.filter(restaurant=request.tenant, user=request.user)
+        return Response(ChatMessageSerializer(messages, many=True).data)
+
+    def post(self, request):
+        serializer = SendChatMessageSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            user_message, assistant_message = services.send_chat_message(
+                request.tenant, request.user, serializer.validated_data["content"]
+            )
+        except AIUnavailableError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        return Response(
+            {
+                "message": ChatMessageSerializer(user_message).data,
+                "reply": ChatMessageSerializer(assistant_message).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
