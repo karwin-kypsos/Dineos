@@ -94,6 +94,25 @@ def test_manager_can_delete_menu_item(manager_client, menu_item):
     assert not MenuItem.objects.filter(id=menu_item.id).exists()
 
 
+def test_deleting_a_previously_ordered_menu_item_soft_deactivates_instead_of_500(manager_client, table, menu_item):
+    from apps.menu.models import MenuItem
+    from apps.orders import services as order_services
+    from apps.tables import services as table_services
+
+    _, client = manager_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+
+    response = client.delete(f"/v1/menu/{menu_item.id}/")
+
+    assert response.status_code == 200, response.data
+    assert response.data["is_active"] is False
+    # Still exists (order history references it via a PROTECT FK) — just deactivated.
+    menu_item.refresh_from_db()
+    assert menu_item.is_active is False
+    assert MenuItem.objects.filter(id=menu_item.id).exists()
+
+
 def test_manager_can_update_category(manager_client, menu_item):
     _, client = manager_client
     category = menu_item.category

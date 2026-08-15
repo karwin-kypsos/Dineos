@@ -150,6 +150,27 @@ class MenuItemViewSet(viewsets.ModelViewSet):
         item.save(update_fields=["is_available"])
         return Response(MenuItemSerializer(item).data)
 
+    def destroy(self, request, *args, **kwargs):
+        """Real delete when nothing references this item yet (a
+        just-created dish with no order history) — but OrderItem.menu_item
+        is on_delete=PROTECT (order history must stay intact), so any item
+        that has ever been ordered can't actually be removed from the
+        database. Rather than let that surface as an unhandled 500, fall
+        back to the same soft-deactivate this item already supports for
+        the customer-facing menu (is_active=False, same convention as
+        Branch/Ingredient) — 'delete' on an in-use item just means 'stop
+        showing it' in practice.
+        """
+        from django.db.models import ProtectedError
+
+        item = self.get_object()
+        try:
+            return super().destroy(request, *args, **kwargs)
+        except ProtectedError:
+            item.is_active = False
+            item.save(update_fields=["is_active"])
+            return Response(MenuItemSerializer(item).data)
+
 
 class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
