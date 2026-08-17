@@ -1,3 +1,4 @@
+import uuid
 from decimal import Decimal
 
 from django.db import models as dj_models
@@ -156,6 +157,18 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = PurchaseOrder.objects.filter(restaurant=self.request.tenant)
         qs = _branch_scoped(qs, self.request)
+
+        branch_id = self.request.query_params.get("branch")
+        if branch_id:
+            try:
+                uuid.UUID(branch_id)
+                qs = qs.filter(branch_id=branch_id)
+            except ValueError:
+                pass  # malformed branch id — no filter applied, same convention as StaffViewSet
+
+        needs_action = self.request.query_params.get("needs_action", "").strip().lower()
+        if needs_action == "true":
+            qs = qs.filter(status=PurchaseOrder.Status.PENDING)
 
         status_filter = self.request.query_params.get("status", "").strip().upper()
         if status_filter in PurchaseOrder.Status.values:

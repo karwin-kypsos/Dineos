@@ -186,6 +186,56 @@ def test_purchase_order_filter_by_status(manager_client, ingredient):
     assert all(po["status"] == "RECEIVED" for po in results)
 
 
+def test_purchase_order_needs_action_filter_and_branch_scoping(admin_client, ingredient, restaurant):
+    from apps.authentication.serializers import DineOSTokenObtainPairSerializer
+    from apps.authentication.models import User
+    from apps.restaurant.models import Branch
+    from rest_framework.test import APIClient
+
+    admin, admin_c = admin_client
+    branch_a = Branch.objects.create(restaurant=restaurant, name="Branch A")
+    branch_b = Branch.objects.create(restaurant=restaurant, name="Branch B")
+
+    ingredient_a = Ingredient.objects.create(
+        restaurant=restaurant, branch=branch_a, name="Flour", unit="KG",
+        current_stock=Decimal("10.00"), unit_cost=Decimal("50.00"), minimum_stock_level=Decimal("5.00"),
+    )
+
+    mgr_a = User.objects.create_user(email="mgr-a@test.dineos", password="Test@1234", role="MANAGER", name="Mgr A", restaurant=restaurant, branch=branch_a)
+    token_a = DineOSTokenObtainPairSerializer.get_token(mgr_a)
+    client_a = APIClient()
+    client_a.credentials(HTTP_AUTHORIZATION=f"Bearer {token_a.access_token}")
+
+    first = client_a.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient_a.id), "quantity_ordered": "5.00"}]}, format="json",
+    )
+    assert first.status_code == 201, first.data
+    client_a.post(f"/v1/inventory/purchase-orders/{first.data['id']}/approve/")  # moves it out of PENDING
+
+    second = client_a.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient_a.id), "quantity_ordered": "2.00"}]}, format="json",
+    )
+    assert second.status_code == 201, second.data
+
+    response = admin_c.get("/v1/inventory/purchase-orders/?needs_action=true")
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    assert response.status_code == 200
+    assert all(po["status"] == "PENDING" for po in results)
+    assert len(results) == 1
+    assert results[0]["id"] == second.data["id"]
+
+    scoped_b = admin_c.get(f"/v1/inventory/purchase-orders/?needs_action=true&branch={branch_b.id}")
+    scoped_b_results = scoped_b.data["results"] if isinstance(scoped_b.data, dict) else scoped_b.data
+    assert scoped_b_results == []
+
+    scoped_a = admin_c.get(f"/v1/inventory/purchase-orders/?needs_action=true&branch={branch_a.id}")
+    scoped_a_results = scoped_a.data["results"] if isinstance(scoped_a.data, dict) else scoped_a.data
+    assert len(scoped_a_results) == 1
+    assert scoped_a_results[0]["id"] == second.data["id"]
+
+
 def test_purchase_order_search_by_ingredient_and_supplier(manager_client, ingredient):
     _, client = manager_client
     client.post(
