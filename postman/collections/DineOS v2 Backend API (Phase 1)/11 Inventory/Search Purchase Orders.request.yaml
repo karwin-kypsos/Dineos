@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{base_url}}/inventory/purchase-orders/?search=Local Grain"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const searchPoData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('includes the matching supplier', () => {
+        pm.expect(searchPoData.results.some(po => po.supplier_name.includes('Local Grain'))).to.be.true;
+      });
+    language: text/javascript
+order: 4060

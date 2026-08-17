@@ -6,7 +6,7 @@ headers:
   Content-Type: application/json
 body:
   type: text
-  content: '{"name": "Basmati Rice {{$timestamp}}", "unit": "KG", "unit_cost": "85.00", "minimum_stock_level": "10.00", "supplier_name": "Local Grain Co."}'
+  content: '{"name": "Basmati Rice {{$timestamp}}", "unit": "KG", "unit_cost": "85.00", "minimum_stock_level": "10.00", "supplier_name": "Local Grain Co.", "supplier_phone": "9876543210"}'
 scripts:
   - type: afterResponse
     code: |-
@@ -14,5 +14,6 @@ scripts:
       pm.collectionVariables.set('ingredient_id', createIngredientData.id);
       pm.test('status is 201', () => pm.response.to.have.status(201));
       pm.test('current_stock starts at 0', () => pm.expect(createIngredientData.current_stock).to.eql('0.00'));
+      pm.test('supplier_phone is echoed back', () => pm.expect(createIngredientData.supplier_phone).to.eql('9876543210'));
     language: text/javascript
 order: 1000

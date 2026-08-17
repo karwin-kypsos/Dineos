@@ -1,0 +1,25 @@
+$kind: http-request
+url: "{{base_url}}/inventory/purchase-orders/"
+method: POST
+headers:
+  Authorization: Bearer {{admin_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "is_emergency": true,
+      "reason": "SUPPLIER_CALLED",
+      "supplier_name": "Green Farms",
+      "lines": [{"ingredient": "{{ingredient_id}}", "quantity_ordered": "3.00", "unit_cost": "120.00"}]
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      const emergencyPoData = pm.response.json();
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+      pm.test('status jumps straight to RECEIVED', () => pm.expect(emergencyPoData.status).to.eql('RECEIVED'));
+      pm.test('is_emergency is true', () => pm.expect(emergencyPoData.is_emergency).to.be.true);
+      pm.test('line is fully received', () => pm.expect(emergencyPoData.lines[0].quantity_received).to.eql('3.00'));
+    language: text/javascript
+order: 4100

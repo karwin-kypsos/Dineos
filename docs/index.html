@@ -85,6 +85,7 @@
     border:1px solid var(--line); border-left:3px solid var(--accent);
     padding:12px 16px; margin-bottom:44px; border-radius:2px;
   }
+  .note.warn{ border-left-color:#a15c2b; }
 
   /* App sections */
   .app-section{margin-bottom:52px; scroll-margin-top:24px;}
@@ -94,6 +95,7 @@
   .app-section h3 .num{
     font-family:var(--mono); font-size:12px; color:#b7bcc4; font-weight:400;
   }
+  .app-section h4{ font-size:14px; margin:22px 0 8px; color:var(--ink-soft); }
   .app-meta{font-family:var(--mono); font-size:12px; color:var(--ink-soft); margin-bottom:16px;}
   .app-meta div{margin-bottom:2px;}
 
@@ -138,28 +140,37 @@
 
   <aside class="sidebar">
     <h1>DineOS-Backend</h1>
-    <div class="sub">API Reference · 68 route+method combos</div>
+    <div class="sub">API Reference · 15 apps</div>
 
     <div class="group-label">Overview</div>
     <nav>
       <a href="#summary">Summary <small>counts</small></a>
     </nav>
 
-    <div class="group-label">REST — Custom</div>
+    <div class="group-label">REST — Tenant</div>
     <nav>
       <a href="#auth">Authentication <small>10</small></a>
-      <a href="#tables">Tables <small>9</small></a>
-      <a href="#menu">Menu <small>9</small></a>
-      <a href="#orders">Orders <small>9</small></a>
-      <a href="#billing">Billing <small>7</small></a>
+      <a href="#branches">Branches <small>5</small></a>
+      <a href="#settings">Restaurant Settings <small>2</small></a>
+      <a href="#tables">Tables <small>10</small></a>
+      <a href="#menu">Menu <small>11</small></a>
+      <a href="#inventory">Inventory &amp; Stock <small>19</small></a>
+      <a href="#kitchen">Kitchen Devices <small>4</small></a>
+      <a href="#admin-dashboard">Admin Dashboard <small>3</small></a>
+      <a href="#orders">Orders <small>10</small></a>
+      <a href="#billing">Billing <small>9</small></a>
       <a href="#notifications">Notifications <small>3</small></a>
-      <a href="#platform">Platform Admin <small>3</small></a>
-      <a href="#diagnostics">Diagnostics <small>1</small></a>
     </nav>
 
-    <div class="group-label">WebSocket</div>
+    <div class="group-label">REST — Platform</div>
     <nav>
-      <a href="#websockets">Channels <small>3</small></a>
+      <a href="#platform">Super Admin <small>18</small></a>
+    </nav>
+
+    <div class="group-label">Other</div>
+    <nav>
+      <a href="#diagnostics">Diagnostics <small>1</small></a>
+      <a href="#websockets">WebSocket Channels <small>3</small></a>
     </nav>
   </aside>
 
@@ -167,7 +178,7 @@
     <header class="top">
       <div class="eyebrow">Internal API Analysis</div>
       <h2>DineOS-Backend API Reference</h2>
-      <p class="path">D:\DineOS-Backend</p>
+      <p class="path">D:\DineOS-Backend · branch: main</p>
     </header>
 
     <div class="search-bar">
@@ -176,13 +187,16 @@
 
     <section id="summary">
       <div class="stats">
-        <div class="stat"><div class="n">49</div><div class="l">Distinct REST routes</div></div>
-        <div class="stat"><div class="n">65</div><div class="l">REST route+method combos</div></div>
+        <div class="stat"><div class="n">88</div><div class="l">Distinct REST routes</div></div>
+        <div class="stat"><div class="n">108</div><div class="l">REST route+method combos</div></div>
         <div class="stat"><div class="n">3</div><div class="l">WebSocket channels</div></div>
-        <div class="stat"><div class="n">68</div><div class="l">Total endpoints</div></div>
+        <div class="stat"><div class="n">111</div><div class="l">Total endpoints</div></div>
       </div>
       <div class="note">
         Counts exclude built-in Django Admin endpoints, auto-generated DRF format suffixes (<code>.json</code> / <code>.api</code>), and the DRF default <code>APIRootView</code> documentation root — including these would inflate the count with duplicate/built-in routes.
+      </div>
+      <div class="note warn">
+        Refreshed from a stale snapshot (49 routes / 68 endpoints) that predated Branches, Inventory &amp; Stock, Kitchen device management, Admin Dashboard, Takeaway orders, and most of the Super Admin platform surface (2FA, impersonation, team, activity log, plans). Also reflects the <code>MenuItem.sort_order</code> fix and the newly-wired <code>PATCH</code> routes on menu item / category detail.
       </div>
     </section>
 
@@ -200,20 +214,55 @@
           <tr><td class="hash">1</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/auth/login/</td><td class="view">LoginView</td><td>User authentication / JWT issuance</td></tr>
           <tr><td class="hash">2</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/auth/logout/</td><td class="view">LogoutView</td><td>Log out / blacklist token</td></tr>
           <tr><td class="hash">3</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/auth/forgot-password/</td><td class="view">ForgotPasswordView</td><td>Initiate forgot-password workflow</td></tr>
-          <tr><td class="hash">4</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/auth/reset-password/</td><td class="view">ResetPasswordView</td><td>Reset password using token</td></tr>
+          <tr><td class="hash">4</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/auth/reset-password/</td><td class="view">ResetPasswordView</td><td>Reset password using a reset token, or accept a staff invite token</td></tr>
           <tr><td class="hash">5</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/auth/me/</td><td class="view">MeView</td><td>Retrieve logged-in user profile</td></tr>
           <tr><td class="hash">6</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/auth/refresh-token/</td><td class="view">RefreshTokenView</td><td>Refresh JWT access token</td></tr>
           <tr><td class="hash">7</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/auth/change-password/</td><td class="view">ChangePasswordView</td><td>Change password for logged-in user</td></tr>
-          <tr><td class="hash">8</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge POST">POST</span></span></td><td class="route">/v1/staff/</td><td class="view">StaffViewSet</td><td>List staff / create new staff</td></tr>
+          <tr><td class="hash">8</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge POST">POST</span></span></td><td class="route">/v1/staff/</td><td class="view">StaffViewSet</td><td>List staff / create new staff (no password → sends an invite instead)</td></tr>
           <tr><td class="hash">9</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge PUT">PUT</span><span class="badge PATCH">PATCH</span><span class="badge DELETE">DELETE</span></span></td><td class="route">/v1/staff/{pk}/</td><td class="view">StaffViewSet</td><td>Manage individual staff account</td></tr>
           <tr><td class="hash">10</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/staff/{pk}/deactivate/</td><td class="view">StaffViewSet</td><td>Deactivate staff member</td></tr>
         </tbody>
       </table>
     </section>
 
-    <!-- 2. TABLES -->
+    <!-- 2. BRANCHES -->
+    <section class="app-section" id="branches">
+      <h3><span class="num">02</span> Branches App</h3>
+      <div class="app-meta">
+        <div>v1/branches/</div>
+        <div>URL: apps/restaurant/urls.py &nbsp;·&nbsp; View: apps/restaurant/views.py (BranchViewSet)</div>
+      </div>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">11</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/branches/</td><td class="view">BranchViewSet</td><td>List branches (<code>?status=</code>, <code>?search=</code>)</td></tr>
+          <tr><td class="hash">12</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/branches/</td><td class="view">BranchViewSet</td><td>Create a branch — blocked past the tenant's Plan Tier <code>max_branches</code></td></tr>
+          <tr><td class="hash">13</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/branches/{pk}/</td><td class="view">BranchViewSet</td><td>Retrieve one branch</td></tr>
+          <tr><td class="hash">14</td><td><span class="badges"><span class="badge PUT">PUT</span><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/branches/{pk}/</td><td class="view">BranchViewSet</td><td>Update a branch (re-syncs table count if changed)</td></tr>
+          <tr><td class="hash">15</td><td><span class="badges"><span class="badge DELETE">DELETE</span></span></td><td class="route">/v1/branches/{pk}/</td><td class="view">BranchViewSet</td><td>Soft-delete (<code>is_active=False</code>, not a hard delete)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 3. RESTAURANT SETTINGS -->
+    <section class="app-section" id="settings">
+      <h3><span class="num">03</span> Restaurant Settings</h3>
+      <div class="app-meta">
+        <div>v1/admin/settings/</div>
+        <div>View: apps/restaurant/views.py (RestaurantSettingsView), wired directly in dineos/urls.py</div>
+      </div>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">16</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/admin/settings/</td><td class="view">RestaurantSettingsView</td><td>Get GST % / service-charge % for the caller's restaurant</td></tr>
+          <tr><td class="hash">17</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/admin/settings/</td><td class="view">RestaurantSettingsView</td><td>Update GST % / service-charge % — the only tenant-record field an Admin can self-serve</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- 4. TABLES -->
     <section class="app-section" id="tables">
-      <h3><span class="num">02</span> Tables App</h3>
+      <h3><span class="num">04</span> Tables App</h3>
       <div class="app-meta">
         <div>v1/tables/</div>
         <div>URL: apps/tables/urls.py &nbsp;·&nbsp; View: apps/tables/views.py</div>
@@ -221,22 +270,23 @@
       <table class="ep-table">
         <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td class="hash">11</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/</td><td class="view">TableViewSet</td><td>List all active tables for the tenant</td></tr>
-          <tr><td class="hash">12</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/{pk}/</td><td class="view">TableViewSet</td><td>Retrieve table details</td></tr>
-          <tr><td class="hash">13</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/qr/{restaurant_slug}/{table_number}/</td><td class="view">TableViewSet</td><td>Landing API for QR scan</td></tr>
-          <tr><td class="hash">14</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/{pk}/session/</td><td class="view">TableViewSet</td><td>Get active session for a table</td></tr>
-          <tr><td class="hash">15</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/tables/{pk}/session/</td><td class="view">TableViewSet</td><td>Start active session for a table</td></tr>
-          <tr><td class="hash">16</td><td><span class="badges"><span class="badge DELETE">DELETE</span></span></td><td class="route">/v1/tables/{pk}/session/</td><td class="view">TableViewSet</td><td>Close active session (override/payment)</td></tr>
-          <tr><td class="hash">17</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/tables/{pk}/bill-request/</td><td class="view">TableViewSet</td><td>Request bill for a table session</td></tr>
-          <tr><td class="hash">18</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/tables/{pk}/status/</td><td class="view">TableViewSet</td><td>Admin/Manager override table status</td></tr>
-          <tr><td class="hash">19</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/{pk}/history/</td><td class="view">TableViewSet</td><td>Get past closed sessions history</td></tr>
+          <tr><td class="hash">18</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/</td><td class="view">TableViewSet</td><td>List active tables, scoped to tenant (+ branch if staff has one)</td></tr>
+          <tr><td class="hash">19</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/{pk}/</td><td class="view">TableViewSet</td><td>Retrieve table details</td></tr>
+          <tr><td class="hash">20</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/qr/{restaurant_slug}/{table_number}/</td><td class="view">TableViewSet</td><td>Legacy 2-segment QR landing (branch-less tables)</td></tr>
+          <tr><td class="hash">21</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/qr/{restaurant_slug}/{branch_slug}/{table_number}/</td><td class="view">TableViewSet</td><td>Current QR landing, branch-disambiguated</td></tr>
+          <tr><td class="hash">22</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/{pk}/session/</td><td class="view">TableViewSet</td><td>Get active session for a table</td></tr>
+          <tr><td class="hash">23</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/tables/{pk}/session/</td><td class="view">TableViewSet</td><td>Get-or-create active session for a table</td></tr>
+          <tr><td class="hash">24</td><td><span class="badges"><span class="badge DELETE">DELETE</span></span></td><td class="route">/v1/tables/{pk}/session/</td><td class="view">TableViewSet</td><td>Close active session (staff override, no payment)</td></tr>
+          <tr><td class="hash">25</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/tables/{pk}/bill-request/</td><td class="view">TableViewSet</td><td>Request bill for a table session</td></tr>
+          <tr><td class="hash">26</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/tables/{pk}/status/</td><td class="view">TableViewSet</td><td>Admin/Manager override table status</td></tr>
+          <tr><td class="hash">27</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/tables/{pk}/history/</td><td class="view">TableViewSet</td><td>Get past closed sessions history (last 50)</td></tr>
         </tbody>
       </table>
     </section>
 
-    <!-- 3. MENU -->
+    <!-- 5. MENU -->
     <section class="app-section" id="menu">
-      <h3><span class="num">03</span> Menu App</h3>
+      <h3><span class="num">05</span> Menu App</h3>
       <div class="app-meta">
         <div>v1/menu/ &amp; v1/prepared-dishes/</div>
         <div>URLs: apps/menu/urls.py, apps/menu/prepared_urls.py &nbsp;·&nbsp; View: apps/menu/views.py</div>
@@ -244,22 +294,111 @@
       <table class="ep-table">
         <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td class="hash">20</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/menu/customer/{table_id}/</td><td class="view">CustomerMenuView</td><td>Retrieve customer-facing menu</td></tr>
-          <tr><td class="hash">21</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/menu/all/</td><td class="view">MenuItemViewSet</td><td>Management view of all items</td></tr>
-          <tr><td class="hash">22</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge POST">POST</span></span></td><td class="route">/v1/menu/categories/</td><td class="view">CategoryViewSet</td><td>List categories / create category</td></tr>
-          <tr><td class="hash">23</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge PUT">PUT</span><span class="badge DELETE">DELETE</span></span></td><td class="route">/v1/menu/categories/{pk}/</td><td class="view">CategoryViewSet</td><td>Retrieve/update/delete category</td></tr>
-          <tr><td class="hash">24</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/menu/{pk}/availability/</td><td class="view">MenuItemViewSet</td><td>Toggle menu item availability</td></tr>
-          <tr><td class="hash">25</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge PUT">PUT</span><span class="badge DELETE">DELETE</span></span></td><td class="route">/v1/menu/{pk}/</td><td class="view">MenuItemViewSet</td><td>Retrieve/update/delete menu item</td></tr>
-          <tr><td class="hash">26</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge POST">POST</span></span></td><td class="route">/v1/menu/</td><td class="view">OrderTakingMenuView</td><td>Order-taking menu / item creation</td></tr>
-          <tr><td class="hash">27</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/prepared-dishes/today/</td><td class="view">PreparedDishesTodayView</td><td>Get prepared portions counts for today</td></tr>
-          <tr><td class="hash">28</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/prepared-dishes/{dish_id}/add-portions/</td><td class="view">AddPortionsView</td><td>Manager update prepared portions</td></tr>
+          <tr><td class="hash">28</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/menu/customer/{table_id}/</td><td class="view">CustomerMenuView</td><td>Retrieve customer-facing menu (today's available items)</td></tr>
+          <tr><td class="hash">29</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/menu/all/</td><td class="view">MenuItemViewSet</td><td>Management view of all items, including unavailable ones</td></tr>
+          <tr><td class="hash">30</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge POST">POST</span></span></td><td class="route">/v1/menu/categories/</td><td class="view">CategoryViewSet</td><td>List categories / create category</td></tr>
+          <tr><td class="hash">31</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge PUT">PUT</span><span class="badge PATCH">PATCH</span><span class="badge DELETE">DELETE</span></span></td><td class="route">/v1/menu/categories/{pk}/</td><td class="view">CategoryViewSet</td><td>Retrieve/update (incl. <code>sort_order</code>)/delete category — delete blocked (409) if it still has items</td></tr>
+          <tr><td class="hash">32</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/menu/{pk}/availability/</td><td class="view">MenuItemViewSet</td><td>Toggle menu item availability</td></tr>
+          <tr><td class="hash">33</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge PUT">PUT</span><span class="badge PATCH">PATCH</span><span class="badge DELETE">DELETE</span></span></td><td class="route">/v1/menu/{pk}/</td><td class="view">MenuItemViewSet</td><td>Retrieve/update (incl. <code>sort_order</code>)/delete menu item</td></tr>
+          <tr><td class="hash">34</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge POST">POST</span></span></td><td class="route">/v1/menu/</td><td class="view">OrderTakingMenuView</td><td>Order-taking menu (Server/Cashier) / item creation</td></tr>
+          <tr><td class="hash">35</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/prepared-dishes/today/</td><td class="view">PreparedDishesTodayView</td><td>Get prepared portions counts for today</td></tr>
+          <tr><td class="hash">36</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/prepared-dishes/{dish_id}/add-portions/</td><td class="view">AddPortionsView</td><td>Cook more portions — deducts recipe ingredients from stock</td></tr>
+        </tbody>
+      </table>
+      <div class="note">
+        Fixed this pass: <code>MenuItem</code> had no <code>sort_order</code> at all — items within a category fell back to pure alphabetical order with zero manual control. Now items sort by <code>category.sort_order → item.sort_order → name</code>, and both levels are draggable via the <code>PATCH</code> routes above (previously only <code>GET/PUT/DELETE</code> were wired on menu item / category detail).
+      </div>
+    </section>
+
+    <!-- 6. INVENTORY -->
+    <section class="app-section" id="inventory">
+      <h3><span class="num">06</span> Inventory &amp; Stock App</h3>
+      <div class="app-meta">
+        <div>v1/inventory/</div>
+        <div>URL: apps/inventory/urls.py &nbsp;·&nbsp; View: apps/inventory/views.py</div>
+      </div>
+
+      <h4>Ingredients</h4>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">37</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/inventory/ingredients/</td><td class="view">IngredientViewSet</td><td>List ingredients (<code>?low_stock=true</code> filter)</td></tr>
+          <tr><td class="hash">38</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/inventory/ingredients/</td><td class="view">IngredientViewSet</td><td>Create an ingredient</td></tr>
+          <tr><td class="hash">39</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/inventory/ingredients/{pk}/</td><td class="view">IngredientViewSet</td><td>Retrieve one ingredient</td></tr>
+          <tr><td class="hash">40</td><td><span class="badges"><span class="badge PUT">PUT</span><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/inventory/ingredients/{pk}/</td><td class="view">IngredientViewSet</td><td>Update an ingredient</td></tr>
+          <tr><td class="hash">41</td><td><span class="badges"><span class="badge DELETE">DELETE</span></span></td><td class="route">/v1/inventory/ingredients/{pk}/</td><td class="view">IngredientViewSet</td><td>Soft-delete (<code>is_active=False</code>)</td></tr>
+          <tr><td class="hash">42</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/inventory/ingredients/{pk}/add-stock/</td><td class="view">IngredientViewSet</td><td>Restock — records a stock movement</td></tr>
+          <tr><td class="hash">43</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/inventory/ingredients/{pk}/record-wastage/</td><td class="view">IngredientViewSet</td><td>Record wastage/spoilage (409 if insufficient stock)</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Purchase Orders <span style="font-family:var(--mono); font-size:11px; color:var(--ink-soft);">— no PUT/PATCH/DELETE; state changes go through the action routes</span></h4>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">44</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/inventory/purchase-orders/</td><td class="view">PurchaseOrderViewSet</td><td>List purchase orders</td></tr>
+          <tr><td class="hash">45</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/inventory/purchase-orders/</td><td class="view">PurchaseOrderViewSet</td><td>Create a purchase order, with line items</td></tr>
+          <tr><td class="hash">46</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/inventory/purchase-orders/{pk}/</td><td class="view">PurchaseOrderViewSet</td><td>Retrieve one PO</td></tr>
+          <tr><td class="hash">47</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/inventory/purchase-orders/{pk}/approve/</td><td class="view">PurchaseOrderViewSet</td><td>Approve a pending PO (409 if wrong state)</td></tr>
+          <tr><td class="hash">48</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/inventory/purchase-orders/{pk}/reject/</td><td class="view">PurchaseOrderViewSet</td><td>Reject a pending PO</td></tr>
+          <tr><td class="hash">49</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/inventory/purchase-orders/{pk}/mark-ordered/</td><td class="view">PurchaseOrderViewSet</td><td>Mark PO as sent to supplier</td></tr>
+          <tr><td class="hash">50</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/inventory/purchase-orders/{pk}/receive/</td><td class="view">PurchaseOrderViewSet</td><td>Receive a PO — adds delivered stock</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Recipe Items <span style="font-family:var(--mono); font-size:11px; color:var(--ink-soft);">— the BOM linking ingredients to menu items</span></h4>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">51</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/inventory/recipe-items/</td><td class="view">RecipeItemViewSet</td><td>List recipe items (<code>?menu_item=</code>, <code>?ingredient=</code> filters)</td></tr>
+          <tr><td class="hash">52</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/inventory/recipe-items/</td><td class="view">RecipeItemViewSet</td><td>Create a recipe item</td></tr>
+          <tr><td class="hash">53</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/inventory/recipe-items/{pk}/</td><td class="view">RecipeItemViewSet</td><td>Retrieve one</td></tr>
+          <tr><td class="hash">54</td><td><span class="badges"><span class="badge PUT">PUT</span><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/inventory/recipe-items/{pk}/</td><td class="view">RecipeItemViewSet</td><td>Update</td></tr>
+          <tr><td class="hash">55</td><td><span class="badges"><span class="badge DELETE">DELETE</span></span></td><td class="route">/v1/inventory/recipe-items/{pk}/</td><td class="view">RecipeItemViewSet</td><td>Delete</td></tr>
         </tbody>
       </table>
     </section>
 
-    <!-- 4. ORDERS -->
+    <!-- 7. KITCHEN -->
+    <section class="app-section" id="kitchen">
+      <h3><span class="num">07</span> Kitchen Devices App</h3>
+      <div class="app-meta">
+        <div>v1/kitchen/</div>
+        <div>URL: apps/kitchen/urls.py &nbsp;·&nbsp; View: apps/kitchen/views.py (KDSDeviceViewSet)</div>
+      </div>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">56</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge POST">POST</span></span></td><td class="route">/v1/kitchen/devices/</td><td class="view">KDSDeviceViewSet</td><td>List KDS tablets / register a new device (generates its <code>api_key</code>)</td></tr>
+          <tr><td class="hash">57</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/kitchen/devices/{pk}/</td><td class="view">KDSDeviceViewSet</td><td>Retrieve (read off its <code>api_key</code>) / rename-deactivate a device</td></tr>
+        </tbody>
+      </table>
+      <div class="note">
+        No PUT/DELETE by design — devices are deactivated, not deleted, so past orders keep a valid device reference. Device <em>authentication</em> to the API (not this CRUD) happens via an <code>X-KDS-Key</code>-style header, used on several Orders endpoints below.
+      </div>
+    </section>
+
+    <!-- 8. ADMIN DASHBOARD -->
+    <section class="app-section" id="admin-dashboard">
+      <h3><span class="num">08</span> Admin Dashboard App</h3>
+      <div class="app-meta">
+        <div>v1/admin/</div>
+        <div>URL: apps/dashboard/urls.py &nbsp;·&nbsp; View: apps/dashboard/views.py</div>
+      </div>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">58</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/admin/dashboard/</td><td class="view">AdminDashboardView</td><td>Landing dashboard — today's orders/revenue/bills, active tables, low-stock count, pending POs (<code>?branch=</code>)</td></tr>
+          <tr><td class="hash">59</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/admin/eod-review/</td><td class="view">EODReviewView</td><td>End-of-Day review — revenue, wastage, restocks, staff activity (<code>?date=</code>, defaults today)</td></tr>
+          <tr><td class="hash">60</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/admin/ai/low-stock-alerts/</td><td class="view">LowStockAlertsView</td><td>Rule-based (trailing-7-day average) stock-out prediction, severity CRITICAL/WARNING/OK</td></tr>
+        </tbody>
+      </table>
+      <div class="note">Distinct from the Super Admin's cross-tenant <code>platform/dashboard/</code> below — this one is restaurant-level, for Admin/Manager.</div>
+    </section>
+
+    <!-- 9. ORDERS -->
     <section class="app-section" id="orders">
-      <h3><span class="num">04</span> Orders App</h3>
+      <h3><span class="num">09</span> Orders App</h3>
       <div class="app-meta">
         <div>v1/orders/</div>
         <div>URL: apps/orders/urls.py &nbsp;·&nbsp; View: apps/orders/views.py</div>
@@ -267,22 +406,24 @@
       <table class="ep-table">
         <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td class="hash">29</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/orders/</td><td class="view">CreateOrderView</td><td>Place a new order round</td></tr>
-          <tr><td class="hash">30</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/orders/active/</td><td class="view">ActiveOrdersView</td><td>List active kitchen orders</td></tr>
-          <tr><td class="hash">31</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/orders/ready/</td><td class="view">ReadyOrdersView</td><td>List ready orders waiting for pickup</td></tr>
-          <tr><td class="hash">32</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/orders/session/{session_id}/</td><td class="view">OrdersBySessionView</td><td>Retrieve orders under a session</td></tr>
-          <tr><td class="hash">33</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/orders/table/{table_id}/</td><td class="view">OrdersByTableView</td><td>Retrieve orders under a table</td></tr>
-          <tr><td class="hash">34</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/orders/{order_id}/status/</td><td class="view">OrderKitchenStatusView</td><td>KDS update kitchen status</td></tr>
-          <tr><td class="hash">35</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/orders/{order_id}/collected/</td><td class="view">OrderCollectedView</td><td>Mark order collected by server</td></tr>
-          <tr><td class="hash">36</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/orders/{order_id}/served/</td><td class="view">OrderServedView</td><td>Mark order served to table</td></tr>
-          <tr><td class="hash">37</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/orders/{order_id}/</td><td class="view">OrderDetailView</td><td>Retrieve individual order details</td></tr>
+          <tr><td class="hash">61</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/orders/</td><td class="view">CreateOrderView</td><td>Place a new dine-in order round against a table session</td></tr>
+          <tr><td class="hash">62</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/orders/takeaway/</td><td class="view">CreateTakeawayOrderView</td><td>Place a takeaway order — no table/session, customer name+phone captured directly</td></tr>
+          <tr><td class="hash">63</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/orders/active/</td><td class="view">ActiveOrdersView</td><td>List active kitchen orders (staff JWT or KDS device key)</td></tr>
+          <tr><td class="hash">64</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/orders/ready/</td><td class="view">ReadyOrdersView</td><td>List ready orders waiting for pickup, across all tables</td></tr>
+          <tr><td class="hash">65</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/orders/session/{session_id}/</td><td class="view">OrdersBySessionView</td><td>Retrieve all rounds under a session</td></tr>
+          <tr><td class="hash">66</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/orders/table/{table_id}/</td><td class="view">OrdersByTableView</td><td>Retrieve today's orders under a table</td></tr>
+          <tr><td class="hash">67</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/orders/{order_id}/status/</td><td class="view">OrderKitchenStatusView</td><td>KDS device advances kitchen status (device-key only)</td></tr>
+          <tr><td class="hash">68</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/orders/{order_id}/collected/</td><td class="view">OrderCollectedView</td><td>Mark order collected by server (typically takeaway)</td></tr>
+          <tr><td class="hash">69</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/orders/{order_id}/served/</td><td class="view">OrderServedView</td><td>Mark order served to table</td></tr>
+          <tr><td class="hash">70</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/orders/{order_id}/</td><td class="view">OrderDetailView</td><td>Retrieve individual order details (staff JWT or KDS device key)</td></tr>
         </tbody>
       </table>
+      <div class="note">Takeaway isn't a separate app — it's endpoints within Orders + Billing that skip the table/session concept entirely.</div>
     </section>
 
-    <!-- 5. BILLING -->
+    <!-- 10. BILLING -->
     <section class="app-section" id="billing">
-      <h3><span class="num">05</span> Billing App</h3>
+      <h3><span class="num">10</span> Billing App</h3>
       <div class="app-meta">
         <div>v1/bills/ &amp; v1/cashier/</div>
         <div>URL: apps/billing/urls.py &nbsp;·&nbsp; Views: apps/billing/views.py, apps/billing/cashier_views.py</div>
@@ -290,20 +431,23 @@
       <table class="ep-table">
         <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td class="hash">38</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/bills/session/{session_id}/</td><td class="view">SessionBillView</td><td>Get session bill preview / existing bill</td></tr>
-          <tr><td class="hash">39</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/bills/payment/</td><td class="view">PayBillView</td><td>Complete table bill payment</td></tr>
-          <tr><td class="hash">40</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/cashier/shifts/open/</td><td class="view">OpenShiftView</td><td>Open a cashier shift</td></tr>
-          <tr><td class="hash">41</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/cashier/shifts/current/</td><td class="view">CurrentShiftView</td><td>Get current active shift dashboard</td></tr>
-          <tr><td class="hash">42</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/cashier/shifts/{shift_id}/reconciliation/</td><td class="view">ShiftReconciliationView</td><td>Get shift totals by payment method</td></tr>
-          <tr><td class="hash">43</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/cashier/shifts/{shift_id}/close/</td><td class="view">CloseShiftView</td><td>Close shift with counted cash</td></tr>
-          <tr><td class="hash">44</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/cashier/collections/daily/</td><td class="view">DailyCollectionsView</td><td>Daily collections summary</td></tr>
+          <tr><td class="hash">71</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/bills/session/{session_id}/</td><td class="view">SessionBillView</td><td>Get session bill preview / existing bill</td></tr>
+          <tr><td class="hash">72</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/bills/payment/</td><td class="view">PayBillView</td><td>Complete a dine-in session's bill payment</td></tr>
+          <tr><td class="hash">73</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/bills/takeaway/{order_id}/</td><td class="view">TakeawayBillView</td><td>Get takeaway order's bill preview / existing bill</td></tr>
+          <tr><td class="hash">74</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/bills/takeaway-payment/</td><td class="view">TakeawayPayBillView</td><td>Complete a takeaway order's bill payment</td></tr>
+          <tr><td class="hash">75</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/cashier/shifts/open/</td><td class="view">OpenShiftView</td><td>Open a cashier shift (idempotent)</td></tr>
+          <tr><td class="hash">76</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/cashier/shifts/current/</td><td class="view">CurrentShiftView</td><td>Get current active shift dashboard ("Cashier Home")</td></tr>
+          <tr><td class="hash">77</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/cashier/shifts/{shift_id}/reconciliation/</td><td class="view">ShiftReconciliationView</td><td>Get shift totals by payment method</td></tr>
+          <tr><td class="hash">78</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/v1/cashier/shifts/{shift_id}/close/</td><td class="view">CloseShiftView</td><td>Close shift with counted cash (409 on unacknowledged discrepancy or already-closed)</td></tr>
+          <tr><td class="hash">79</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/cashier/collections/daily/</td><td class="view">DailyCollectionsView</td><td>Restaurant-wide daily collections summary (<code>?date=</code>)</td></tr>
         </tbody>
       </table>
+      <div class="note">Every route in this section additionally requires the tenant's <code>billing_enabled</code> feature flag.</div>
     </section>
 
-    <!-- 6. NOTIFICATIONS -->
+    <!-- 11. NOTIFICATIONS -->
     <section class="app-section" id="notifications">
-      <h3><span class="num">06</span> Notifications App</h3>
+      <h3><span class="num">11</span> Notifications App</h3>
       <div class="app-meta">
         <div>v1/notifications/</div>
         <div>URL: apps/notifications/urls.py &nbsp;·&nbsp; View: apps/notifications/views.py</div>
@@ -311,33 +455,81 @@
       <table class="ep-table">
         <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td class="hash">45</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/notifications/</td><td class="view">NotificationListView</td><td>Retrieve all notifications for the user</td></tr>
-          <tr><td class="hash">46</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/notifications/unread-count/</td><td class="view">UnreadCountView</td><td>Retrieve count of unread notifications</td></tr>
-          <tr><td class="hash">47</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/notifications/{notification_id}/read/</td><td class="view">MarkNotificationReadView</td><td>Mark notification as read</td></tr>
+          <tr><td class="hash">80</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/notifications/</td><td class="view">NotificationListView</td><td>Retrieve all notifications for the user</td></tr>
+          <tr><td class="hash">81</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/v1/notifications/unread-count/</td><td class="view">UnreadCountView</td><td>Retrieve count of unread notifications</td></tr>
+          <tr><td class="hash">82</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/v1/notifications/{notification_id}/read/</td><td class="view">MarkNotificationReadView</td><td>Mark notification as read</td></tr>
         </tbody>
       </table>
     </section>
 
-    <!-- 7. PLATFORM -->
+    <!-- 12. PLATFORM -->
     <section class="app-section" id="platform">
-      <h3><span class="num">07</span> Platform Administration App</h3>
+      <h3><span class="num">12</span> Platform Administration App <span style="font-family:var(--mono); font-size:11px; color:var(--ink-soft); font-weight:400;">(Super Admin)</span></h3>
       <div class="app-meta">
         <div>platform/</div>
         <div>URL: apps/platform/urls.py &nbsp;·&nbsp; View: apps/platform/views.py</div>
+        <div>Completely separate auth system — PlatformAdmin model + PlatformJWTAuthentication, no overlap with tenant staff auth</div>
       </div>
+
+      <h4>Auth (2-step, with 2FA)</h4>
       <table class="ep-table">
         <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td class="hash">48</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/platform/auth/login/</td><td class="view">PlatformLoginView</td><td>Super Admin login / platform JWT</td></tr>
-          <tr><td class="hash">49</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge POST">POST</span></span></td><td class="route">/platform/tenants/</td><td class="view">TenantViewSet</td><td>List/create client restaurants</td></tr>
-          <tr><td class="hash">50</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge PUT">PUT</span><span class="badge PATCH">PATCH</span><span class="badge DELETE">DELETE</span></span></td><td class="route">/platform/tenants/{pk}/</td><td class="view">TenantViewSet</td><td>Manage tenant settings &amp; feature flags</td></tr>
+          <tr><td class="hash">83</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/platform/auth/login/</td><td class="view">PlatformLoginView</td><td>Step 1 — email+password; issues a 6-digit 2FA code, no token yet</td></tr>
+          <tr><td class="hash">84</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/platform/auth/verify-2fa/</td><td class="view">PlatformVerify2FAView</td><td>Step 2 — verify the code, issues access+refresh tokens</td></tr>
+          <tr><td class="hash">85</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/platform/auth/logout/</td><td class="view">PlatformLogoutView</td><td>Blacklist the current token's jti, optionally revoke a refresh token</td></tr>
+          <tr><td class="hash">86</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/platform/auth/refresh/</td><td class="view">PlatformTokenRefreshView</td><td>Exchange refresh token for a new access token</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Dashboard / activity / metadata</h4>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">87</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/platform/dashboard/</td><td class="view">PlatformDashboardView</td><td>Platform-wide summary — tenant counts, total staff, 5 most recent tenants</td></tr>
+          <tr><td class="hash">88</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/platform/activity/</td><td class="view">ActivityLogView</td><td>Activity log feed (<code>?action=</code>, <code>?date_from=</code>, <code>?date_to=</code>, <code>?search=</code>)</td></tr>
+          <tr><td class="hash">89</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/platform/plans/</td><td class="view">PlanTierListView</td><td>Plan Tier presets (Starter/Growth/Enterprise) — max_branches + starting flags</td></tr>
+          <tr><td class="hash">90</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/platform/feature-flags/</td><td class="view">FeatureFlagMetadataView</td><td>Static label/description metadata for each add-on flag</td></tr>
+          <tr><td class="hash">91</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/platform/theme/colors/</td><td class="view">ThemeColorsView</td><td>Brand primary-color presets for the branding picker</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Impersonation</h4>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">92</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/platform/tenants/{restaurant_id}/impersonate/</td><td class="view">ImpersonateTenantView</td><td>Mint a 30-min access token as the tenant's first active Admin</td></tr>
+          <tr><td class="hash">93</td><td><span class="badges"><span class="badge POST">POST</span></span></td><td class="route">/platform/impersonation-sessions/{session_id}/end/</td><td class="view">EndImpersonationView</td><td>End the session, revoking the token immediately</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Tenants</h4>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">94</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge POST">POST</span></span></td><td class="route">/platform/tenants/</td><td class="view">TenantViewSet</td><td>List/create client restaurants — Plan Tier pre-fills limits/flags; auto-creates first Admin + invite if <code>contact_email</code> given</td></tr>
+          <tr><td class="hash">95</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge PUT">PUT</span><span class="badge PATCH">PATCH</span></span></td><td class="route">/platform/tenants/{pk}/</td><td class="view">TenantViewSet</td><td>Manage tenant settings</td></tr>
+          <tr><td class="hash">96</td><td><span class="badges"><span class="badge DELETE">DELETE</span></span></td><td class="route">/platform/tenants/{pk}/</td><td class="view">TenantViewSet</td><td>Delete tenant — default ModelViewSet destroy, appears to be a genuine hard delete (flagged for review)</td></tr>
+          <tr><td class="hash">97</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/platform/tenants/{pk}/status/</td><td class="view">TenantViewSet</td><td>Set Active/Suspended — suspending blocks every branch's logins/API instantly</td></tr>
+          <tr><td class="hash">98</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/platform/tenants/{pk}/feature-flags/</td><td class="view">TenantViewSet</td><td>Toggle per-tenant add-on feature flags, instant-save</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Team <span style="font-family:var(--mono); font-size:11px; color:var(--ink-soft);">— other Platform Admin accounts, no PUT</span></h4>
+      <table class="ep-table">
+        <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td class="hash">99</td><td><span class="badges"><span class="badge GET">GET</span><span class="badge POST">POST</span></span></td><td class="route">/platform/team/</td><td class="view">TeamViewSet</td><td>List / add platform admin team members</td></tr>
+          <tr><td class="hash">100</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/platform/team/{pk}/</td><td class="view">TeamViewSet</td><td>Retrieve one team member</td></tr>
+          <tr><td class="hash">101</td><td><span class="badges"><span class="badge PATCH">PATCH</span></span></td><td class="route">/platform/team/{pk}/</td><td class="view">TeamViewSet</td><td>Update name/access level/active state</td></tr>
+          <tr><td class="hash">102</td><td><span class="badges"><span class="badge DELETE">DELETE</span></span></td><td class="route">/platform/team/{pk}/</td><td class="view">TeamViewSet</td><td>Remove (hard delete; past log entries survive via SET_NULL)</td></tr>
         </tbody>
       </table>
     </section>
 
-    <!-- 8. DIAGNOSTICS -->
+    <!-- 13. DIAGNOSTICS -->
     <section class="app-section" id="diagnostics">
-      <h3><span class="num">08</span> System Diagnostics</h3>
+      <h3><span class="num">13</span> System Diagnostics</h3>
       <div class="app-meta">
         <div>/</div>
         <div>URL: dineos/urls.py</div>
@@ -345,14 +537,14 @@
       <table class="ep-table">
         <thead><tr><th style="width:34px">#</th><th style="width:150px">Method</th><th>Route</th><th>View / ViewSet</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td class="hash">51</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/healthz/</td><td class="view">healthz</td><td>Health check endpoint</td></tr>
+          <tr><td class="hash">103</td><td><span class="badges"><span class="badge GET">GET</span></span></td><td class="route">/healthz/</td><td class="view">healthz</td><td>Health check endpoint</td></tr>
         </tbody>
       </table>
     </section>
 
-    <!-- 9. WEBSOCKETS -->
+    <!-- 14. WEBSOCKETS -->
     <section class="app-section" id="websockets">
-      <h3><span class="num">09</span> WebSockets</h3>
+      <h3><span class="num">14</span> WebSockets</h3>
       <div class="app-meta">
         <div>ws/</div>
         <div>Routing: apps/websockets/routing.py &nbsp;·&nbsp; Consumers: apps/websockets/consumers.py</div>
@@ -360,14 +552,15 @@
       <table class="ep-table">
         <thead><tr><th style="width:34px">#</th><th style="width:150px">Protocol</th><th>Route</th><th>Middleware</th><th>Description</th></tr></thead>
         <tbody>
-          <tr><td class="hash">52</td><td><span class="badges"><span class="badge WS">WS</span></span></td><td class="route">/ws/staff/</td><td class="view">JWTAuthMiddleware</td><td>Real-time notifications for staff</td></tr>
-          <tr><td class="hash">53</td><td><span class="badges"><span class="badge WS">WS</span></span></td><td class="route">/ws/kitchen/</td><td class="view">KDSAuthMiddleware</td><td>KDS status update subscription</td></tr>
-          <tr><td class="hash">54</td><td><span class="badges"><span class="badge WS">WS</span></span></td><td class="route">/ws/table/{session_id}/</td><td class="view">TableSessionAuthMiddleware</td><td>Real-time table session events</td></tr>
+          <tr><td class="hash">104</td><td><span class="badges"><span class="badge WS">WS</span></span></td><td class="route">/ws/staff/</td><td class="view">JWTAuthMiddleware</td><td>Real-time order/table/payment/notification events for staff, by role</td></tr>
+          <tr><td class="hash">105</td><td><span class="badges"><span class="badge WS">WS</span></span></td><td class="route">/ws/kitchen/</td><td class="view">KDSAuthMiddleware</td><td>Live new-order feed for the kitchen tablet</td></tr>
+          <tr><td class="hash">106</td><td><span class="badges"><span class="badge WS">WS</span></span></td><td class="route">/ws/table/{session_id}/</td><td class="view">TableSessionAuthMiddleware</td><td>Real-time order-status events for one customer's table</td></tr>
         </tbody>
       </table>
+      <div class="note">An order's <em>placement</em> broadcasts only to the kitchen group, not the customer — the customer already knows they just ordered from the REST response. What reaches them live is subsequent <em>status changes</em> (accepted/preparing/ready/served).</div>
     </section>
 
-    <footer>DineOS-Backend · API Analysis Report · generated reference</footer>
+    <footer>DineOS-Backend · API Analysis Report · generated reference · updated against main (commit 2a1e680 and prior)</footer>
   </main>
 </div>
 
@@ -393,9 +586,10 @@
       row.classList.toggle('row-hidden', q.length > 0 && !text.includes(q));
     });
     document.querySelectorAll('.app-section').forEach(section => {
-      const table = section.querySelector('.ep-table');
-      if(!table) return;
-      const visible = table.querySelectorAll('tbody tr:not(.row-hidden)').length;
+      const tables = section.querySelectorAll('.ep-table');
+      if(!tables.length) return;
+      let visible = 0;
+      tables.forEach(t => { visible += t.querySelectorAll('tbody tr:not(.row-hidden)').length; });
       section.style.display = (q.length > 0 && visible === 0) ? 'none' : '';
     });
   });
