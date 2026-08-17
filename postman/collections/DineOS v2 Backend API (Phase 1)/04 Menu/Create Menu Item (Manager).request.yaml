@@ -6,7 +6,7 @@ headers:
   Content-Type: application/json
 body:
   type: text
-  content: '{"category": {{category_id}}, "name": "Paneer Tikka", "price": "180.00", "description": "Grilled paneer"}'
+  content: '{"category": {{category_id}}, "name": "Paneer Tikka", "price": "180.00", "description": "Grilled paneer", "sort_order": 1}'
 scripts:
   - type: afterResponse
     code: |-

@@ -1471,7 +1471,7 @@
             "url": "{{base_url}}/menu/",
             "body": {
               "mode": "raw",
-              "raw": "{\"category\": {{category_id}}, \"name\": \"Paneer Tikka\", \"price\": \"180.00\", \"description\": \"Grilled paneer\"}"
+              "raw": "{\"category\": {{category_id}}, \"name\": \"Paneer Tikka\", \"price\": \"180.00\", \"description\": \"Grilled paneer\", \"sort_order\": 1}"
             }
           },
           "event": [
@@ -1572,7 +1572,7 @@
             "url": "{{base_url}}/menu/",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"category\": {{category_id}},\n  \"name\": \"Paneer Tikka Recipe Test\",\n  \"price\": \"180.00\",\n  \"description\": \"Grilled paneer\",\n  \"recipe_items\": [\n    {\"ingredient\": \"{{recipe_test_ginger_id}}\", \"quantity_per_serving\": \"0.010\"},\n    {\"ingredient\": \"{{recipe_test_chicken_id}}\", \"quantity_per_serving\": \"0.250\"}\n  ]\n}"
+              "raw": "{\n  \"category\": {{category_id}},\n  \"name\": \"Paneer Tikka Recipe Test\",\n  \"price\": \"180.00\",\n  \"description\": \"Grilled paneer\",\n  \"sort_order\": 1,\n  \"recipe_items\": [\n    {\"ingredient\": \"{{recipe_test_ginger_id}}\", \"quantity_per_serving\": \"0.010\"},\n    {\"ingredient\": \"{{recipe_test_chicken_id}}\", \"quantity_per_serving\": \"0.250\"}\n  ]\n}"
             }
           },
           "event": [
@@ -1683,7 +1683,7 @@
             "url": "{{base_url}}/menu/",
             "body": {
               "mode": "raw",
-              "raw": "{\"category\": {{category_id}}, \"name\": \"Temp Dish\", \"price\": \"50.00\"}"
+              "raw": "{\"category\": {{category_id}}, \"name\": \"Temp Dish\", \"price\": \"50.00\", \"sort_order\": 1}"
             }
           },
           "event": [
@@ -1717,7 +1717,7 @@
             "url": "{{base_url}}/menu/{{temp_menu_item_id}}/",
             "body": {
               "mode": "raw",
-              "raw": "{\"category\": {{category_id}}, \"name\": \"Temp Dish (Updated)\", \"price\": \"60.00\"}"
+              "raw": "{\"category\": {{category_id}}, \"name\": \"Temp Dish (Updated)\", \"price\": \"60.00\", \"sort_order\": 1}"
             }
           },
           "event": [
@@ -2286,6 +2286,38 @@
                   "const recordWastageData = pm.response.json();",
                   "pm.test('status is 200', () => pm.response.to.have.status(200));",
                   "pm.test('current_stock decreased', () => pm.expect(recordWastageData.current_stock).to.eql('48.00'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wastage Log (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_token}}"
+              }
+            ],
+            "url": "{{base_url}}/inventory/wastage/"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const wastageLogData = pm.response.json();",
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('includes the wastage recorded earlier in this run', () => {",
+                  "    const found = wastageLogData.entries.some(e => e.ingredient_id === pm.collectionVariables.get('ingredient_id'));",
+                  "    pm.expect(found).to.eql(true);",
+                  "});",
+                  "pm.test('breakdown_by_reason has all four reason keys', () => {",
+                  "    pm.expect(wastageLogData.breakdown_by_reason).to.have.all.keys('SPOILED', 'OVER_PREPPED', 'RETURNED', 'OTHER');",
+                  "});"
                 ]
               }
             }

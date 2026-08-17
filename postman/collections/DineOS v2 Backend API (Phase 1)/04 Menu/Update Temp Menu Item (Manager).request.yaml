@@ -6,7 +6,7 @@ headers:
   Content-Type: application/json
 body:
   type: text
-  content: '{"category": {{category_id}}, "name": "Temp Dish (Updated)", "price": "60.00"}'
+  content: '{"category": {{category_id}}, "name": "Temp Dish (Updated)", "price": "60.00", "sort_order": 1}'
 scripts:
   - type: afterResponse
     code: |-

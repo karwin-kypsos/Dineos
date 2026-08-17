@@ -12,6 +12,7 @@ body:
       "name": "Paneer Tikka Recipe Test",
       "price": "180.00",
       "description": "Grilled paneer",
+      "sort_order": 1,
       "recipe_items": [
         {"ingredient": "{{recipe_test_ginger_id}}", "quantity_per_serving": "0.010"},
         {"ingredient": "{{recipe_test_chicken_id}}", "quantity_per_serving": "0.250"}

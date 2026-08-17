@@ -1,0 +1,19 @@
+$kind: http-request
+url: "{{base_url}}/inventory/wastage/"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const wastageLogData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('includes the wastage recorded earlier in this run', () => {
+          const found = wastageLogData.entries.some(e => e.ingredient_id === pm.collectionVariables.get('ingredient_id'));
+          pm.expect(found).to.eql(true);
+      });
+      pm.test('breakdown_by_reason has all four reason keys', () => {
+          pm.expect(wastageLogData.breakdown_by_reason).to.have.all.keys('SPOILED', 'OVER_PREPPED', 'RETURNED', 'OTHER');
+      });
+    language: text/javascript
+order: 2550

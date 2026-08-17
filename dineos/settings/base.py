@@ -202,11 +202,16 @@ CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_ALWAYS_EAGER = env.bool("CELERY_ALWAYS_EAGER", default=False)
 
 # ---------------------------------------------------------------------------
-# AI / Groq (Phase 2 — AI Insights live; Prep Forecast, Chat, End-of-Day
-# Report still to come)
+# AI / Groq (Phase 2 — AI Insights, Prep Forecast, Chat, End-of-Day Report
+# all live). GROQ_MODEL default changed 2026-08-17: llama-3.3-70b-versatile
+# was removed from Groq's model lineup entirely (every AI feature started
+# 503ing in production — "model_not_found"), confirmed via GET
+# https://api.groq.com/openai/v1/models. openai/gpt-oss-120b is the closest
+# replacement (large context, json_mode + structured_outputs support, same
+# general-purpose tier) — live-tested directly against Groq before switching.
 # ---------------------------------------------------------------------------
 GROQ_API_KEY = env("GROQ_API_KEY", default="")
-GROQ_MODEL = env("GROQ_MODEL", default="llama-3.3-70b-versatile")
+GROQ_MODEL = env("GROQ_MODEL", default="openai/gpt-oss-120b")
 LLM_PROVIDER = env("LLM_PROVIDER", default="mock")
 
 # ---------------------------------------------------------------------------
