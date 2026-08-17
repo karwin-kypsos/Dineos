@@ -210,6 +210,13 @@ GROQ_MODEL = env("GROQ_MODEL", default="llama-3.3-70b-versatile")
 LLM_PROVIDER = env("LLM_PROVIDER", default="mock")
 
 # ---------------------------------------------------------------------------
+# Image uploads (Branch/Category/Menu Item photo) via Cloudinary
+# ---------------------------------------------------------------------------
+CLOUDINARY_CLOUD_NAME = env("CLOUDINARY_CLOUD_NAME", default="")
+CLOUDINARY_API_KEY = env("CLOUDINARY_API_KEY", default="")
+CLOUDINARY_API_SECRET = env("CLOUDINARY_API_SECRET", default="")
+
+# ---------------------------------------------------------------------------
 # Platform-wide tenant defaults — applied by TenantViewSet.perform_create()
 # when the Super Admin creates a new client restaurant without specifying
 # its own rate.

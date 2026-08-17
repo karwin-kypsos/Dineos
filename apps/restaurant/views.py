@@ -3,6 +3,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from core.image_fields import ImageUploadErrorHandlingMixin
 from core.permissions import IsAdmin
 
 from . import services
@@ -10,7 +11,7 @@ from .models import Branch
 from .serializers import BranchSerializer, RestaurantSettingsSerializer
 
 
-class BranchViewSet(viewsets.ModelViewSet):
+class BranchViewSet(ImageUploadErrorHandlingMixin, viewsets.ModelViewSet):
     """Admin-only branch management (list/create/update/deactivate),
     scoped to the calling Admin's own restaurant only.
     """

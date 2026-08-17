@@ -75,6 +75,71 @@ def test_record_wastage_rejects_more_than_available(manager_client, ingredient):
     assert ingredient.current_stock == Decimal("10.00")
 
 
+def test_wastage_log_returns_todays_entries_with_cost_breakdown(manager_client, ingredient, restaurant):
+    _, client = manager_client
+    from apps.inventory.models import Ingredient
+
+    milk = Ingredient.objects.create(
+        restaurant=restaurant, name="Milk", unit="L", current_stock=Decimal("5.00"), unit_cost=Decimal("60.00"),
+    )
+
+    client.patch(
+        f"/v1/inventory/ingredients/{ingredient.id}/record-wastage/",
+        {"quantity": "2.00", "wastage_reason": "SPOILED", "reason": "left out overnight"}, format="json",
+    )
+    client.patch(
+        f"/v1/inventory/ingredients/{milk.id}/record-wastage/",
+        {"quantity": "1.00", "wastage_reason": "OVER_PREPPED"}, format="json",
+    )
+
+    response = client.get("/v1/inventory/wastage/")
+
+    assert response.status_code == 200, response.data
+    assert Decimal(str(response.data["total_cost"])) == Decimal("460.00")  # 2*200 + 1*60
+    breakdown = response.data["breakdown_by_reason"]
+    assert Decimal(str(breakdown["SPOILED"])) == Decimal("400.00")
+    assert Decimal(str(breakdown["OVER_PREPPED"])) == Decimal("60.00")
+    assert Decimal(str(breakdown["RETURNED"])) == Decimal("0")
+    assert len(response.data["entries"]) == 2
+    names = {e["ingredient_name"] for e in response.data["entries"]}
+    assert names == {"Chicken", "Milk"}
+
+
+def test_wastage_log_excludes_other_days(manager_client, ingredient):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.inventory import services as inventory_services
+    from apps.inventory.models import StockMovement
+
+    _, client = manager_client
+    movement = inventory_services.record_wastage(ingredient.id, Decimal("1.00"), "SPOILED")
+    StockMovement.objects.filter(id=movement.id).update(recorded_at=timezone.now() - timedelta(days=2))
+
+    response = client.get("/v1/inventory/wastage/")
+
+    assert response.status_code == 200
+    assert response.data["entries"] == []
+    assert Decimal(str(response.data["total_cost"])) == Decimal("0")
+
+
+def test_wastage_log_rejects_bad_date_format(manager_client):
+    _, client = manager_client
+
+    response = client.get("/v1/inventory/wastage/?date=not-a-date")
+
+    assert response.status_code == 400
+
+
+def test_wastage_log_requires_admin_or_manager(server_client):
+    _, client = server_client
+
+    response = client.get("/v1/inventory/wastage/")
+
+    assert response.status_code == 403
+
+
 def test_low_stock_filter(manager_client, restaurant, ingredient):
     _, client = manager_client
     Ingredient.objects.create(

@@ -44,7 +44,7 @@ def test_manager_can_update_menu_item(manager_client, menu_item):
 
     response = client.put(
         f"/v1/menu/{menu_item.id}/",
-        {"category": menu_item.category_id, "name": "Chicken Biryani (Large)", "price": "260.00"},
+        {"category": menu_item.category_id, "name": "Chicken Biryani (Large)", "price": "260.00", "sort_order": 0},
         format="json",
     )
     assert response.status_code == 200
@@ -111,6 +111,54 @@ def test_deleting_a_previously_ordered_menu_item_soft_deactivates_instead_of_500
     menu_item.refresh_from_db()
     assert menu_item.is_active is False
     assert MenuItem.objects.filter(id=menu_item.id).exists()
+
+
+def test_category_list_includes_item_count(manager_client, menu_item):
+    from apps.menu.models import MenuItem
+
+    _, client = manager_client
+    MenuItem.objects.create(category=menu_item.category, name="Second Dish", price=50, sort_order=1)
+    inactive = MenuItem.objects.create(category=menu_item.category, name="Inactive Dish", price=50, sort_order=2)
+    inactive.is_active = False
+    inactive.save(update_fields=["is_active"])
+
+    response = client.get("/v1/menu/categories/")
+
+    assert response.status_code == 200
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    category_row = next(c for c in results if c["id"] == menu_item.category_id)
+    assert category_row["item_count"] == 2  # active items only, inactive one excluded
+
+
+def test_create_category_with_uploaded_image(manager_client, restaurant, monkeypatch):
+    from tests.conftest import make_test_image
+
+    _, client = manager_client
+    monkeypatch.setattr("core.image_upload.upload_image", lambda f: "https://res.cloudinary.com/demo/category.jpg")
+
+    response = client.post(
+        "/v1/menu/categories/", {"name": "Starters", "image": make_test_image()}, format="multipart",
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["image_url"] == "https://res.cloudinary.com/demo/category.jpg"
+
+
+def test_create_menu_item_with_uploaded_image(manager_client, menu_item, monkeypatch):
+    from tests.conftest import make_test_image
+
+    _, client = manager_client
+    monkeypatch.setattr("core.image_upload.upload_image", lambda f: "https://res.cloudinary.com/demo/dish.jpg")
+
+    response = client.post(
+        "/v1/menu/",
+        {"category": menu_item.category_id, "name": "Uploaded Dish", "price": "99.00", "sort_order": 1,
+         "image": make_test_image()},
+        format="multipart",
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["image_url"] == "https://res.cloudinary.com/demo/dish.jpg"
 
 
 def test_manager_can_update_category(manager_client, menu_item):
@@ -186,6 +234,19 @@ def test_list_menu_search_by_name(manager_client, menu_item):
     assert results == []
 
 
+def test_create_menu_item_requires_sort_order(manager_client, menu_item):
+    _, client = manager_client
+
+    response = client.post(
+        "/v1/menu/",
+        {"category": menu_item.category_id, "name": "No Priority Dish", "price": "100.00"},
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "sort_order" in response.data
+
+
 def test_create_menu_item_with_recipe_items(manager_client, menu_item):
     from decimal import Decimal
 
@@ -203,6 +264,7 @@ def test_create_menu_item_with_recipe_items(manager_client, menu_item):
             "name": "Paneer Tikka",
             "price": "180.00",
             "description": "Grilled paneer",
+            "sort_order": 1,
             "recipe_items": [
                 {"ingredient": str(ginger.id), "quantity_per_serving": "0.010"},
                 {"ingredient": str(chicken.id), "quantity_per_serving": "0.250"},
@@ -232,6 +294,7 @@ def test_create_menu_item_rejects_duplicate_ingredient_in_recipe(manager_client,
             "category": menu_item.category_id,
             "name": "Chicken 65",
             "price": "150.00",
+            "sort_order": 1,
             "recipe_items": [
                 {"ingredient": str(chicken.id), "quantity_per_serving": "0.100"},
                 {"ingredient": str(chicken.id), "quantity_per_serving": "0.050"},
@@ -257,6 +320,7 @@ def test_create_menu_item_rejects_ingredient_from_another_restaurant(manager_cli
             "category": menu_item.category_id,
             "name": "Butter Naan",
             "price": "60.00",
+            "sort_order": 1,
             "recipe_items": [{"ingredient": str(foreign_ingredient.id), "quantity_per_serving": "0.020"}],
         },
         format="json",
@@ -280,6 +344,7 @@ def test_update_menu_item_replaces_recipe_items(manager_client, menu_item):
             "category": menu_item.category_id,
             "name": menu_item.name,
             "price": "220.00",
+            "sort_order": 0,
             "recipe_items": [{"ingredient": str(garlic.id), "quantity_per_serving": "0.008"}],
         },
         format="json",

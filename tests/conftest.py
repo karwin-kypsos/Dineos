@@ -83,3 +83,17 @@ def menu_item(restaurant):
     item = MenuItem.objects.create(category=category, name="Chicken Biryani", price=Decimal("220.00"))
     PreparedPortion.objects.create(menu_item=item, date=timezone.localdate(), portions_initial=20, portions_remaining=20)
     return item
+
+
+def make_test_image(name="test.png"):
+    """A real, minimal, valid PNG — serializers.ImageField verifies the
+    bytes actually decode as an image (via Pillow), so arbitrary garbage
+    bytes get rejected by validation before a test ever reaches the view."""
+    import io
+
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (1, 1), color="red").save(buffer, format="PNG")
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/png")

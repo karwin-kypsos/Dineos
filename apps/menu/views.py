@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.ai_client import AIUnavailableError
+from core.image_fields import ImageUploadErrorHandlingMixin
 from core.permissions import IsAdminOrManager, IsAnyStaff
 from core.tenancy import TenantObjectPermission, get_branch_from_table, get_tenant_from_table
 
@@ -91,9 +92,13 @@ class CustomerMenuView(APIView):
         return Response(MenuItemCustomerSerializer(items, many=True).data)
 
 
-class OrderTakingMenuView(APIView):
+class OrderTakingMenuView(ImageUploadErrorHandlingMixin, APIView):
     """GET here is the lean order-taking view (Server/Cashier); POST is
     Manager-only item creation — the doc specifies both on the same path.
+    This is the real Create Menu Item path — MenuItemViewSet's own create
+    action below is never wired to a URL (only list/retrieve/update/
+    destroy are), so its ImageUploadErrorHandlingMixin covers Update Menu
+    Item, not Create.
     """
 
     def get_permissions(self):
@@ -119,7 +124,7 @@ class OrderTakingMenuView(APIView):
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
-class MenuItemViewSet(viewsets.ModelViewSet):
+class MenuItemViewSet(ImageUploadErrorHandlingMixin, viewsets.ModelViewSet):
     """Manager/Admin management view — all items, including unavailable ones."""
 
     serializer_class = MenuItemSerializer
@@ -172,7 +177,7 @@ class MenuItemViewSet(viewsets.ModelViewSet):
             return Response(MenuItemSerializer(item).data)
 
 
-class CategoryViewSet(viewsets.ModelViewSet):
+class CategoryViewSet(ImageUploadErrorHandlingMixin, viewsets.ModelViewSet):
     serializer_class = CategorySerializer
 
     def get_queryset(self):

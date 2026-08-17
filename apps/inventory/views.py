@@ -1,14 +1,17 @@
+from decimal import Decimal
+
 from django.db import models as dj_models
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from core.ai_client import AIUnavailableError
 from core.permissions import IsAdminOrManager, IsAnyStaff
 
 from . import services
-from .models import AIInsight, Ingredient, PurchaseOrder, RecipeItem
+from .models import AIInsight, Ingredient, PurchaseOrder, RecipeItem, StockMovement
 from .serializers import (
     AddStockSerializer,
     AIInsightSerializer,
@@ -83,6 +86,66 @@ class IngredientViewSet(viewsets.ModelViewSet):
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         ingredient.refresh_from_db()
         return Response(IngredientSerializer(ingredient).data)
+
+
+class WastageLogView(APIView):
+    """Record Wastage screen's 'Today's Wastage So Far' + 'Today's Wastage
+    Log' — total cost, a breakdown by reason, and the individual entries
+    for one day. Defaults to today; ?date=YYYY-MM-DD for a past day.
+    """
+
+    permission_classes = [IsAdminOrManager]
+
+    def get(self, request):
+        from datetime import datetime
+
+        date_param = request.query_params.get("date")
+        if date_param:
+            try:
+                target_date = datetime.strptime(date_param, "%Y-%m-%d").date()
+            except ValueError:
+                return Response({"date": "Expected format YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            target_date = timezone.localdate()
+
+        movements = StockMovement.objects.filter(
+            ingredient__restaurant=request.tenant,
+            movement_type=StockMovement.MovementType.WASTAGE,
+            recorded_at__date=target_date,
+        ).select_related("ingredient", "recorded_by")
+
+        branch = getattr(request.user, "branch", None)
+        if branch is not None:
+            movements = movements.filter(
+                dj_models.Q(ingredient__branch=branch) | dj_models.Q(ingredient__branch__isnull=True)
+            )
+
+        breakdown_by_reason = {reason: Decimal("0") for reason in StockMovement.WastageReason.values}
+        total_cost = Decimal("0")
+        entries = []
+        for m in movements.order_by("-recorded_at"):
+            cost = m.quantity * (m.unit_cost_at_time or Decimal("0"))
+            total_cost += cost
+            breakdown_by_reason[m.wastage_reason] += cost
+            entries.append({
+                "id": str(m.id),
+                "ingredient_id": str(m.ingredient_id),
+                "ingredient_name": m.ingredient.name,
+                "unit": m.ingredient.unit,
+                "quantity": m.quantity,
+                "wastage_reason": m.wastage_reason,
+                "reason": m.reason,
+                "cost": cost,
+                "recorded_at": m.recorded_at,
+                "recorded_by_name": m.recorded_by.name if m.recorded_by else None,
+            })
+
+        return Response({
+            "date": target_date.isoformat(),
+            "total_cost": total_cost,
+            "breakdown_by_reason": breakdown_by_reason,
+            "entries": entries,
+        })
 
 
 class PurchaseOrderViewSet(viewsets.ModelViewSet):

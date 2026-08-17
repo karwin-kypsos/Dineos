@@ -96,6 +96,30 @@ def test_staff_creation_without_branch_still_works(admin_client):
     assert response.status_code == 201, response.data
 
 
+def test_create_branch_with_uploaded_image(admin_client, monkeypatch):
+    from tests.conftest import make_test_image
+
+    _, client = admin_client
+    monkeypatch.setattr("core.image_upload.upload_image", lambda f: "https://res.cloudinary.com/demo/branch.jpg")
+
+    response = client.post(
+        "/v1/branches/", {"name": "Kochi Uploaded", "image": make_test_image()}, format="multipart",
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["photo_url"] == "https://res.cloudinary.com/demo/branch.jpg"
+
+
+def test_create_branch_image_upload_returns_503_when_cloudinary_unconfigured(admin_client):
+    from tests.conftest import make_test_image
+
+    _, client = admin_client
+
+    response = client.post("/v1/branches/", {"name": "Kochi Fails", "image": make_test_image()}, format="multipart")
+
+    assert response.status_code == 503
+
+
 def test_create_branch_with_photo_and_manager(admin_client, manager_client):
     _, client = admin_client
     manager_user, _ = manager_client

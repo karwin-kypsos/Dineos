@@ -4,6 +4,7 @@ from django.db import transaction
 from rest_framework import serializers
 
 from apps.inventory.serializers import RecipeItemSerializer
+from core.image_fields import ImageUploadMixin
 
 from .models import Category, MenuItem, PreparedPortion
 from .services import get_today_portion
@@ -14,16 +15,22 @@ class RecipeItemInputSerializer(serializers.Serializer):
     quantity_per_serving = serializers.DecimalField(max_digits=10, decimal_places=3, min_value=Decimal("0.001"))
 
 
-class CategorySerializer(serializers.ModelSerializer):
+class CategorySerializer(ImageUploadMixin, serializers.ModelSerializer):
+    item_count = serializers.SerializerMethodField()
+    image = serializers.ImageField(write_only=True, required=False)
+
     class Meta:
         model = Category
-        fields = ["id", "branch", "name", "emoji", "sort_order", "is_active"]
+        fields = ["id", "branch", "name", "emoji", "image_url", "image", "sort_order", "is_active", "item_count"]
         # Both constraints on Category are conditional (branch IS/IS NOT
         # NULL) — DRF's auto-generated UniqueTogetherValidator doesn't
         # understand conditional constraints and would reject a valid
         # update with a false-positive 400. Uniqueness is checked by hand
         # in validate_name() below instead.
         validators = []
+
+    def get_item_count(self, obj):
+        return obj.items.filter(is_active=True).count()
 
     def validate_name(self, value):
         request = self.context.get("request")
@@ -45,9 +52,15 @@ class CategorySerializer(serializers.ModelSerializer):
         return value
 
 
-class MenuItemSerializer(serializers.ModelSerializer):
+class MenuItemSerializer(ImageUploadMixin, serializers.ModelSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)
     portions_remaining_today = serializers.SerializerMethodField()
+    # Overrides the model field's default=0 (which DRF would otherwise
+    # treat as optional) — the Add/Edit Menu Item screen always displays
+    # dishes in priority order, so every item needs an explicit position
+    # rather than silently landing at the same default as every other item.
+    sort_order = serializers.IntegerField(min_value=0)
+    image = serializers.ImageField(write_only=True, required=False)
     # "Recipe per Plate" section on the Add/Edit Menu Item screen — lets the
     # frontend submit the item's basic fields and its recipe ingredients in
     # one request instead of a create-item call followed by N separate
@@ -68,6 +81,7 @@ class MenuItemSerializer(serializers.ModelSerializer):
             "description",
             "price",
             "image_url",
+            "image",
             "is_veg",
             "is_available",
             "is_active",
@@ -106,6 +120,7 @@ class MenuItemSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
+        validated_data = self._handle_image_upload(validated_data)
         recipe_items_data = validated_data.pop("recipe_items", [])
         menu_item = MenuItem.objects.create(**validated_data)
         self._save_recipe_items(menu_item, recipe_items_data)
@@ -113,8 +128,12 @@ class MenuItemSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        validated_data = self._handle_image_upload(validated_data)
         recipe_items_data = validated_data.pop("recipe_items", None)
-        instance = super().update(instance, validated_data)
+        # Bypass ImageUploadMixin.update (already handled the upload above)
+        # and go straight to ModelSerializer.update — calling the mixin
+        # again here would try to pop "image" a second time.
+        instance = serializers.ModelSerializer.update(self, instance, validated_data)
         if recipe_items_data is not None:
             instance.recipe_items.all().delete()
             self._save_recipe_items(instance, recipe_items_data)

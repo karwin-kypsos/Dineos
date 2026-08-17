@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
+from core.image_fields import ImageUploadMixin
+
 from .models import Branch, Restaurant
 
 User = get_user_model()
@@ -31,14 +33,17 @@ class BranchManagerSummarySerializer(serializers.ModelSerializer):
         fields = ["id", "name", "email"]
 
 
-class BranchSerializer(serializers.ModelSerializer):
+class BranchSerializer(ImageUploadMixin, serializers.ModelSerializer):
+    image_url_field = "photo_url"
+
     manager = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), required=False, allow_null=True)
     manager_detail = BranchManagerSummarySerializer(source="manager", read_only=True)
     tables = serializers.SerializerMethodField()
+    image = serializers.ImageField(write_only=True, required=False)
 
     class Meta:
         model = Branch
-        fields = ["id", "name", "slug", "address", "phone", "photo_url", "manager", "manager_detail",
+        fields = ["id", "name", "slug", "address", "phone", "photo_url", "image", "manager", "manager_detail",
                   "table_count", "is_active", "created_at", "tables"]
         read_only_fields = ["id", "slug", "created_at"]
 

@@ -9,6 +9,7 @@ class Category(models.Model):
     )
     name = models.CharField(max_length=100)
     emoji = models.CharField(max_length=8, blank=True)
+    image_url = models.URLField(blank=True)
     sort_order = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
 
