@@ -60,16 +60,31 @@ def deduct_for_usage(ingredient_id, quantity, recorded_by=None):
 
 
 @transaction.atomic
-def create_purchase_order(restaurant, branch, lines, supplier_name="", supplier_notes="", requested_by=None):
+def create_purchase_order(
+    restaurant, branch, lines, supplier_name="", supplier_notes="", requested_by=None,
+    reason="", is_emergency=False,
+):
     po = PurchaseOrder.objects.create(
         restaurant=restaurant, branch=branch, supplier_name=supplier_name,
-        supplier_notes=supplier_notes, requested_by=requested_by,
+        supplier_notes=supplier_notes, requested_by=requested_by, reason=reason, is_emergency=is_emergency,
     )
     for line in lines:
         PurchaseOrderLine.objects.create(
             purchase_order=po, ingredient=line["ingredient"],
             quantity_ordered=line["quantity_ordered"], unit_cost=line.get("unit_cost"),
         )
+
+    if is_emergency:
+        # Already physically bought — nothing left to approve/order for
+        # something that already happened. Same restock-and-mark-received
+        # logic as receive_purchase_order, just entered immediately.
+        for line in po.lines.select_related("ingredient"):
+            add_stock(line.ingredient_id, line.quantity_ordered, unit_cost=line.unit_cost, recorded_by=requested_by)
+            line.quantity_received = line.quantity_ordered
+            line.save(update_fields=["quantity_received"])
+        po.status = PurchaseOrder.Status.RECEIVED
+        po.save(update_fields=["status"])
+
     return po
 
 

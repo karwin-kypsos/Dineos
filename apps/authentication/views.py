@@ -175,6 +175,10 @@ class StaffViewSet(viewsets.ModelViewSet):
             except ValueError:
                 pass  # malformed branch id — no filter applied, same as an unrecognized status filter elsewhere
 
+        role = self.request.query_params.get("role", "").strip().upper()
+        if role in User.Role.values:
+            qs = qs.filter(role=role)
+
         search = self.request.query_params.get("search", "").strip()
         if search:
             qs = qs.filter(Q(name__icontains=search) | Q(email__icontains=search))

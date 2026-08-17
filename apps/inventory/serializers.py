@@ -13,7 +13,7 @@ class IngredientSerializer(serializers.ModelSerializer):
         model = Ingredient
         fields = [
             "id", "branch", "name", "unit", "current_stock", "unit_cost", "minimum_stock_level",
-            "supplier_name", "supplier_notes", "is_low_stock", "stock_status", "is_active", "created_at",
+            "supplier_name", "supplier_phone", "supplier_notes", "is_low_stock", "stock_status", "is_active", "created_at",
         ]
         read_only_fields = ["id", "current_stock", "created_at"]
         validators = []  # conditional UniqueConstraints — see apps/menu CategorySerializer for why
@@ -86,7 +86,7 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = PurchaseOrder
         fields = [
-            "id", "branch", "status", "supplier_name", "supplier_notes",
+            "id", "branch", "status", "reason", "is_emergency", "supplier_name", "supplier_notes",
             "requested_by", "requested_by_name", "approved_by", "approved_by_name",
             "approved_at", "created_at", "lines",
         ]
@@ -96,6 +96,8 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
 class PurchaseOrderCreateSerializer(serializers.Serializer):
     supplier_name = serializers.CharField(required=False, allow_blank=True, default="")
     supplier_notes = serializers.CharField(required=False, allow_blank=True, default="")
+    reason = serializers.ChoiceField(choices=PurchaseOrder.Reason.choices, required=False, allow_blank=True, default="")
+    is_emergency = serializers.BooleanField(required=False, default=False)
     lines = PurchaseOrderLineInputSerializer(many=True)
 
     def validate_lines(self, value):

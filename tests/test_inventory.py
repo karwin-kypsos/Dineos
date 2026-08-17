@@ -154,6 +154,99 @@ def test_low_stock_filter(manager_client, restaurant, ingredient):
     assert names == {"Onions"}
 
 
+def test_ingredient_accepts_supplier_phone(manager_client, restaurant):
+    _, client = manager_client
+
+    response = client.post(
+        "/v1/inventory/ingredients/",
+        {"name": "Basil", "unit": "KG", "supplier_name": "Green Farms", "supplier_phone": "9876500000"},
+        format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["supplier_phone"] == "9876500000"
+
+
+def test_purchase_order_filter_by_status(manager_client, ingredient):
+    _, client = manager_client
+    client.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00"}]}, format="json",
+    )
+
+    response = client.get("/v1/inventory/purchase-orders/?status=PENDING")
+
+    assert response.status_code == 200
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    assert all(po["status"] == "PENDING" for po in results)
+    assert len(results) >= 1
+
+    response = client.get("/v1/inventory/purchase-orders/?status=RECEIVED")
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    assert all(po["status"] == "RECEIVED" for po in results)
+
+
+def test_purchase_order_search_by_ingredient_and_supplier(manager_client, ingredient):
+    _, client = manager_client
+    client.post(
+        "/v1/inventory/purchase-orders/",
+        {"supplier_name": "Dairy Fresh", "lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00"}]},
+        format="json",
+    )
+
+    by_ingredient = client.get("/v1/inventory/purchase-orders/?search=Chicken")
+    results = by_ingredient.data["results"] if isinstance(by_ingredient.data, dict) else by_ingredient.data
+    assert len(results) >= 1
+
+    by_supplier = client.get("/v1/inventory/purchase-orders/?search=Dairy")
+    results = by_supplier.data["results"] if isinstance(by_supplier.data, dict) else by_supplier.data
+    assert len(results) >= 1
+
+    no_match = client.get("/v1/inventory/purchase-orders/?search=NoSuchIngredientOrSupplier")
+    results = no_match.data["results"] if isinstance(no_match.data, dict) else no_match.data
+    assert results == []
+
+
+def test_emergency_purchase_order_is_received_immediately_and_restocks(manager_client, ingredient):
+    _, client = manager_client
+    starting_stock = ingredient.current_stock
+
+    response = client.post(
+        "/v1/inventory/purchase-orders/",
+        {
+            "is_emergency": True, "reason": "AI_ALERT",
+            "lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "3.00", "unit_cost": "210.00"}],
+        },
+        format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["status"] == "RECEIVED"
+    assert response.data["is_emergency"] is True
+    assert response.data["reason"] == "AI_ALERT"
+    assert response.data["lines"][0]["quantity_received"] == "3.00"
+
+    ingredient.refresh_from_db()
+    assert ingredient.current_stock == starting_stock + Decimal("3.00")
+
+
+def test_non_emergency_purchase_order_stays_pending(manager_client, ingredient):
+    _, client = manager_client
+    starting_stock = ingredient.current_stock
+
+    response = client.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "3.00"}]}, format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["status"] == "PENDING"
+    assert response.data["is_emergency"] is False
+
+    ingredient.refresh_from_db()
+    assert ingredient.current_stock == starting_stock  # unaffected until receive
+
+
 def test_full_purchase_order_lifecycle(admin_client, manager_client, ingredient):
     admin, admin_c = admin_client
     _, manager_c = manager_client

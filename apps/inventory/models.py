@@ -23,6 +23,7 @@ class Ingredient(models.Model):
     unit_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     minimum_stock_level = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     supplier_name = models.CharField(max_length=255, blank=True)
+    supplier_phone = models.CharField(max_length=20, blank=True)
     supplier_notes = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -103,12 +104,24 @@ class PurchaseOrder(models.Model):
         ORDERED = "ORDERED", "Ordered"
         RECEIVED = "RECEIVED", "Received"
 
+    class Reason(models.TextChoices):
+        AI_ALERT = "AI_ALERT", "AI alert"
+        SUPPLIER_CALLED = "SUPPLIER_CALLED", "Supplier called"
+        NOTICED = "NOTICED", "I noticed"
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     restaurant = models.ForeignKey("restaurant.Restaurant", on_delete=models.CASCADE, related_name="purchase_orders")
     branch = models.ForeignKey(
         "restaurant.Branch", on_delete=models.SET_NULL, null=True, blank=True, related_name="purchase_orders"
     )
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING)
+    reason = models.CharField(max_length=20, choices=Reason.choices, blank=True)
+    # "Emergency purchase (already bought)?" toggle on New Restock Request —
+    # the ingredient was already physically bought on the spot, not
+    # requested for later approval. create_purchase_order() skips straight
+    # to RECEIVED and restocks immediately when this is set, since there's
+    # nothing left to approve/order for something that already happened.
+    is_emergency = models.BooleanField(default=False)
     supplier_name = models.CharField(max_length=255, blank=True)
     supplier_notes = models.TextField(blank=True)
     requested_by = models.ForeignKey(

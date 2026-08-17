@@ -155,7 +155,19 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         qs = PurchaseOrder.objects.filter(restaurant=self.request.tenant)
-        return _branch_scoped(qs, self.request)
+        qs = _branch_scoped(qs, self.request)
+
+        status_filter = self.request.query_params.get("status", "").strip().upper()
+        if status_filter in PurchaseOrder.Status.values:
+            qs = qs.filter(status=status_filter)
+
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            qs = qs.filter(
+                dj_models.Q(supplier_name__icontains=search) | dj_models.Q(lines__ingredient__name__icontains=search)
+            ).distinct()
+
+        return qs
 
     def create(self, request, *args, **kwargs):
         serializer = PurchaseOrderCreateSerializer(data=request.data)
@@ -169,6 +181,8 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
             supplier_name=serializer.validated_data["supplier_name"],
             supplier_notes=serializer.validated_data["supplier_notes"],
             requested_by=request.user,
+            reason=serializer.validated_data["reason"],
+            is_emergency=serializer.validated_data["is_emergency"],
         )
         return Response(PurchaseOrderSerializer(po).data, status=status.HTTP_201_CREATED)
 
