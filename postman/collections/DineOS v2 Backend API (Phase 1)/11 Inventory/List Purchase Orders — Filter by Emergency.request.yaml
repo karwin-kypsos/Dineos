@@ -1,0 +1,18 @@
+$kind: http-request
+url: "{{base_url}}/inventory/purchase-orders/?is_emergency=true"
+method: GET
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const emergencyFilterData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('every result is an emergency order', () => {
+        emergencyFilterData.results.forEach(po => pm.expect(po.is_emergency).to.be.true);
+      });
+      pm.test('every result has estimated_total', () => {
+        emergencyFilterData.results.forEach(po => pm.expect(po.estimated_total).to.exist);
+      });
+    language: text/javascript
+order: 4110
