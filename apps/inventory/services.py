@@ -6,11 +6,27 @@ from django.db import models as dj_models
 from django.db import transaction
 from django.utils import timezone
 
+from apps.notifications.services import notify_role
+
 from .models import AIInsight, Ingredient, PurchaseOrder, PurchaseOrderLine, StockMovement
 
 
 class InsufficientStockError(Exception):
     pass
+
+
+def _notify_if_newly_low_stock(ingredient, was_low_stock):
+    """Fires once, right when stock crosses into low/critical territory —
+    not on every subsequent wastage/usage entry while it stays low, so
+    Admin/Manager aren't spammed with the same alert repeatedly."""
+    if was_low_stock or not ingredient.is_low_stock:
+        return
+    notify_role(
+        ["ADMIN", "MANAGER"], tenant=ingredient.restaurant, type="LOW_STOCK",
+        title=f"Low stock: {ingredient.name} ({ingredient.stock_status.capitalize()})",
+        body=f"{ingredient.current_stock} {ingredient.unit} remaining (minimum {ingredient.minimum_stock_level}).",
+        data={"ingredient_id": str(ingredient.id)}, branch=ingredient.branch,
+    )
 
 
 @transaction.atomic
@@ -33,8 +49,10 @@ def record_wastage(ingredient_id, quantity, wastage_reason, reason="", recorded_
         raise InsufficientStockError(
             f"Cannot record {quantity} {ingredient.unit} of wastage — only {ingredient.current_stock} in stock."
         )
+    was_low_stock = ingredient.is_low_stock
     ingredient.current_stock -= quantity
     ingredient.save(update_fields=["current_stock"])
+    _notify_if_newly_low_stock(ingredient, was_low_stock)
     return StockMovement.objects.create(
         ingredient=ingredient, movement_type=StockMovement.MovementType.WASTAGE,
         quantity=quantity, wastage_reason=wastage_reason, reason=reason,
@@ -51,8 +69,10 @@ def deduct_for_usage(ingredient_id, quantity, recorded_by=None):
     sync with reality. Going negative here is a legitimate signal ("stock
     count needs a recount"), not an error state."""
     ingredient = Ingredient.objects.select_for_update().get(id=ingredient_id)
+    was_low_stock = ingredient.is_low_stock
     ingredient.current_stock -= quantity
     ingredient.save(update_fields=["current_stock"])
+    _notify_if_newly_low_stock(ingredient, was_low_stock)
     return StockMovement.objects.create(
         ingredient=ingredient, movement_type=StockMovement.MovementType.USAGE,
         quantity=quantity, unit_cost_at_time=ingredient.unit_cost, recorded_by=recorded_by,

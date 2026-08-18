@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from django.db.models import Q, Sum
 from django.utils import timezone
 from rest_framework import status
@@ -7,8 +8,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.billing.models import Bill
-from apps.inventory.models import Ingredient, PurchaseOrder
+from apps.inventory.models import AIInsight, Ingredient, PurchaseOrder
+from apps.notifications.models import Notification
 from apps.orders.models import Order
+from apps.restaurant.models import Branch
 from apps.tables.models import Table
 from core.ai_client import AIUnavailableError
 from core.permissions import IsAdminOrManager
@@ -16,6 +19,10 @@ from core.permissions import IsAdminOrManager
 from . import services
 from .models import ChatMessage
 from .serializers import ChatMessageSerializer, SendChatMessageSerializer
+
+User = get_user_model()
+
+AI_INSIGHT_SEVERITY_RANK = {"CRITICAL": 0, "ALERT": 1, "TIP": 2}
 
 
 class AdminDashboardView(APIView):
@@ -46,6 +53,8 @@ class AdminDashboardView(APIView):
         tables = Table.objects.filter(restaurant=restaurant, is_active=True)
         ingredients = Ingredient.objects.filter(restaurant=restaurant, is_active=True)
         pending_pos = PurchaseOrder.objects.filter(restaurant=restaurant, status=PurchaseOrder.Status.PENDING)
+        staff = User.objects.filter(restaurant=restaurant, is_active=True)
+        insights = AIInsight.objects.filter(restaurant=restaurant, is_dismissed=False)
 
         if branch_id:
             # Same table-or-branch fallback as above — a dine-in order
@@ -58,9 +67,51 @@ class AdminDashboardView(APIView):
             tables = tables.filter(branch_id=branch_id)
             ingredients = ingredients.filter(branch_id=branch_id)
             pending_pos = pending_pos.filter(branch_id=branch_id)
+            staff = staff.filter(branch_id=branch_id)
+            insights = insights.filter(Q(branch_id=branch_id) | Q(branch__isnull=True))
 
         today_revenue = bills_today.aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
         low_stock_count = sum(1 for ingredient in ingredients if ingredient.is_low_stock)
+
+        # "Your Branches" breakdown — always whole-restaurant regardless of
+        # ?branch=, since it's a per-branch comparison view, not itself
+        # narrowable to one branch.
+        branches_qs = Branch.objects.filter(restaurant=restaurant).order_by("name")
+        branches = []
+        for branch in branches_qs:
+            branch_tables = Table.objects.filter(restaurant=restaurant, branch=branch, is_active=True)
+            branch_bills_today = Bill.objects.filter(
+                Q(session__table__branch=branch) | Q(order__branch=branch), paid_at__gte=today_start,
+            )
+            branches.append({
+                "id": str(branch.id),
+                "name": branch.name,
+                "is_active": branch.is_active,
+                "today_revenue": branch_bills_today.aggregate(total=Sum("total_amount"))["total"] or Decimal("0"),
+                "occupied_tables": branch_tables.exclude(status="AVAILABLE").count(),
+                "free_tables": branch_tables.filter(status="AVAILABLE").count(),
+            })
+
+        top_insight = min(insights, key=lambda i: AI_INSIGHT_SEVERITY_RANK.get(i.severity, 99), default=None)
+        ai_daily_insight = None
+        if top_insight is not None:
+            ai_daily_insight = {
+                "severity": top_insight.severity,
+                "headline": top_insight.headline,
+                "recommended_action": top_insight.recommended_action,
+            }
+
+        recent_notifications = [
+            {
+                "id": n.id,
+                "type": n.type,
+                "title": n.title,
+                "body": n.body,
+                "branch_name": n.branch.name if n.branch else None,
+                "created_at": n.created_at,
+            }
+            for n in Notification.objects.filter(recipient=request.user).order_by("-created_at")[:5]
+        ]
 
         return Response({
             "today_orders_count": orders_today.count(),
@@ -70,6 +121,12 @@ class AdminDashboardView(APIView):
             "total_tables_count": tables.count(),
             "low_stock_count": low_stock_count,
             "pending_purchase_orders_count": pending_pos.count(),
+            "total_staff_count": staff.count(),
+            "active_branches_count": branches_qs.filter(is_active=True).count(),
+            "total_branches_count": branches_qs.count(),
+            "branches": branches,
+            "ai_daily_insight": ai_daily_insight,
+            "recent_notifications": recent_notifications,
         })
 
 

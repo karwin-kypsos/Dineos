@@ -7,6 +7,9 @@ class Notification(models.Model):
         ORDER_READY = "ORDER_READY", "Order Ready"
         BILL_REQUESTED = "BILL_REQUESTED", "Bill Requested"
         PAYMENT_CONFIRMED = "PAYMENT_CONFIRMED", "Payment Confirmed"
+        LOW_STOCK = "LOW_STOCK", "Low Stock"
+        STAFF_ADDED = "STAFF_ADDED", "Staff Added"
+        PREP_LOGGED = "PREP_LOGGED", "Prep Logged"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications")
     branch = models.ForeignKey(

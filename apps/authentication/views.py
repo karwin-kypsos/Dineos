@@ -223,6 +223,14 @@ class StaffViewSet(viewsets.ModelViewSet):
                 to_email=user.email,
             )
 
+        from apps.notifications.services import notify_role
+
+        notify_role(
+            ["ADMIN"], tenant=user.restaurant, type="STAFF_ADDED",
+            title=f"New staff added: {user.name or user.email} ({user.get_role_display()})",
+            data={"user_id": str(user.id)}, branch=user.branch,
+        )
+
         data = UserSerializer(user).data
         if temp_password is not None:
             data["temp_password"] = temp_password

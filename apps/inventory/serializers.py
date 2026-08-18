@@ -82,13 +82,17 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
     lines = PurchaseOrderLineSerializer(many=True, read_only=True)
     requested_by_name = serializers.CharField(source="requested_by.name", read_only=True)
     approved_by_name = serializers.CharField(source="approved_by.name", read_only=True)
+    estimated_total = serializers.SerializerMethodField()
+
+    def get_estimated_total(self, obj):
+        return sum((line.quantity_ordered * (line.unit_cost or Decimal("0")) for line in obj.lines.all()), Decimal("0"))
 
     class Meta:
         model = PurchaseOrder
         fields = [
             "id", "branch", "status", "reason", "is_emergency", "supplier_name", "supplier_notes",
             "requested_by", "requested_by_name", "approved_by", "approved_by_name",
-            "approved_at", "created_at", "lines",
+            "approved_at", "created_at", "lines", "estimated_total",
         ]
         read_only_fields = fields
 

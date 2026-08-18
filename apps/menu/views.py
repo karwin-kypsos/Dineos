@@ -294,6 +294,15 @@ class AddPortionsView(APIView):
             recorded_by=request.user, deduction_overrides=overrides,
         )
 
+        from apps.notifications.services import notify_role
+
+        notify_role(
+            ["ADMIN", "MANAGER"], tenant=request.tenant, type="PREP_LOGGED",
+            title="Daily prep logged",
+            body=f"{serializer.validated_data['additional_quantity']} portions of {portion.menu_item.name} added.",
+            data={"menu_item_id": portion.menu_item_id}, branch=portion.menu_item.category.branch,
+        )
+
         if request.tenant.realtime_enabled:
             channel_layer = get_channel_layer()
             if channel_layer:

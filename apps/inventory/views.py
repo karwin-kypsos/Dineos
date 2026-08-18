@@ -170,6 +170,12 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         if needs_action == "true":
             qs = qs.filter(status=PurchaseOrder.Status.PENDING)
 
+        is_emergency = self.request.query_params.get("is_emergency", "").strip().lower()
+        if is_emergency == "true":
+            qs = qs.filter(is_emergency=True)
+        elif is_emergency == "false":
+            qs = qs.filter(is_emergency=False)
+
         status_filter = self.request.query_params.get("status", "").strip().upper()
         if status_filter in PurchaseOrder.Status.values:
             qs = qs.filter(status=status_filter)

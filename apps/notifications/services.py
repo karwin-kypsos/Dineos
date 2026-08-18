@@ -6,9 +6,12 @@ from .models import Notification
 
 User = get_user_model()
 
+_BRANCH_UNSET = object()
 
-def notify(recipient, type, title, body="", data=None, order=None, table=None):
-    branch = table.branch if table is not None else recipient.branch
+
+def notify(recipient, type, title, body="", data=None, order=None, table=None, branch=_BRANCH_UNSET):
+    if branch is _BRANCH_UNSET:
+        branch = table.branch if table is not None else recipient.branch
     notification = Notification.objects.create(
         recipient=recipient, branch=branch, type=type, title=title, body=body,
         data=data or {}, order=order, table=table,
@@ -30,7 +33,7 @@ def notify(recipient, type, title, body="", data=None, order=None, table=None):
     return notification
 
 
-def notify_role(roles, tenant, type, title, body="", data=None, order=None, table=None):
+def notify_role(roles, tenant, type, title, body="", data=None, order=None, table=None, branch=_BRANCH_UNSET):
     """`tenant` is required (not derivable here — unlike every other
     notifications call site, this queries User directly with nothing else
     to scope by). Callers already have the relevant restaurant in hand via
@@ -39,4 +42,7 @@ def notify_role(roles, tenant, type, title, body="", data=None, order=None, tabl
     if not tenant.notifications_enabled:
         return []
     recipients = User.objects.filter(restaurant=tenant, role__in=roles, is_active=True)
-    return [notify(user, type, title, body=body, data=data, order=order, table=table) for user in recipients]
+    return [
+        notify(user, type, title, body=body, data=data, order=order, table=table, branch=branch)
+        for user in recipients
+    ]

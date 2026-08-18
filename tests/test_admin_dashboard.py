@@ -86,6 +86,70 @@ def test_dashboard_branch_filter_excludes_other_branches(admin_client, restauran
     assert response.data["low_stock_count"] == 1
 
 
+def test_dashboard_branches_breakdown_and_staff_count(admin_client, restaurant):
+    _, client = admin_client
+
+    from apps.authentication.models import User
+    from apps.restaurant.models import Branch
+    from apps.tables.models import Table
+
+    branch_a = Branch.objects.create(restaurant=restaurant, name="Branch A")
+    branch_b = Branch.objects.create(restaurant=restaurant, name="Branch B", is_active=False)
+    Table.objects.create(restaurant=restaurant, branch=branch_a, table_number="1", status="OCCUPIED")
+    Table.objects.create(restaurant=restaurant, branch=branch_a, table_number="2", status="AVAILABLE")
+    User.objects.create_user(email="mgr-dash@demo-bistro.demo", password="Test@1234", role="MANAGER", name="Dash Mgr", restaurant=restaurant, branch=branch_a)
+
+    response = client.get("/v1/admin/dashboard/")
+
+    assert response.status_code == 200
+    assert response.data["total_branches_count"] == 2
+    assert response.data["active_branches_count"] == 1
+    assert response.data["total_staff_count"] >= 2  # admin + the manager just created
+    branches_by_name = {b["name"]: b for b in response.data["branches"]}
+    assert branches_by_name["Branch A"]["occupied_tables"] == 1
+    assert branches_by_name["Branch A"]["free_tables"] == 1
+    assert branches_by_name["Branch B"]["is_active"] is False
+
+
+def test_dashboard_ai_daily_insight_picks_most_severe(admin_client, restaurant):
+    _, client = admin_client
+
+    from apps.inventory.models import AIInsight
+
+    AIInsight.objects.create(restaurant=restaurant, severity="TIP", headline="Minor tip")
+    AIInsight.objects.create(restaurant=restaurant, severity="CRITICAL", headline="Urgent restock needed")
+    AIInsight.objects.create(restaurant=restaurant, severity="ALERT", headline="Watch this", is_dismissed=True)
+
+    response = client.get("/v1/admin/dashboard/")
+
+    assert response.status_code == 200
+    assert response.data["ai_daily_insight"]["headline"] == "Urgent restock needed"
+    assert response.data["ai_daily_insight"]["severity"] == "CRITICAL"
+
+
+def test_dashboard_ai_daily_insight_null_when_nothing_active(admin_client):
+    _, client = admin_client
+
+    response = client.get("/v1/admin/dashboard/")
+
+    assert response.status_code == 200
+    assert response.data["ai_daily_insight"] is None
+
+
+def test_dashboard_recent_notifications(admin_client, restaurant):
+    admin_user, client = admin_client
+
+    from apps.notifications.models import Notification
+
+    Notification.objects.create(recipient=admin_user, type="STAFF_ADDED", title="New staff added: X")
+
+    response = client.get("/v1/admin/dashboard/")
+
+    assert response.status_code == 200
+    assert len(response.data["recent_notifications"]) == 1
+    assert response.data["recent_notifications"][0]["title"] == "New staff added: X"
+
+
 def test_dashboard_isolated_across_restaurants(admin_client, table, menu_item):
     """Another restaurant's paid orders must never inflate this dashboard."""
     _, client = admin_client

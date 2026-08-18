@@ -236,6 +236,31 @@ def test_purchase_order_needs_action_filter_and_branch_scoping(admin_client, ing
     assert scoped_a_results[0]["id"] == second.data["id"]
 
 
+def test_purchase_order_estimated_total_and_is_emergency_filter(manager_client, ingredient):
+    _, client = manager_client
+    normal = client.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00", "unit_cost": "10.00"}]},
+        format="json",
+    )
+    assert normal.status_code == 201, normal.data
+    assert Decimal(str(normal.data["estimated_total"])) == Decimal("50.00")
+
+    emergency = client.post(
+        "/v1/inventory/purchase-orders/",
+        {"is_emergency": True, "reason": "NOTICED",
+         "lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "2.00", "unit_cost": "15.00"}]},
+        format="json",
+    )
+    assert emergency.status_code == 201, emergency.data
+
+    response = client.get("/v1/inventory/purchase-orders/?is_emergency=true")
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    assert all(po["is_emergency"] is True for po in results)
+    assert any(po["id"] == emergency.data["id"] for po in results)
+    assert not any(po["id"] == normal.data["id"] for po in results)
+
+
 def test_purchase_order_search_by_ingredient_and_supplier(manager_client, ingredient):
     _, client = manager_client
     client.post(
