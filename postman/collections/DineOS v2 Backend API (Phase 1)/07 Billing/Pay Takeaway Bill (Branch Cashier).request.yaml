@@ -6,7 +6,7 @@ headers:
   Content-Type: application/json
 body:
   type: text
-  content: '{"order_id": "{{takeaway_order_id}}", "payment_method": "CASH"}'
+  content: '{"order_id": "{{takeaway_order_id}}", "payment_method": "CASH", "amount_received": "500.00"}'
 scripts:
   - type: afterResponse
     code: |-
@@ -15,5 +15,13 @@ scripts:
       pm.test('status is 201', () => pm.response.to.have.status(201));
       pm.test('payment_method is CASH', () => pm.expect(payTakeawayData.payment_method).to.eql('CASH'));
       pm.test('paid_at is set', () => pm.expect(payTakeawayData.paid_at).to.not.be.null);
+      pm.test('has items and processed_by_name', () => {
+        pm.expect(payTakeawayData.items.length).to.be.above(0);
+        pm.expect(payTakeawayData.processed_by_name).to.exist;
+      });
+      pm.test('change_given = amount_received - total_amount', () => {
+        const expected = (500.00 - parseFloat(payTakeawayData.total_amount)).toFixed(2);
+        pm.expect(parseFloat(payTakeawayData.change_given).toFixed(2)).to.eql(expected);
+      });
     language: text/javascript
 order: 20100

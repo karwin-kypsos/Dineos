@@ -6,11 +6,23 @@ headers:
   Content-Type: application/json
 body:
   type: text
-  content: '{"session_id": "{{session_id}}", "payment_method": "CASH"}'
+  content: '{"session_id": "{{session_id}}", "payment_method": "CASH", "amount_received": "1000.00"}'
 scripts:
   - type: afterResponse
     code: |-
       const payBillData = pm.response.json();
       pm.collectionVariables.set('bill_id', payBillData.id);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+      pm.test('has items and processed_by_name', () => {
+        pm.expect(payBillData.items.length).to.be.above(0);
+        pm.expect(payBillData.processed_by_name).to.exist;
+      });
+      pm.test('restaurant_name key is present (null is valid for a branch-less table)', () => {
+        pm.expect(payBillData).to.have.property('restaurant_name');
+      });
+      pm.test('amount_received and change_given are set', () => {
+        pm.expect(payBillData.amount_received).to.exist;
+        pm.expect(payBillData.change_given).to.exist;
+      });
     language: text/javascript
 order: 3000

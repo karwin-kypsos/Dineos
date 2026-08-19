@@ -3,4 +3,14 @@ url: "{{base_url}}/bills/session/{{session_id}}/"
 method: GET
 headers:
   Authorization: Bearer {{cashier_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const billPreviewData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('preview has items and table_number', () => {
+        pm.expect(billPreviewData.items.length).to.be.above(0);
+        pm.expect(billPreviewData.table_number).to.exist;
+      });
+    language: text/javascript
 order: 2000

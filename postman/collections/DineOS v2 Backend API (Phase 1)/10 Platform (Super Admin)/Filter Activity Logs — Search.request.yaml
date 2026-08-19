@@ -1,0 +1,19 @@
+$kind: http-request
+url: "{{server_root}}/platform/activity/?search=Aura"
+method: GET
+headers:
+  Authorization: Bearer {{platform_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const searchActivityData = pm.response.json();
+      const results = Array.isArray(searchActivityData) ? searchActivityData : searchActivityData.results;
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('every entry matches restaurant_name or description', () => {
+        results.forEach(a => {
+          const haystack = (a.restaurant_name + ' ' + a.description).toLowerCase();
+          pm.expect(haystack).to.include('aura');
+        });
+      });
+    language: text/javascript
+order: 5160
