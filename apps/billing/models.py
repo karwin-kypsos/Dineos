@@ -70,6 +70,12 @@ class Bill(models.Model):
     payment_method = models.CharField(max_length=8, choices=PaymentMethod.choices)
     processed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="processed_bills")
     paid_at = models.DateTimeField(auto_now_add=True)
+    # Cash-payment tender — both null when not provided (e.g. card/UPI, or a
+    # cash payment where the cashier didn't record the physical amount
+    # handed over). change_given is stored, not computed on read, so a bill
+    # stays accurate even if total_amount were ever revised later.
+    amount_received = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    change_given = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
 
     class Meta:
         db_table = "bills"

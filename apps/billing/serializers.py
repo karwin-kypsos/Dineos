@@ -6,6 +6,40 @@ from .models import Bill, CashierShift
 
 
 class BillSerializer(serializers.ModelSerializer):
+    processed_by_name = serializers.CharField(source="processed_by.name", read_only=True, default=None)
+    table_number = serializers.SerializerMethodField()
+    items = serializers.SerializerMethodField()
+    restaurant_name = serializers.SerializerMethodField()
+    branch_name = serializers.SerializerMethodField()
+    branch_address = serializers.SerializerMethodField()
+    branch_phone = serializers.SerializerMethodField()
+
+    def get_table_number(self, obj):
+        return obj.session.table.table_number if obj.session_id else None
+
+    def get_items(self, obj):
+        from . import services
+
+        orders = [obj.order] if obj.order_id else obj.session.orders.exclude(status="CANCELLED").prefetch_related("items")
+        return services.line_items(orders)
+
+    def _branch_info(self, obj):
+        from . import services
+
+        return services.receipt_branch_info(obj.branch)
+
+    def get_restaurant_name(self, obj):
+        return self._branch_info(obj)["restaurant_name"]
+
+    def get_branch_name(self, obj):
+        return self._branch_info(obj)["branch_name"]
+
+    def get_branch_address(self, obj):
+        return self._branch_info(obj)["branch_address"]
+
+    def get_branch_phone(self, obj):
+        return self._branch_info(obj)["branch_phone"]
+
     class Meta:
         model = Bill
         fields = [
@@ -13,13 +47,22 @@ class BillSerializer(serializers.ModelSerializer):
             "session",
             "order",
             "branch",
+            "table_number",
+            "restaurant_name",
+            "branch_name",
+            "branch_address",
+            "branch_phone",
+            "items",
             "subtotal",
             "tax_amount",
             "service_charge",
             "discount_amount",
             "total_amount",
             "payment_method",
+            "amount_received",
+            "change_given",
             "processed_by",
+            "processed_by_name",
             "paid_at",
         ]
         read_only_fields = fields

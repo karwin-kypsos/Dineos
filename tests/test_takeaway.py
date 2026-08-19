@@ -63,7 +63,7 @@ def test_takeaway_order_decrements_portions(cashier_with_branch, menu_item):
     assert menu_item.prepared_portions.get().portions_remaining == initial_remaining - 3
 
 
-def test_takeaway_bill_preview_and_payment(cashier_with_branch, menu_item):
+def test_takeaway_bill_preview_and_payment(cashier_with_branch, menu_item, branch):
     _, client = cashier_with_branch
 
     create = client.post(
@@ -75,6 +75,10 @@ def test_takeaway_bill_preview_and_payment(cashier_with_branch, menu_item):
     assert preview.status_code == 200
     expected_subtotal = menu_item.price * 2
     assert Decimal(preview.data["subtotal"]) == expected_subtotal
+    assert len(preview.data["items"]) == 1
+    assert preview.data["items"][0]["menu_item_name"] == menu_item.name
+    assert preview.data["items"][0]["quantity"] == 2
+    assert preview.data["branch_name"] == branch.name
 
     pay = client.post(
         "/v1/bills/takeaway-payment/", {"order_id": order_id, "payment_method": "CASH"}, format="json",
@@ -82,6 +86,8 @@ def test_takeaway_bill_preview_and_payment(cashier_with_branch, menu_item):
     assert pay.status_code == 201, pay.data
     assert str(pay.data["order"]) == order_id
     assert pay.data["session"] is None
+    assert len(pay.data["items"]) == 1
+    assert pay.data["table_number"] is None  # takeaway has no table
 
     # Idempotent replay
     pay_again = client.post(

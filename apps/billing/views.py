@@ -36,6 +36,7 @@ class PayBillView(APIView):
             serializer.validated_data["session_id"],
             serializer.validated_data["payment_method"],
             request.user,
+            amount_received=serializer.validated_data.get("amount_received"),
         )
         return Response(BillSerializer(bill).data, status=201)
 
@@ -70,5 +71,8 @@ class PayTakeawayBillView(APIView):
         if order is None or order.branch is None or order.branch.restaurant_id != request.tenant.id:
             raise PermissionDenied("This order does not belong to your restaurant.")
 
-        bill = services.pay_takeaway_bill(order_id, serializer.validated_data["payment_method"], request.user)
+        bill = services.pay_takeaway_bill(
+            order_id, serializer.validated_data["payment_method"], request.user,
+            amount_received=serializer.validated_data.get("amount_received"),
+        )
         return Response(BillSerializer(bill).data, status=201)

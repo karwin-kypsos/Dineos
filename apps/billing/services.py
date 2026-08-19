@@ -44,6 +44,33 @@ class DiscrepancyReasonRequiredError(Exception):
         super().__init__(f"A reason is required for the {discrepancy} discrepancy.")
 
 
+def line_items(orders):
+    """Every non-cancelled order's items, flattened — reused by both bill
+    previews (pre-payment) and receipts (post-payment) so the two never
+    drift apart on what a 'line item' looks like."""
+    return [
+        {
+            "menu_item_id": item.menu_item_id,
+            "menu_item_name": item.menu_item.name,
+            "quantity": item.quantity,
+            "unit_price": item.unit_price,
+            "line_total": item.line_total,
+        }
+        for order in orders for item in order.items.all()
+    ]
+
+
+def receipt_branch_info(branch):
+    if branch is None:
+        return {"restaurant_name": None, "branch_name": None, "branch_address": None, "branch_phone": None}
+    return {
+        "restaurant_name": branch.restaurant.name,
+        "branch_name": branch.name,
+        "branch_address": branch.address,
+        "branch_phone": branch.phone,
+    }
+
+
 def _compute_totals(session):
     orders = Order.objects.filter(session=session).exclude(status="CANCELLED").prefetch_related("items")
     subtotal = sum((item.unit_price * item.quantity for order in orders for item in order.items.all()), Decimal("0"))
@@ -57,19 +84,23 @@ def _compute_totals(session):
 
 @transaction.atomic
 def get_bill_preview(session_id):
-    session = TableSession.objects.get(id=session_id)
+    session = TableSession.objects.select_related("table__branch__restaurant").get(id=session_id)
     subtotal, tax_amount, service_charge, total_amount = _compute_totals(session)
+    orders = Order.objects.filter(session=session).exclude(status="CANCELLED").prefetch_related("items")
     return {
         "session_id": str(session.id),
+        "table_number": session.table.table_number,
         "subtotal": subtotal,
         "tax_amount": tax_amount,
         "service_charge": service_charge,
         "total_amount": total_amount,
+        "items": line_items(orders),
+        **receipt_branch_info(session.table.branch),
     }
 
 
 @transaction.atomic
-def pay_bill(session_id, payment_method, processed_by):
+def pay_bill(session_id, payment_method, processed_by, amount_received=None):
     session = TableSession.objects.select_for_update().get(id=session_id)
 
     existing_bill = Bill.objects.filter(session=session).first()
@@ -77,6 +108,7 @@ def pay_bill(session_id, payment_method, processed_by):
         return existing_bill  # idempotent replay — session already paid
 
     subtotal, tax_amount, service_charge, total_amount = _compute_totals(session)
+    change_given = amount_received - total_amount if amount_received is not None else None
     bill = Bill.objects.create(
         session=session,
         branch=session.table.branch,
@@ -86,6 +118,8 @@ def pay_bill(session_id, payment_method, processed_by):
         total_amount=total_amount,
         payment_method=payment_method,
         processed_by=processed_by,
+        amount_received=amount_received,
+        change_given=change_given,
     )
 
     # Prepared portions are NEVER touched here — decrement only happens at
@@ -116,11 +150,13 @@ def get_takeaway_bill_preview(order_id):
         "tax_amount": tax_amount,
         "service_charge": service_charge,
         "total_amount": total_amount,
+        "items": line_items([order]),
+        **receipt_branch_info(order.branch),
     }
 
 
 @transaction.atomic
-def pay_takeaway_bill(order_id, payment_method, processed_by):
+def pay_takeaway_bill(order_id, payment_method, processed_by, amount_received=None):
     # of=("self",): Order.branch is nullable, so select_related("branch__restaurant")
     # compiles to a LEFT OUTER JOIN — PostgreSQL rejects a plain FOR UPDATE across
     # the nullable side of an outer join ("FeatureNotSupported"). Restricting the
@@ -139,6 +175,7 @@ def pay_takeaway_bill(order_id, payment_method, processed_by):
 
     restaurant = order.branch.restaurant
     subtotal, tax_amount, service_charge, total_amount = _compute_order_totals(order, restaurant)
+    change_given = amount_received - total_amount if amount_received is not None else None
     bill = Bill.objects.create(
         order=order,
         branch=order.branch,
@@ -148,6 +185,8 @@ def pay_takeaway_bill(order_id, payment_method, processed_by):
         total_amount=total_amount,
         payment_method=payment_method,
         processed_by=processed_by,
+        amount_received=amount_received,
+        change_given=change_given,
     )
 
     transaction.on_commit(lambda: _notify_takeaway_payment_confirmed(bill, order, restaurant))
