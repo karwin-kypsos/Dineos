@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from apps.menu.models import MenuItem
@@ -17,6 +19,10 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
+    total_amount = serializers.SerializerMethodField()
+
+    def get_total_amount(self, obj):
+        return sum((item.line_total for item in obj.items.all()), Decimal("0"))
 
     class Meta:
         model = Order
@@ -33,6 +39,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "placed_by",
             "notes",
             "items",
+            "total_amount",
             "placed_at",
             "accepted_at",
             "ready_at",

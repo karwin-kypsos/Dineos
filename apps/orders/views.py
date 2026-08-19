@@ -61,6 +61,22 @@ class TakeawayOrderView(APIView):
 
     permission_classes = [IsAnyStaff]
 
+    def get(self, request):
+        orders = (
+            Order.objects.filter(order_type=Order.OrderType.TAKEAWAY, branch__restaurant=request.tenant)
+            .prefetch_related("items")
+            .order_by("-placed_at")
+        )
+        branch = getattr(request.user, "branch", None)
+        if branch is not None:
+            orders = orders.filter(branch=branch)
+
+        status_filter = request.query_params.get("status", "").strip().upper()
+        if status_filter and status_filter != "ALL" and status_filter in Order.Status.values:
+            orders = orders.filter(status=status_filter)
+
+        return Response(OrderSerializer(orders, many=True).data)
+
     def post(self, request):
         serializer = TakeawayOrderCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -87,7 +103,10 @@ class ActiveOrdersView(APIView):
 
     def get(self, request):
         orders = (
-            Order.objects.filter(status__in=["NEW", "ACCEPTED", "PREPARING"], table__restaurant=request.tenant)
+            Order.objects.filter(
+                models.Q(table__restaurant=request.tenant) | models.Q(branch__restaurant=request.tenant),
+                status__in=["NEW", "ACCEPTED", "PREPARING"],
+            )
             .select_related("table")
             .prefetch_related("items")
         )
@@ -102,7 +121,10 @@ class ReadyOrdersView(APIView):
 
     def get(self, request):
         orders = (
-            Order.objects.filter(status="READY", table__restaurant=request.tenant)
+            Order.objects.filter(
+                models.Q(table__restaurant=request.tenant) | models.Q(branch__restaurant=request.tenant),
+                status="READY",
+            )
             .select_related("table")
             .prefetch_related("items")
         )
