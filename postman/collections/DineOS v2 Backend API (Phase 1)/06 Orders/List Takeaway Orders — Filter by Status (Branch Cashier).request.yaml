@@ -1,0 +1,15 @@
+$kind: http-request
+url: "{{base_url}}/orders/takeaway/?status=preparing"
+method: GET
+headers:
+  Authorization: Bearer {{branch_cashier_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const preparingFilterData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('excludes the still-NEW takeaway order', () => {
+        pm.expect(preparingFilterData.some(o => o.id === pm.collectionVariables.get('takeaway_order_id'))).to.be.false;
+      });
+    language: text/javascript
+order: 20600
