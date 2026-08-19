@@ -1,0 +1,18 @@
+$kind: http-request
+url: "{{base_url}}/bills/{{bill_id}}/"
+method: GET
+headers:
+  Authorization: Bearer {{cashier_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const receiptData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('same bill id comes back', () => pm.expect(receiptData.id).to.eql(pm.collectionVariables.get('bill_id')));
+      pm.test('has items, restaurant info, and gst_percentage', () => {
+        pm.expect(receiptData.items.length).to.be.above(0);
+        pm.expect(receiptData).to.have.property('restaurant_name');
+        pm.expect(receiptData.gst_percentage).to.exist;
+      });
+    language: text/javascript
+order: 3100

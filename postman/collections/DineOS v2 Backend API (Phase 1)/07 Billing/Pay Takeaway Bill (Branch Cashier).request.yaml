@@ -19,6 +19,10 @@ scripts:
         pm.expect(payTakeawayData.items.length).to.be.above(0);
         pm.expect(payTakeawayData.processed_by_name).to.exist;
       });
+      pm.test('has gst_percentage and service_charge_percentage', () => {
+        pm.expect(payTakeawayData.gst_percentage).to.exist;
+        pm.expect(payTakeawayData.service_charge_percentage).to.exist;
+      });
       pm.test('change_given = amount_received - total_amount', () => {
         const expected = (500.00 - parseFloat(payTakeawayData.total_amount)).toFixed(2);
         pm.expect(parseFloat(payTakeawayData.change_given).toFixed(2)).to.eql(expected);
