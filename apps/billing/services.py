@@ -33,6 +33,17 @@ class DiscrepancyNotAcknowledgedError(Exception):
         super().__init__(f"Counted cash differs from the system total by {discrepancy}.")
 
 
+class DiscrepancyReasonRequiredError(Exception):
+    """Raised when there's a mismatch and the caller acknowledged it but
+    didn't say why — the drawer-closing flow requires a reason, not just a
+    yes/no acknowledgement, so the discrepancy is explainable later.
+    """
+
+    def __init__(self, discrepancy):
+        self.discrepancy = discrepancy
+        super().__init__(f"A reason is required for the {discrepancy} discrepancy.")
+
+
 def _compute_totals(session):
     orders = Order.objects.filter(session=session).exclude(status="CANCELLED").prefetch_related("items")
     subtotal = sum((item.unit_price * item.quantity for order in orders for item in order.items.all()), Decimal("0"))
@@ -276,7 +287,7 @@ def cashier_dashboard(restaurant, cashier):
     }
 
 
-def close_shift(shift, counted_cash, acknowledge_discrepancy=False):
+def close_shift(shift, counted_cash, acknowledge_discrepancy=False, discrepancy_reason=""):
     if shift.status == CashierShift.Status.CLOSED:
         raise ShiftAlreadyClosedError()
 
@@ -285,12 +296,19 @@ def close_shift(shift, counted_cash, acknowledge_discrepancy=False):
 
     if discrepancy != 0 and not acknowledge_discrepancy:
         raise DiscrepancyNotAcknowledgedError(discrepancy)
+    if discrepancy != 0 and not discrepancy_reason.strip():
+        raise DiscrepancyReasonRequiredError(discrepancy)
 
     shift.counted_cash = counted_cash
     shift.discrepancy_acknowledged = discrepancy != 0
+    shift.discrepancy_amount = discrepancy
+    shift.discrepancy_reason = discrepancy_reason if discrepancy != 0 else ""
     shift.status = CashierShift.Status.CLOSED
     shift.closed_at = timezone.now()
-    shift.save(update_fields=["counted_cash", "discrepancy_acknowledged", "status", "closed_at"])
+    shift.save(update_fields=[
+        "counted_cash", "discrepancy_acknowledged", "discrepancy_amount", "discrepancy_reason",
+        "status", "closed_at",
+    ])
     return shift
 
 

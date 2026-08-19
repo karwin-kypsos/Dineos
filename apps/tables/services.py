@@ -22,6 +22,45 @@ def get_or_create_active_session(table_id):
     return session, True
 
 
+def assign_next_server(session):
+    """Round-robin auto-assignment on a session's first order (called from
+    apps.orders.services.place_order) — no-op if already assigned, or if
+    there are no active Servers to assign to. Rotation state is derived from
+    the most recently assigned session rather than a separate counter: find
+    where the last-assigned server sits in the ordered Server list for this
+    branch, and hand the table to whoever's next, wrapping around.
+    """
+    if session.assigned_server_id is not None:
+        return session
+
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    table = session.table
+    servers = list(
+        User.objects.filter(
+            restaurant=table.restaurant, branch=table.branch, role="SERVER", is_active=True,
+        ).order_by("id")
+    )
+    if not servers:
+        return session
+
+    last_assigned = (
+        TableSession.objects.filter(table__branch=table.branch, assigned_server__isnull=False)
+        .exclude(id=session.id)
+        .order_by("-opened_at")
+        .first()
+    )
+    next_server = servers[0]
+    if last_assigned is not None and last_assigned.assigned_server in servers:
+        idx = servers.index(last_assigned.assigned_server)
+        next_server = servers[(idx + 1) % len(servers)]
+
+    session.assigned_server = next_server
+    session.save(update_fields=["assigned_server"])
+    return session
+
+
 @transaction.atomic
 def request_bill(session_id):
     session = TableSession.objects.select_for_update().get(id=session_id)

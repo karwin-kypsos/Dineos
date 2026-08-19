@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
@@ -28,6 +29,10 @@ class CashierShift(models.Model):
     closed_at = models.DateTimeField(null=True, blank=True)
     counted_cash = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     discrepancy_acknowledged = models.BooleanField(default=False)
+    # counted_cash - the system's cash total at close time, persisted so it
+    # never has to be recomputed later — 0 when there was no mismatch.
+    discrepancy_amount = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal("0"))
+    discrepancy_reason = models.TextField(blank=True)
 
     class Meta:
         db_table = "cashier_shifts"

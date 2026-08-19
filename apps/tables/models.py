@@ -65,6 +65,11 @@ class TableSession(models.Model):
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="closed_sessions"
     )
     close_reason = models.CharField(max_length=20, choices=CloseReason.choices, blank=True)
+    # Set once, on the session's first order (see apps.tables.services.assign_next_server) —
+    # round-robin among the branch's active Servers. Never reassigned mid-session.
+    assigned_server = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_sessions"
+    )
 
     class Meta:
         db_table = "table_sessions"

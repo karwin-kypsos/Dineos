@@ -37,6 +37,14 @@ class TableViewSet(viewsets.ReadOnlyModelViewSet):
             user_branch_id = getattr(self.request.user, "branch_id", None)
             if user_branch_id is not None:
                 qs = qs.filter(models.Q(branch_id=user_branch_id) | models.Q(branch__isnull=True))
+            # A Server only ever sees their own assigned tables plus
+            # whatever's currently free — never another server's occupied
+            # table. Admin/Manager/Cashier are unaffected (full visibility).
+            if getattr(self.request.user, "role", None) == "SERVER":
+                qs = qs.filter(
+                    models.Q(status=Table.Status.AVAILABLE)
+                    | models.Q(sessions__status__in=["ACTIVE", "BILL_REQUESTED"], sessions__assigned_server=self.request.user)
+                ).distinct()
         return qs
 
     def get_permissions(self):

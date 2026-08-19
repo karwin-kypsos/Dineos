@@ -52,6 +52,8 @@ class CashierShiftSerializer(serializers.ModelSerializer):
             "closed_at",
             "counted_cash",
             "discrepancy_acknowledged",
+            "discrepancy_amount",
+            "discrepancy_reason",
         ]
         read_only_fields = fields
 
@@ -85,6 +87,7 @@ class ShiftReconciliationSerializer(serializers.Serializer):
 class CloseShiftRequestSerializer(serializers.Serializer):
     counted_cash = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal("0"))
     acknowledge_discrepancy = serializers.BooleanField(default=False)
+    discrepancy_reason = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class DailyBillSerializer(serializers.ModelSerializer):

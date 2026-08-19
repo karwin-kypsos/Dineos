@@ -70,6 +70,7 @@ class CloseShiftView(APIView):
                 shift,
                 serializer.validated_data["counted_cash"],
                 serializer.validated_data["acknowledge_discrepancy"],
+                serializer.validated_data["discrepancy_reason"],
             )
         except services.ShiftAlreadyClosedError:
             return Response({"detail": "This shift is already closed."}, status=status.HTTP_409_CONFLICT)
@@ -77,6 +78,14 @@ class CloseShiftView(APIView):
             return Response(
                 {
                     "detail": "Counted cash does not match the system total.",
+                    "discrepancy": str(error.discrepancy),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        except services.DiscrepancyReasonRequiredError as error:
+            return Response(
+                {
+                    "detail": "A reason is required to close with a discrepancy.",
                     "discrepancy": str(error.discrepancy),
                 },
                 status=status.HTTP_409_CONFLICT,

@@ -73,6 +73,11 @@ def place_order(session_id, items, placed_by=None, notes=""):
     restaurant = session.table.restaurant
 
     round_number = Order.objects.filter(session=session).count() + 1
+    if round_number == 1:
+        from apps.tables.services import assign_next_server
+
+        session = assign_next_server(session)
+
     order = Order.objects.create(
         order_type=Order.OrderType.DINE_IN, session=session, table=session.table, branch=session.table.branch,
         round_number=round_number, placed_by=placed_by, notes=notes,

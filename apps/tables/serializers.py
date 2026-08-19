@@ -5,14 +5,41 @@ from .models import Table, TableSession
 
 class TableSerializer(serializers.ModelSerializer):
     active_session_id = serializers.SerializerMethodField()
+    assigned_server_id = serializers.SerializerMethodField()
+    assigned_server_name = serializers.SerializerMethodField()
+    active_orders = serializers.SerializerMethodField()
 
     class Meta:
         model = Table
-        fields = ["id", "branch", "table_number", "capacity", "status", "is_active", "active_session_id"]
+        fields = [
+            "id", "branch", "table_number", "capacity", "status", "is_active", "active_session_id",
+            "assigned_server_id", "assigned_server_name", "active_orders",
+        ]
+
+    def _active_session(self, obj):
+        if not hasattr(obj, "_active_session_cache"):
+            obj._active_session_cache = obj.sessions.filter(status__in=["ACTIVE", "BILL_REQUESTED"]).first()
+        return obj._active_session_cache
 
     def get_active_session_id(self, obj):
-        session = obj.sessions.filter(status__in=["ACTIVE", "BILL_REQUESTED"]).first()
+        session = self._active_session(obj)
         return str(session.id) if session else None
+
+    def get_assigned_server_id(self, obj):
+        session = self._active_session(obj)
+        return str(session.assigned_server_id) if session and session.assigned_server_id else None
+
+    def get_assigned_server_name(self, obj):
+        session = self._active_session(obj)
+        return session.assigned_server.name if session and session.assigned_server_id else None
+
+    def get_active_orders(self, obj):
+        from apps.orders.serializers import OrderSerializer
+
+        session = self._active_session(obj)
+        if not session:
+            return []
+        return OrderSerializer(session.orders.exclude(status="CANCELLED").order_by("round_number"), many=True).data
 
 
 class TableSessionSerializer(serializers.ModelSerializer):

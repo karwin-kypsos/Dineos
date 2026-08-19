@@ -87,6 +87,8 @@ def test_close_shift_without_discrepancy_succeeds_directly(cashier_client, table
     assert response.status_code == 200
     assert response.data["status"] == "CLOSED"
     assert response.data["discrepancy_acknowledged"] is False
+    assert Decimal(response.data["discrepancy_amount"]) == 0
+    assert response.data["discrepancy_reason"] == ""
 
 
 def test_close_shift_with_unacknowledged_discrepancy_is_rejected(cashier_client, table, menu_item):
@@ -103,7 +105,7 @@ def test_close_shift_with_unacknowledged_discrepancy_is_rejected(cashier_client,
     assert shift.status == CashierShift.Status.OPEN
 
 
-def test_close_shift_with_acknowledged_discrepancy_succeeds(cashier_client, table, menu_item):
+def test_close_shift_with_acknowledged_discrepancy_but_no_reason_is_rejected(cashier_client, table, menu_item):
     cashier_user, client = cashier_client
     shift = billing_services.open_shift(cashier_user)
     _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
@@ -114,9 +116,30 @@ def test_close_shift_with_acknowledged_discrepancy_succeeds(cashier_client, tabl
         format="json",
     )
 
+    assert response.status_code == 409
+    assert "discrepancy" in response.data
+
+    shift.refresh_from_db()
+    assert shift.status == CashierShift.Status.OPEN
+
+
+def test_close_shift_with_acknowledged_discrepancy_and_reason_succeeds(cashier_client, table, menu_item):
+    cashier_user, client = cashier_client
+    shift = billing_services.open_shift(cashier_user)
+    expected_cash = _with_tax(menu_item.price)
+    _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+
+    response = client.post(
+        f"/v1/cashier/shifts/{shift.id}/close/",
+        {"counted_cash": "1.00", "acknowledge_discrepancy": True, "discrepancy_reason": "Miscounted change drawer"},
+        format="json",
+    )
+
     assert response.status_code == 200
     assert response.data["status"] == "CLOSED"
     assert response.data["discrepancy_acknowledged"] is True
+    assert response.data["discrepancy_reason"] == "Miscounted change drawer"
+    assert Decimal(response.data["discrepancy_amount"]) == Decimal("1.00") - expected_cash
 
 
 def test_closing_an_already_closed_shift_returns_409(cashier_client, table, menu_item):
