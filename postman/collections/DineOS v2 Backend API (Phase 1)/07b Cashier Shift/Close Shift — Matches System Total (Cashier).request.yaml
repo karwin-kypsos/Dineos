@@ -13,5 +13,9 @@ scripts:
       const closeShiftData = pm.response.json();
       pm.test('status is 200', () => pm.response.to.have.status(200));
       pm.test('shift is closed', () => pm.expect(closeShiftData.status).to.eql('CLOSED'));
+      pm.test('no discrepancy recorded', () => {
+        pm.expect(parseFloat(closeShiftData.discrepancy_amount)).to.eql(0);
+        pm.expect(closeShiftData.discrepancy_reason).to.eql('');
+      });
     language: text/javascript
 order: 8000

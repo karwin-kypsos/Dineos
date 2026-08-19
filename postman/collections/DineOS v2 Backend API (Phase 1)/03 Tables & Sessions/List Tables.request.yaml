@@ -10,5 +10,12 @@ scripts:
       const tablesList = tablesData.results || tablesData;
       const match = tablesList.find(t => t.table_number === pm.collectionVariables.get('table_number'));
       if (match) { pm.collectionVariables.set('table_id', match.id); }
+      pm.test('each table has assigned_server_id/_name and active_orders', () => {
+        tablesList.forEach(t => {
+          pm.expect(t).to.have.property('assigned_server_id');
+          pm.expect(t).to.have.property('assigned_server_name');
+          pm.expect(t.active_orders).to.be.an('array');
+        });
+      });
     language: text/javascript
 order: 1000

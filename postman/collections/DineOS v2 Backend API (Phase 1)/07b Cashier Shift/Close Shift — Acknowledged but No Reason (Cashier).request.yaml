@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/cashier/shifts/{{shift_id}}/close/"
+method: POST
+headers:
+  Authorization: Bearer {{cashier_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"counted_cash": "0.00", "acknowledge_discrepancy": true}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const noReasonData = pm.response.json();
+      pm.test('status is 409 (discrepancy_reason is required)', () => pm.response.to.have.status(409));
+      pm.test('mentions the discrepancy amount', () => pm.expect(noReasonData.discrepancy).to.exist);
+    language: text/javascript
+order: 7500
