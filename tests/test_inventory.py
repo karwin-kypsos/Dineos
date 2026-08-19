@@ -154,6 +154,23 @@ def test_low_stock_filter(manager_client, restaurant, ingredient):
     assert names == {"Onions"}
 
 
+def test_list_ingredients_filter_by_branch(admin_client, restaurant):
+    from apps.restaurant.models import Branch
+
+    _, client = admin_client
+    branch_a = Branch.objects.create(restaurant=restaurant, name="Branch A")
+    branch_b = Branch.objects.create(restaurant=restaurant, name="Branch B")
+    Ingredient.objects.create(restaurant=restaurant, branch=branch_a, name="A-only", unit="KG")
+    Ingredient.objects.create(restaurant=restaurant, branch=branch_b, name="B-only", unit="KG")
+
+    response = client.get(f"/v1/inventory/ingredients/?branch={branch_a.id}")
+
+    assert response.status_code == 200
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    names = {i["name"] for i in results}
+    assert names == {"A-only"}
+
+
 def test_ingredient_accepts_supplier_phone(manager_client, restaurant):
     _, client = manager_client
 

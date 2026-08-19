@@ -37,6 +37,15 @@ class IngredientViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = Ingredient.objects.filter(restaurant=self.request.tenant, is_active=True)
         qs = _branch_scoped(qs, self.request)
+
+        branch_id = self.request.query_params.get("branch")
+        if branch_id:
+            try:
+                uuid.UUID(branch_id)
+                qs = qs.filter(branch_id=branch_id)
+            except ValueError:
+                pass  # malformed branch id — no filter applied, same convention as StaffViewSet
+
         if self.request.query_params.get("low_stock") == "true":
             qs = qs.filter(current_stock__lte=dj_models.F("minimum_stock_level"))
         stock_status = self.request.query_params.get("stock_status")
