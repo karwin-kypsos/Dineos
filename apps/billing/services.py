@@ -60,14 +60,18 @@ def line_items(orders):
     ]
 
 
-def receipt_branch_info(branch):
-    if branch is None:
-        return {"restaurant_name": None, "branch_name": None, "branch_address": None, "branch_phone": None}
+def receipt_branch_info(branch, restaurant):
+    """restaurant is passed explicitly (not derived from branch) because a
+    bill can be branch-less (legacy/global table) while still always
+    belonging to exactly one restaurant — gst/service-charge % must never
+    go missing just because branch is null."""
     return {
-        "restaurant_name": branch.restaurant.name,
-        "branch_name": branch.name,
-        "branch_address": branch.address,
-        "branch_phone": branch.phone,
+        "restaurant_name": restaurant.name,
+        "branch_name": branch.name if branch else None,
+        "branch_address": branch.address if branch else None,
+        "branch_phone": branch.phone if branch else None,
+        "gst_percentage": restaurant.gst_percentage,
+        "service_charge_percentage": restaurant.service_charge_percentage,
     }
 
 
@@ -95,7 +99,7 @@ def get_bill_preview(session_id):
         "service_charge": service_charge,
         "total_amount": total_amount,
         "items": line_items(orders),
-        **receipt_branch_info(session.table.branch),
+        **receipt_branch_info(session.table.branch, session.table.restaurant),
     }
 
 
@@ -151,7 +155,7 @@ def get_takeaway_bill_preview(order_id):
         "service_charge": service_charge,
         "total_amount": total_amount,
         "items": line_items([order]),
-        **receipt_branch_info(order.branch),
+        **receipt_branch_info(order.branch, restaurant),
     }
 
 
@@ -303,7 +307,7 @@ def cashier_dashboard(restaurant, cashier):
         TableSession.objects.filter(table__restaurant=restaurant, status=TableSession.Status.ACTIVE)
         .select_related("table")
     )
-    paid_today_count = _restaurant_bills_qs(restaurant).filter(paid_at__gte=today_start).count()
+    paid_today_count = restaurant_bills_qs(restaurant).filter(paid_at__gte=today_start).count()
 
     shift = get_current_shift(cashier)
     collected_today = shift_totals_by_method(shift)["total"] if shift else Decimal("0")
@@ -351,7 +355,7 @@ def close_shift(shift, counted_cash, acknowledge_discrepancy=False, discrepancy_
     return shift
 
 
-def _restaurant_bills_qs(restaurant):
+def restaurant_bills_qs(restaurant):
     # A bill is scoped to this restaurant either via its session (dine-in)
     # or via its order (takeaway, which has no session) — see Bill's
     # "exactly one of session or order" constraint.
@@ -365,10 +369,10 @@ def daily_collections(restaurant, date):
     day_end = day_start + timezone.timedelta(days=1)
     previous_day_start = day_start - timezone.timedelta(days=1)
 
-    bills = _restaurant_bills_qs(restaurant).filter(paid_at__gte=day_start, paid_at__lt=day_end).select_related(
+    bills = restaurant_bills_qs(restaurant).filter(paid_at__gte=day_start, paid_at__lt=day_end).select_related(
         "session__table", "order"
     )
-    previous_day_total = _restaurant_bills_qs(restaurant).filter(
+    previous_day_total = restaurant_bills_qs(restaurant).filter(
         paid_at__gte=previous_day_start, paid_at__lt=day_start
     ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
 

@@ -24,6 +24,23 @@ class SessionBillView(APIView):
         return Response(services.get_bill_preview(session_id))
 
 
+class BillDetailView(APIView):
+    """Receipt screen — re-fetch any past bill (dine-in or takeaway) by the
+    Bill's own id, any time after payment (reprint, navigate back to it,
+    view from a bill list, etc.) — distinct from Bill Preview/Takeaway Bill
+    Preview above, which key off session_id/order_id and only work before
+    a Bill exists yet.
+    """
+
+    permission_classes = [IsAnyStaff, IsBillingEnabled]
+
+    def get(self, request, bill_id):
+        bill = services.restaurant_bills_qs(request.tenant).filter(id=bill_id).first()
+        if bill is None:
+            return Response({"detail": "Not found."}, status=404)
+        return Response(BillSerializer(bill).data)
+
+
 class PayBillView(APIView):
     permission_classes = [IsAnyStaff, IsBillingEnabled]
 

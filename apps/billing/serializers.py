@@ -13,6 +13,8 @@ class BillSerializer(serializers.ModelSerializer):
     branch_name = serializers.SerializerMethodField()
     branch_address = serializers.SerializerMethodField()
     branch_phone = serializers.SerializerMethodField()
+    gst_percentage = serializers.SerializerMethodField()
+    service_charge_percentage = serializers.SerializerMethodField()
 
     def get_table_number(self, obj):
         return obj.session.table.table_number if obj.session_id else None
@@ -23,10 +25,15 @@ class BillSerializer(serializers.ModelSerializer):
         orders = [obj.order] if obj.order_id else obj.session.orders.exclude(status="CANCELLED").prefetch_related("items")
         return services.line_items(orders)
 
-    def _branch_info(self, obj):
-        from . import services
+    def _restaurant(self, obj):
+        return obj.session.table.restaurant if obj.session_id else obj.order.branch.restaurant
 
-        return services.receipt_branch_info(obj.branch)
+    def _branch_info(self, obj):
+        if not hasattr(obj, "_receipt_branch_info_cache"):
+            from . import services
+
+            obj._receipt_branch_info_cache = services.receipt_branch_info(obj.branch, self._restaurant(obj))
+        return obj._receipt_branch_info_cache
 
     def get_restaurant_name(self, obj):
         return self._branch_info(obj)["restaurant_name"]
@@ -40,6 +47,12 @@ class BillSerializer(serializers.ModelSerializer):
     def get_branch_phone(self, obj):
         return self._branch_info(obj)["branch_phone"]
 
+    def get_gst_percentage(self, obj):
+        return self._branch_info(obj)["gst_percentage"]
+
+    def get_service_charge_percentage(self, obj):
+        return self._branch_info(obj)["service_charge_percentage"]
+
     class Meta:
         model = Bill
         fields = [
@@ -52,6 +65,8 @@ class BillSerializer(serializers.ModelSerializer):
             "branch_name",
             "branch_address",
             "branch_phone",
+            "gst_percentage",
+            "service_charge_percentage",
             "items",
             "subtotal",
             "tax_amount",

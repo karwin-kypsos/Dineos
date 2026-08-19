@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 
 from apps.billing import services as billing_services
@@ -84,8 +86,6 @@ def test_receipt_includes_items_branch_info_and_cashier_name(cashier_client, res
 
 
 def test_pay_bill_records_amount_received_and_change(cashier_client, table, menu_item):
-    from decimal import Decimal
-
     _, client = cashier_client
     session, _ = table_services.get_or_create_active_session(table.id)
     order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
@@ -103,6 +103,62 @@ def test_pay_bill_records_amount_received_and_change(cashier_client, table, menu
     assert response.status_code == 201, response.data
     assert Decimal(str(response.data["amount_received"])) == tendered
     assert Decimal(str(response.data["change_given"])) == Decimal("10.00")
+
+
+def test_get_receipt_by_bill_id_after_payment(cashier_client, table, menu_item):
+    _, client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    pay = client.post(
+        "/v1/bills/payment/", {"session_id": str(session.id), "payment_method": "CASH"}, format="json",
+    )
+    bill_id = pay.data["id"]
+
+    response = client.get(f"/v1/bills/{bill_id}/")
+
+    assert response.status_code == 200
+    assert response.data["id"] == bill_id
+    assert len(response.data["items"]) == 1
+    assert response.data["items"][0]["menu_item_name"] == menu_item.name
+    assert Decimal(str(response.data["gst_percentage"])) == Decimal("5.00")  # restaurant fixture default
+
+
+def test_get_receipt_for_takeaway_bill(cashier_client, branch, menu_item):
+    cashier_user, client = cashier_client
+    cashier_user.branch = branch
+    cashier_user.save(update_fields=["branch"])
+    create = client.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    )
+    pay = client.post(
+        "/v1/bills/takeaway-payment/", {"order_id": create.data["id"], "payment_method": "CASH"}, format="json",
+    )
+    bill_id = pay.data["id"]
+
+    response = client.get(f"/v1/bills/{bill_id}/")
+
+    assert response.status_code == 200
+    assert response.data["id"] == bill_id
+    assert response.data["table_number"] is None
+
+
+def test_get_receipt_from_another_restaurant_is_not_found(cashier_client, restaurant):
+    from apps.restaurant.models import Branch, Restaurant
+    from apps.billing.models import Bill
+
+    _, client = cashier_client
+    foreign_restaurant = Restaurant.objects.create(name="Foreign Billing", slug="foreign-billing")
+    foreign_branch = Branch.objects.create(restaurant=foreign_restaurant, name="Foreign Branch")
+    from apps.orders.models import Order
+
+    foreign_order = Order.objects.create(order_type="TAKEAWAY", branch=foreign_branch, round_number=1)
+    foreign_bill = Bill.objects.create(
+        order=foreign_order, branch=foreign_branch, subtotal="10.00", total_amount="10.00", payment_method="CASH",
+    )
+
+    response = client.get(f"/v1/bills/{foreign_bill.id}/")
+
+    assert response.status_code == 404
 
 
 def test_pay_bill_without_amount_received_leaves_it_null(cashier_client, table, menu_item):
