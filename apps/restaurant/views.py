@@ -1,4 +1,4 @@
-from rest_framework import viewsets
+from rest_framework import status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -57,6 +57,58 @@ class BranchViewSet(ImageUploadErrorHandlingMixin, viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         instance.is_active = False
         instance.save(update_fields=["is_active"])
+
+    def destroy(self, request, *args, **kwargs):
+        """Plain DELETE (no query params) is unchanged — soft-deactivate,
+        same as always. ?permanent=true is a separate, deliberately
+        two-step path for actually erasing a defunct/test branch: Table,
+        TableSession, Order (both FKs), and Bill are all CASCADE from
+        Table, so its tables' full order/bill history goes with it — this
+        is NOT the same blast radius as the plain deactivate above, hence
+        gating it behind its own flag rather than overloading ?confirm=true
+        on the existing endpoint. Without ?confirm=true, nothing is
+        deleted — just a 409 with the exact counts, same pattern as
+        Delete Organization (apps.platform.views).
+        """
+        if request.query_params.get("permanent") != "true":
+            return super().destroy(request, *args, **kwargs)
+
+        from apps.orders.models import Order
+        from apps.tables.models import Table, TableSession
+        from apps.billing.models import Bill
+
+        branch = self.get_object()
+        tables = Table.objects.filter(branch=branch)
+
+        if request.query_params.get("confirm") != "true":
+            return Response(
+                {
+                    "detail": (
+                        "This will permanently delete this branch's tables and everything tied to "
+                        "them (sessions, orders, bills). Staff/ingredients/purchase orders under this "
+                        "branch are kept, just unassigned from it. This cannot be undone. Resend this "
+                        "request with ?permanent=true&confirm=true to proceed."
+                    ),
+                    "branch": branch.name,
+                    "will_delete": {
+                        "tables_count": tables.count(),
+                        "table_sessions_count": TableSession.objects.filter(table__branch=branch).count(),
+                        "orders_count": Order.objects.filter(table__branch=branch).count(),
+                        "bills_count": Bill.objects.filter(session__table__branch=branch).count(),
+                    },
+                    "will_unassign": {
+                        "staff_count": branch.staff.count(),
+                        "ingredients_count": branch.ingredients.count(),
+                        "purchase_orders_count": branch.purchase_orders.count(),
+                    },
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        name = branch.name
+        tables.delete()
+        branch.delete()
+        return Response({"detail": f"Branch '{name}' permanently deleted."}, status=status.HTTP_200_OK)
 
 
 class RestaurantSettingsView(APIView):

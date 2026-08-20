@@ -47,6 +47,58 @@ def test_deleting_branch_soft_deactivates(admin_client, branch):
     assert branch.is_active is False
 
 
+def test_permanent_delete_without_confirm_deletes_nothing(admin_client, branch, restaurant):
+    from apps.tables.models import Table
+
+    _, client = admin_client
+    table = Table.objects.create(restaurant=restaurant, branch=branch, table_number="9")
+
+    response = client.delete(f"/v1/branches/{branch.id}/?permanent=true")
+
+    assert response.status_code == 409
+    assert response.data["will_delete"]["tables_count"] == 1
+    from apps.restaurant.models import Branch
+
+    assert Branch.objects.filter(id=branch.id).exists()
+    assert Table.objects.filter(id=table.id).exists()
+
+
+def test_permanent_delete_with_confirm_deletes_branch_and_tables(admin_client, branch, restaurant):
+    from apps.tables.models import Table
+    from apps.restaurant.models import Branch
+
+    _, client = admin_client
+    table = Table.objects.create(restaurant=restaurant, branch=branch, table_number="9")
+
+    response = client.delete(f"/v1/branches/{branch.id}/?permanent=true&confirm=true")
+
+    assert response.status_code == 200
+    assert not Branch.objects.filter(id=branch.id).exists()
+    assert not Table.objects.filter(id=table.id).exists()
+
+
+def test_permanent_delete_unassigns_staff_and_ingredients_instead_of_deleting_them(admin_client, branch, restaurant):
+    from apps.authentication.models import User
+    from apps.inventory.models import Ingredient
+    from apps.restaurant.models import Branch
+
+    _, client = admin_client
+    staff = User.objects.create_user(
+        email="branch-staff@demo-bistro.demo", password="Test@1234", role="MANAGER",
+        restaurant=restaurant, branch=branch,
+    )
+    ingredient = Ingredient.objects.create(restaurant=restaurant, branch=branch, name="Onions", unit="KG")
+
+    response = client.delete(f"/v1/branches/{branch.id}/?permanent=true&confirm=true")
+
+    assert response.status_code == 200
+    assert not Branch.objects.filter(id=branch.id).exists()
+    staff.refresh_from_db()
+    ingredient.refresh_from_db()
+    assert staff.branch_id is None
+    assert ingredient.branch_id is None
+
+
 def test_create_staff_with_branch(admin_client, branch):
     _, client = admin_client
 
