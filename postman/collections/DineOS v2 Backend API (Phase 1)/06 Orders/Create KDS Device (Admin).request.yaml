@@ -6,13 +6,15 @@ headers:
   Content-Type: application/json
 body:
   type: text
-  content: '{"label": "Test Run Kitchen Tablet {{$timestamp}}"}'
+  content: '{"label": "Test Run Kitchen Tablet {{$timestamp}}", "branch": "{{branch_id}}"}'
 scripts:
   - type: afterResponse
     code: |-
       const createKdsDeviceData = pm.response.json();
       pm.collectionVariables.set('kds_api_key', createKdsDeviceData.api_key);
+      pm.collectionVariables.set('kds_device_id', createKdsDeviceData.id);
       pm.test('status is 201', () => pm.response.to.have.status(201));
       pm.test('api_key is present', () => pm.expect(createKdsDeviceData.api_key).to.have.lengthOf(64));
+      pm.test('branch is set from request body', () => pm.expect(createKdsDeviceData.branch).to.eql(pm.collectionVariables.get('branch_id')));
     language: text/javascript
 order: 500

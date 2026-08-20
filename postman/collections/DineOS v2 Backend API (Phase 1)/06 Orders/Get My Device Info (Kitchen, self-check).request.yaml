@@ -1,0 +1,14 @@
+$kind: http-request
+url: "{{server_root}}/v1/kitchen/devices/me/"
+method: GET
+headers:
+  X-KDS-API-Key: "{{kds_api_key}}"
+scripts:
+  - type: afterResponse
+    code: |-
+      const kdsMeData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('resolves to the same device id', () => pm.expect(kdsMeData.id).to.eql(pm.collectionVariables.get('kds_device_id')));
+      pm.test('last_seen_at is refreshed', () => pm.expect(kdsMeData.last_seen_at).to.not.be.null);
+    language: text/javascript
+order: 560

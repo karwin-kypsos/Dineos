@@ -1,0 +1,16 @@
+$kind: http-request
+url: "{{server_root}}/v1/kitchen/devices/{{kds_device_id}}/rotate-key/"
+method: POST
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const rotateKdsKeyData = pm.response.json();
+      const oldKey = pm.collectionVariables.get('kds_api_key');
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('api_key changed', () => pm.expect(rotateKdsKeyData.api_key).to.not.eql(oldKey));
+      pm.test('api_key is present', () => pm.expect(rotateKdsKeyData.api_key).to.have.lengthOf(64));
+      pm.collectionVariables.set('kds_api_key', rotateKdsKeyData.api_key);
+    language: text/javascript
+order: 550
