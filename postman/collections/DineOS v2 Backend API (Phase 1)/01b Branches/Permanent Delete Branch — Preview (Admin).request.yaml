@@ -1,0 +1,13 @@
+$kind: http-request
+url: "{{base_url}}/branches/{{temp_branch_2_id}}/?permanent=true"
+method: DELETE
+headers:
+  Authorization: Bearer {{admin_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const previewData = pm.response.json();
+      pm.test('status is 409', () => pm.response.to.have.status(409));
+      pm.test('nothing deleted yet — will_delete counts present', () => pm.expect(previewData.will_delete).to.have.property('tables_count'));
+    language: text/javascript
+order: 4860
