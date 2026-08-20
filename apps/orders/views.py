@@ -140,7 +140,7 @@ class OrderDetailView(APIView):
 
     def get(self, request, order_id):
         order = (
-            Order.objects.filter(table__restaurant=request.tenant)
+            Order.objects.filter(models.Q(table__restaurant=request.tenant) | models.Q(branch__restaurant=request.tenant))
             .select_related("table")
             .prefetch_related("items")
             .get(id=order_id)

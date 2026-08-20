@@ -49,6 +49,25 @@ def test_place_takeaway_order_has_no_table_or_session(cashier_with_branch, menu_
     assert order.session is None
 
 
+def test_kitchen_can_fetch_takeaway_order_detail(cashier_with_branch, kds_client, menu_item):
+    _, cashier = cashier_with_branch
+    _, kitchen = kds_client
+
+    create_resp = cashier.post(
+        "/v1/orders/takeaway/",
+        {"customer_name": "Priya", "customer_phone": "9998887766",
+         "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+    assert create_resp.status_code == 201, create_resp.data
+
+    response = kitchen.get(f"/v1/orders/{create_resp.data['id']}/")
+
+    assert response.status_code == 200, response.data
+    assert response.data["order_type"] == "TAKEAWAY"
+    assert response.data["table"] is None
+
+
 def test_takeaway_order_decrements_portions(cashier_with_branch, menu_item):
     _, client = cashier_with_branch
     initial_remaining = menu_item.prepared_portions.get().portions_remaining
