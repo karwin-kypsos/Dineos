@@ -364,6 +364,36 @@ def restaurant_bills_qs(restaurant):
     )
 
 
+def list_bills(restaurant, *, date=None, payment_method=None, cashier_id=None, branch=None, search=None):
+    """Cashier's bill history/reconciliation screen — every bill across
+    every cashier and both order types (dine-in + takeaway), by default
+    with no date restriction so 'all bills under a specific cashier' just
+    means cashier_id with date left unset. Pass date to scope to one day
+    (e.g. 'today's bills' on the Cashier Home screen).
+    """
+    bills = restaurant_bills_qs(restaurant).select_related(
+        "session__table", "order", "processed_by", "branch"
+    )
+    if date is not None:
+        day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
+        day_end = day_start + timezone.timedelta(days=1)
+        bills = bills.filter(paid_at__gte=day_start, paid_at__lt=day_end)
+    if payment_method:
+        bills = bills.filter(payment_method=payment_method)
+    if cashier_id:
+        bills = bills.filter(processed_by_id=cashier_id)
+    if branch is not None:
+        bills = bills.filter(branch=branch)
+    if search:
+        bills = bills.filter(
+            Q(order__customer_name__icontains=search)
+            | Q(order__customer_phone__icontains=search)
+            | Q(session__table__table_number__icontains=search)
+            | Q(processed_by__name__icontains=search)
+        )
+    return bills.order_by("-paid_at")
+
+
 def daily_collections(restaurant, date):
     day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
     day_end = day_start + timezone.timedelta(days=1)

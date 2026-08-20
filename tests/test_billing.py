@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -173,3 +174,101 @@ def test_pay_bill_without_amount_received_leaves_it_null(cashier_client, table, 
     assert response.status_code == 201, response.data
     assert response.data["amount_received"] is None
     assert response.data["change_given"] is None
+
+
+def test_list_bills_includes_dine_in_and_takeaway_across_cashiers(admin_client, cashier_client, branch, table, menu_item):
+    _, cashier = cashier_client
+    cashier_user, _ = cashier_client
+    cashier_user.branch = branch
+    cashier_user.save(update_fields=["branch"])
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    dine_in_pay = cashier.post(
+        "/v1/bills/payment/", {"session_id": str(session.id), "payment_method": "CASH"}, format="json",
+    )
+    takeaway_create = cashier.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    )
+    takeaway_pay = cashier.post(
+        "/v1/bills/takeaway-payment/",
+        {"order_id": takeaway_create.data["id"], "payment_method": "UPI"}, format="json",
+    )
+
+    _, admin = admin_client
+    response = admin.get("/v1/bills/")
+
+    assert response.status_code == 200
+    bill_ids = {b["id"] for b in response.data}
+    assert dine_in_pay.data["id"] in bill_ids
+    assert takeaway_pay.data["id"] in bill_ids
+
+
+def test_list_bills_filters_by_payment_method(admin_client, cashier_client, table, menu_item):
+    _, cashier = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    pay = cashier.post(
+        "/v1/bills/payment/", {"session_id": str(session.id), "payment_method": "CASH"}, format="json",
+    )
+
+    _, admin = admin_client
+    response = admin.get("/v1/bills/?payment_method=CASH")
+
+    assert response.status_code == 200
+    assert pay.data["id"] in {b["id"] for b in response.data}
+    assert all(b["payment_method"] == "CASH" for b in response.data)
+
+
+def test_list_bills_filters_by_cashier(admin_client, cashier_client, table, menu_item):
+    cashier_user, cashier = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    pay = cashier.post(
+        "/v1/bills/payment/", {"session_id": str(session.id), "payment_method": "CASH"}, format="json",
+    )
+
+    _, admin = admin_client
+    response = admin.get(f"/v1/bills/?cashier={cashier_user.id}")
+
+    assert response.status_code == 200
+    assert pay.data["id"] in {b["id"] for b in response.data}
+    assert all(b["processed_by"] == cashier_user.id for b in response.data)
+
+
+def test_list_bills_search_matches_takeaway_customer_name(admin_client, cashier_client, branch, menu_item):
+    cashier_user, cashier = cashier_client
+    cashier_user.branch = branch
+    cashier_user.save(update_fields=["branch"])
+    create = cashier.post(
+        "/v1/orders/takeaway/",
+        {"customer_name": "Priya Search Target", "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+    pay = cashier.post(
+        "/v1/bills/takeaway-payment/", {"order_id": create.data["id"], "payment_method": "CASH"}, format="json",
+    )
+
+    _, admin = admin_client
+    response = admin.get("/v1/bills/?search=Priya")
+
+    assert response.status_code == 200
+    assert pay.data["id"] in {b["id"] for b in response.data}
+
+
+def test_list_bills_date_today_excludes_other_days(admin_client, cashier_client, table, menu_item):
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    _, cashier = cashier_client
+    pay = cashier.post(
+        "/v1/bills/payment/", {"session_id": str(session.id), "payment_method": "CASH"}, format="json",
+    )
+    bill = Bill.objects.get(id=pay.data["id"])
+    bill.paid_at = bill.paid_at - timedelta(days=2)
+    bill.save(update_fields=["paid_at"])
+
+    _, admin = admin_client
+    response = admin.get("/v1/bills/?date=today")
+
+    assert response.status_code == 200
+    assert bill.id not in {b["id"] for b in response.data}

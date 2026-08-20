@@ -1,3 +1,7 @@
+import uuid
+
+from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -10,6 +14,46 @@ from .models import Bill
 from .serializers import BillSerializer, PayBillSerializer, PayTakeawayBillSerializer
 
 IsBillingEnabled = FeatureEnabledPermission("billing_enabled")
+
+
+class BillListView(APIView):
+    """Cashier's bill history/reconciliation screen — every bill across
+    every cashier, both dine-in and takeaway, searchable and filterable.
+    No date filter by default (so ?cashier=<id> alone returns that
+    cashier's full history); pass ?date=today or ?date=YYYY-MM-DD to scope
+    to one day for the Cashier Home 'today's bills' list.
+    """
+
+    permission_classes = [IsAnyStaff, IsBillingEnabled]
+
+    def get(self, request):
+        date_param = request.query_params.get("date", "").strip()
+        date = None
+        if date_param == "today":
+            date = timezone.localdate()
+        elif date_param:
+            date = parse_date(date_param)
+
+        payment_method = request.query_params.get("payment_method", "").strip().upper()
+        if payment_method not in Bill.PaymentMethod.values:
+            payment_method = None
+
+        branch_id = request.query_params.get("branch")
+        if branch_id:
+            try:
+                uuid.UUID(branch_id)
+            except ValueError:
+                branch_id = None  # malformed branch id — no filter applied, same convention as StaffViewSet
+
+        bills = services.list_bills(
+            request.tenant,
+            date=date,
+            payment_method=payment_method,
+            cashier_id=request.query_params.get("cashier") or None,
+            branch=branch_id,
+            search=request.query_params.get("search", "").strip() or None,
+        )
+        return Response(BillSerializer(bills, many=True).data)
 
 
 class SessionBillView(APIView):

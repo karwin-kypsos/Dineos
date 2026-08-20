@@ -7,9 +7,10 @@ from .cashier_views import (
     OpenShiftView,
     ShiftReconciliationView,
 )
-from .views import BillDetailView, PayBillView, PayTakeawayBillView, SessionBillView, TakeawayBillView
+from .views import BillDetailView, BillListView, PayBillView, PayTakeawayBillView, SessionBillView, TakeawayBillView
 
 urlpatterns = [
+    path("", BillListView.as_view(), name="bills-list"),
     path("session/<uuid:session_id>/", SessionBillView.as_view(), name="bills-session"),
     path("payment/", PayBillView.as_view(), name="bills-payment"),
     path("takeaway/<uuid:order_id>/", TakeawayBillView.as_view(), name="bills-takeaway"),
