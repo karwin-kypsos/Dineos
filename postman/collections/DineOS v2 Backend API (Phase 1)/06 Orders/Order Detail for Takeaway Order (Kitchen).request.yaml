@@ -1,0 +1,14 @@
+$kind: http-request
+url: "{{base_url}}/orders/{{takeaway_order_id}}/"
+method: GET
+headers:
+  X-KDS-API-Key: "{{kds_api_key}}"
+scripts:
+  - type: afterResponse
+    code: |-
+      const takeawayOrderDetailData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('order_type is TAKEAWAY', () => pm.expect(takeawayOrderDetailData.order_type).to.eql('TAKEAWAY'));
+      pm.test('table is null', () => pm.expect(takeawayOrderDetailData.table).to.be.null);
+    language: text/javascript
+order: 20550
