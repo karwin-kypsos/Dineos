@@ -1,0 +1,16 @@
+$kind: http-request
+url: "{{base_url}}/bills/?date=today&payment_method=CASH&cashier={{cashier_id}}"
+method: GET
+headers:
+  Authorization: Bearer {{cashier_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const billListData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('response is a list', () => pm.expect(billListData).to.be.an('array'));
+      pm.test('includes our confirmed payment bill', () => pm.expect(billListData.some((b) => b.id === pm.collectionVariables.get('bill_id'))).to.be.true);
+      pm.test('every row matches the payment_method filter', () => pm.expect(billListData.every((b) => b.payment_method === 'CASH')).to.be.true);
+      pm.test('every row matches the cashier filter', () => pm.expect(billListData.every((b) => b.processed_by === pm.collectionVariables.get('cashier_id'))).to.be.true);
+    language: text/javascript
+order: 3150

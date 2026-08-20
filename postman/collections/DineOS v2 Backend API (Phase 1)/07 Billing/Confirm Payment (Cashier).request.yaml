@@ -12,6 +12,7 @@ scripts:
     code: |-
       const payBillData = pm.response.json();
       pm.collectionVariables.set('bill_id', payBillData.id);
+      pm.collectionVariables.set('cashier_id', payBillData.processed_by);
       pm.test('status is 201', () => pm.response.to.have.status(201));
       pm.test('has items and processed_by_name', () => {
         pm.expect(payBillData.items.length).to.be.above(0);
