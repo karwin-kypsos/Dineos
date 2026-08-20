@@ -1,8 +1,10 @@
 from rest_framework import viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
 
 from core.permissions import IsAdmin
 
-from .models import KDSDevice
+from .models import KDSDevice, _generate_api_key
 from .serializers import KDSDeviceSerializer
 
 
@@ -23,3 +25,13 @@ class KDSDeviceViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(restaurant=self.request.user.restaurant)
+
+    @action(detail=True, methods=["post"], url_path="rotate-key")
+    def rotate_key(self, request, pk=None):
+        """Issue a fresh api_key for a lost/compromised tablet without
+        deleting and recreating the device row (which would orphan its
+        order/notification history). Old key stops working immediately."""
+        device = self.get_object()
+        device.api_key = _generate_api_key()
+        device.save(update_fields=["api_key"])
+        return Response(KDSDeviceSerializer(device).data)
