@@ -30,6 +30,7 @@ class _BroadcastConsumer(AsyncWebsocketConsumer):
     # a group_send with {"type": "order_new"} dispatches to self.order_new().
     order_new = _forward
     order_status_changed = _forward
+    order_item_status_changed = _forward
     order_collected = _forward
     order_served = _forward
     table_bill_requested = _forward

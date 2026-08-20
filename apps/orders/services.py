@@ -1,6 +1,7 @@
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.db import transaction
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
 from apps.menu.models import MenuItem
@@ -18,6 +19,15 @@ KITCHEN_NEXT_STATUS = {
 KITCHEN_TIMESTAMP_FIELD = {
     Order.Status.ACCEPTED: "accepted_at",
     Order.Status.READY: "ready_at",
+}
+# Same transition table drives per-item status — NEW/ACCEPTED/PREPARING/READY
+# is exactly Order.ITEM_STATUSES, so KITCHEN_NEXT_STATUS is reused as-is
+# rather than duplicated for items.
+ORDER_STATUSES_AT_OR_PAST_READY = {
+    Order.Status.READY,
+    Order.Status.COLLECTED,
+    Order.Status.SERVED,
+    Order.Status.CANCELLED,
 }
 
 
@@ -103,17 +113,13 @@ def place_takeaway_order(restaurant, branch, items, customer_name="", customer_p
     return order
 
 
-@transaction.atomic
-def advance_kitchen_status(order_id, target_status):
-    order = Order.objects.select_for_update().get(id=order_id)
-    restaurant = _order_restaurant(order)
-    if not restaurant.kitchen_enabled:
-        raise KitchenDisplayNotEnabledError()
-
-    expected_next = KITCHEN_NEXT_STATUS.get(order.status)
-    if expected_next is None or target_status != expected_next:
-        raise InvalidStatusTransitionError(f"Cannot move order from {order.status} to {target_status}.")
-
+def _apply_order_status(order, restaurant, target_status):
+    """Shared set-status + timestamp + broadcast/notify body, used both by
+    the explicit whole-order kitchen-status transition below and by the
+    auto-derived advance-to-READY triggered when every item under an order
+    independently reaches READY (see _maybe_auto_advance_order_to_ready).
+    The caller is responsible for validating the transition is legal —
+    this just applies it."""
     order.status = target_status
     timestamp_field = KITCHEN_TIMESTAMP_FIELD.get(target_status)
     update_fields = ["status"]
@@ -125,7 +131,70 @@ def advance_kitchen_status(order_id, target_status):
     transaction.on_commit(lambda: _broadcast_status_changed(order, restaurant))
     if target_status == Order.Status.READY:
         transaction.on_commit(lambda: _notify_order_ready(order, restaurant))
+
+
+@transaction.atomic
+def advance_kitchen_status(order_id, target_status):
+    order = Order.objects.select_for_update().get(id=order_id)
+    restaurant = _order_restaurant(order)
+    if not restaurant.kitchen_enabled:
+        raise KitchenDisplayNotEnabledError()
+
+    expected_next = KITCHEN_NEXT_STATUS.get(order.status)
+    if expected_next is None or target_status != expected_next:
+        raise InvalidStatusTransitionError(f"Cannot move order from {order.status} to {target_status}.")
+
+    _apply_order_status(order, restaurant, target_status)
     return order
+
+
+def _maybe_auto_advance_order_to_ready(order, restaurant):
+    """Backward-compat bridge between the per-item and whole-order status
+    flows: restaurants that never touch per-item status are entirely
+    unaffected (this only ever runs from advance_item_kitchen_status,
+    right after an item is set to READY). Once every item under the order
+    has independently reached READY, the order itself is advanced to READY
+    too — unless it's already there or past it (READY/COLLECTED/SERVED/
+    CANCELLED), in which case this is a no-op. This intentionally bypasses
+    the strict KITCHEN_NEXT_STATUS transition check that advance_kitchen_status
+    enforces: it's a derived side-effect of item-level progress, not a
+    manual kitchen action, so the order can jump straight from NEW/ACCEPTED
+    to READY if its items got there first via the per-item endpoint alone.
+    """
+    if order.status in ORDER_STATUSES_AT_OR_PAST_READY:
+        return
+    if order.items.exclude(status=Order.Status.READY).exists():
+        return
+    _apply_order_status(order, restaurant, Order.Status.READY)
+
+
+@transaction.atomic
+def advance_item_kitchen_status(order, item_id, target_status):
+    """Per-item counterpart to advance_kitchen_status. `order` must already
+    be tenant-scoped by the caller (see OrderItemKitchenStatusView) — this
+    re-fetches it with a row lock and validates the transition against the
+    ITEM's own current status, independently of its siblings or the parent
+    order's status. Returns (order, item)."""
+    order = Order.objects.select_for_update().get(id=order.id)
+    restaurant = _order_restaurant(order)
+    if not restaurant.kitchen_enabled:
+        raise KitchenDisplayNotEnabledError()
+
+    item = get_object_or_404(order.items.select_for_update(), id=item_id)
+
+    expected_next = KITCHEN_NEXT_STATUS.get(item.status)
+    if expected_next is None or target_status != expected_next:
+        raise InvalidStatusTransitionError(f"Cannot move item from {item.status} to {target_status}.")
+
+    item.status = target_status
+    item.save(update_fields=["status"])
+
+    transaction.on_commit(lambda: _broadcast_item_status_changed(item, order, restaurant))
+
+    if target_status == Order.Status.READY:
+        _maybe_auto_advance_order_to_ready(order, restaurant)
+
+    return order, item
 
 
 @transaction.atomic
@@ -228,3 +297,20 @@ def _broadcast_status_changed(order, restaurant):
     if order.session_id:
         groups.append(f"table_session_{order.session_id}")
     _broadcast(restaurant, groups, "order_status_changed", _order_payload(order))
+
+
+def _item_payload(item, order):
+    return {
+        "order_id": str(order.id),
+        "item_id": str(item.id),
+        "status": item.status,
+        "menu_item_id": item.menu_item_id,
+        "quantity": item.quantity,
+    }
+
+
+def _broadcast_item_status_changed(item, order, restaurant):
+    groups = [f"kitchen_{restaurant.id}", f"servers_{restaurant.id}"]
+    if order.session_id:
+        groups.append(f"table_session_{order.session_id}")
+    _broadcast(restaurant, groups, "order_item_status_changed", _item_payload(item, order))

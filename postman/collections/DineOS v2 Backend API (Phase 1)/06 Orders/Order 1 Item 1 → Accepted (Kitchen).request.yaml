@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{base_url}}/orders/{{order_1_id}}/items/{{order_1_item_1_id}}/status/"
+method: PATCH
+headers:
+  X-KDS-API-Key: "{{kds_api_key}}"
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"status": "accepted"}'
+order: 7500

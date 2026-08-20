@@ -14,6 +14,15 @@ class Order(models.Model):
         SERVED = "SERVED", "Served"
         CANCELLED = "CANCELLED", "Cancelled"
 
+    # Per-item kitchen status (see OrderItem.status below) only ever needs
+    # the kitchen-prep subset of the whole-order lifecycle — COLLECTED/
+    # SERVED/CANCELLED stay order-level-only concepts (collection and
+    # serving happen once, for the whole order; cancellation is decided
+    # order-wide too). Kept as a subset of Order.Status rather than a
+    # separate TextChoices so the frontend only has one status vocabulary
+    # to deal with across both order- and item-level fields.
+    ITEM_STATUSES = (Status.NEW, Status.ACCEPTED, Status.PREPARING, Status.READY)
+
     class OrderType(models.TextChoices):
         DINE_IN = "DINE_IN", "Dine-in"
         TAKEAWAY = "TAKEAWAY", "Takeaway"
@@ -69,6 +78,15 @@ class OrderItem(models.Model):
     quantity = models.PositiveIntegerField(default=1)
     unit_price = models.DecimalField(max_digits=10, decimal_places=2)
     notes = models.CharField(max_length=255, blank=True)
+    # Per-item kitchen status — lets "one item plated, another still
+    # cooking" be represented independently of the whole-order status.
+    # See PATCH /v1/orders/{order_id}/items/{item_id}/status/ and
+    # apps.orders.services.advance_item_kitchen_status.
+    status = models.CharField(
+        max_length=16,
+        choices=[choice for choice in Order.Status.choices if choice[0] in Order.ITEM_STATUSES],
+        default=Order.Status.NEW,
+    )
 
     class Meta:
         db_table = "order_items"

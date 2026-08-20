@@ -1,4 +1,5 @@
 from django.db import models
+from django.shortcuts import get_object_or_404
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -179,6 +180,40 @@ class OrderKitchenStatusView(APIView):
         serializer = OrderStatusUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         order = services.advance_kitchen_status(order_id, serializer.validated_data["status"])
+        return Response(OrderSerializer(order).data)
+
+
+class OrderItemKitchenStatusView(APIView):
+    """Per-item counterpart to OrderKitchenStatusView — lets the kitchen
+    advance one item's status (e.g. one dish plated while another is still
+    cooking) without touching its siblings or the whole order's status.
+    Same auth/permission pattern as the whole-order endpoint. Tenant-scopes
+    the order with the same dual-Q (dine-in table OR takeaway branch)
+    pattern used by OrderDetailView, so an item under another restaurant's
+    order 404s rather than leaking/mutating cross-tenant data.
+
+    Auto-advance note (2026-08-20): once every item under the order has
+    independently reached READY via this endpoint, the whole order's
+    status is auto-advanced to READY too (if it isn't already there or
+    past it) — see services._maybe_auto_advance_order_to_ready. Restaurants
+    that never call this per-item endpoint are unaffected; the existing
+    whole-order PATCH /v1/orders/{order_id}/status/ flow is unchanged.
+    """
+
+    authentication_classes = [KDSKeyAuthentication]
+    permission_classes = [IsKDSDevice]
+
+    def patch(self, request, order_id, item_id):
+        serializer = OrderStatusUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        order = get_object_or_404(
+            Order.objects.filter(
+                models.Q(table__restaurant=request.tenant) | models.Q(branch__restaurant=request.tenant)
+            ),
+            id=order_id,
+        )
+        order, item = services.advance_item_kitchen_status(order, item_id, serializer.validated_data["status"])
         return Response(OrderSerializer(order).data)
 
 

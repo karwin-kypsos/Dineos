@@ -11,5 +11,6 @@ scripts:
     code: |-
       const placeOrder1Data = pm.response.json();
       pm.collectionVariables.set('order_1_id', placeOrder1Data.id);
+      pm.collectionVariables.set('order_1_item_1_id', placeOrder1Data.items[0].id);
     language: text/javascript
 order: 1000

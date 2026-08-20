@@ -13,8 +13,11 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrderItem
-        fields = ["id", "menu_item", "menu_item_name", "quantity", "unit_price", "line_total", "notes"]
-        read_only_fields = ["id", "unit_price", "line_total"]
+        fields = ["id", "menu_item", "menu_item_name", "quantity", "unit_price", "line_total", "notes", "status"]
+        # status is set via PATCH /v1/orders/{order_id}/items/{item_id}/status/
+        # (apps.orders.views.OrderItemKitchenStatusView), not through this
+        # serializer directly — kept read-only here same as id/unit_price/line_total.
+        read_only_fields = ["id", "unit_price", "line_total", "status"]
 
 
 class OrderSerializer(serializers.ModelSerializer):
