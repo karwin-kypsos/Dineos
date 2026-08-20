@@ -132,3 +132,17 @@ class TestTeam:
     def test_team_requires_platform_auth(self, api_client):
         resp = api_client.get("/platform/team/")
         assert resp.status_code in (401, 403)
+
+    def test_remove_team_member_returns_confirmation_body(self, platform_admin_client):
+        admin, client = platform_admin_client
+        other = PlatformAdmin.objects.create_user(email="removed@krypsos.tech", password="Test@1234")
+
+        resp = client.delete(f"/platform/team/{other.id}/")
+
+        assert resp.status_code == 200
+        assert resp.data["detail"] == "Team member 'removed@krypsos.tech' removed successfully."
+        assert not PlatformAdmin.objects.filter(id=other.id).exists()
+
+        log = PlatformActivityLog.objects.filter(action="TEAM_MEMBER_REMOVED").first()
+        assert log is not None
+        assert "removed@krypsos.tech" in log.description

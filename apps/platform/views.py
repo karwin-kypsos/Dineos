@@ -535,7 +535,7 @@ class TeamViewSet(viewsets.ModelViewSet):
             description=f"Removed team member '{email}'",
         )
         instance.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response({"detail": f"Team member '{email}' removed successfully."}, status=status.HTTP_200_OK)
 
 
 class ImpersonateView(APIView):
