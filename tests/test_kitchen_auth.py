@@ -32,6 +32,29 @@ def test_valid_kds_key_accepted(kds_client):
     assert response.status_code == 200
 
 
+def test_kds_device_me_confirms_valid_key(kds_client):
+    device, client = kds_client
+    response = client.get("/v1/kitchen/devices/me/")
+    assert response.status_code == 200, response.data
+    assert response.data["id"] == device.id
+    assert response.data["api_key"] == device.api_key
+
+
+def test_kds_device_me_rejects_invalid_key():
+    client = APIClient()
+    client.credentials(HTTP_X_KDS_API_KEY="not-a-real-key")
+    response = client.get("/v1/kitchen/devices/me/")
+    assert response.status_code in (401, 403)
+
+
+def test_kds_device_me_updates_last_seen_at(kds_client):
+    device, client = kds_client
+    assert device.last_seen_at is None
+    client.get("/v1/kitchen/devices/me/")
+    device.refresh_from_db()
+    assert device.last_seen_at is not None
+
+
 def test_admin_can_create_kds_device_with_branch(admin_client, branch):
     _, client = admin_client
 
