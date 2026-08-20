@@ -5,6 +5,9 @@ headers:
   Authorization: Bearer {{platform_token}}
 scripts:
   - type: afterResponse
-    code: pm.test('status is 204', () => pm.response.to.have.status(204));
+    code: |-
+      const deleteTeamMemberData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('detail confirms removal', () => pm.expect(deleteTeamMemberData.detail).to.include('removed successfully'));
     language: text/javascript
 order: 7200
