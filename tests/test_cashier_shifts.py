@@ -49,6 +49,31 @@ def test_current_shift_dashboard_reflects_awaiting_and_active_tables(cashier_cli
     assert response.data["paid_today_count"] == 0
 
 
+def test_current_shift_dashboard_scopes_to_cashiers_own_branch(admin_client, cashier_client, branch, restaurant, menu_item):
+    from apps.restaurant.models import Branch
+    from apps.tables.models import Table
+
+    cashier_user, client = cashier_client
+    cashier_user.branch = branch
+    cashier_user.save(update_fields=["branch"])
+    client.post("/v1/cashier/shifts/open/")
+
+    own_branch_table = Table.objects.create(restaurant=restaurant, branch=branch, table_number="OwnBranch1")
+    other_branch = Branch.objects.create(restaurant=restaurant, name="Other Branch")
+    other_branch_table = Table.objects.create(restaurant=restaurant, branch=other_branch, table_number="OtherBranch1")
+
+    session_own, _ = table_services.get_or_create_active_session(own_branch_table.id)
+    order_services.place_order(session_own.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    session_other, _ = table_services.get_or_create_active_session(other_branch_table.id)
+    order_services.place_order(session_other.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+
+    response = client.get("/v1/cashier/shifts/current/")
+
+    assert response.status_code == 200
+    table_numbers = {t["table_number"] for t in response.data["active_tables"]}
+    assert table_numbers == {"OwnBranch1"}
+
+
 def test_current_shift_dashboard_shows_collected_today_after_payment(cashier_client, table, menu_item):
     cashier_user, client = cashier_client
     client.post("/v1/cashier/shifts/open/")

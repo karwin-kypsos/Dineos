@@ -307,6 +307,9 @@ def cashier_dashboard(restaurant, cashier):
         TableSession.objects.filter(table__restaurant=restaurant, status=TableSession.Status.ACTIVE)
         .select_related("table")
     )
+    if cashier.branch_id is not None:
+        awaiting_sessions = awaiting_sessions.filter(table__branch_id=cashier.branch_id)
+        active_sessions = active_sessions.filter(table__branch_id=cashier.branch_id)
     paid_today_count = restaurant_bills_qs(restaurant).filter(paid_at__gte=today_start).count()
 
     shift = get_current_shift(cashier)
