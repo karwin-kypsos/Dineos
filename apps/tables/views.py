@@ -32,15 +32,22 @@ class TableViewSet(viewsets.ReadOnlyModelViewSet):
         if tenant is not None:
             qs = qs.filter(restaurant=tenant)
             # Staff requests scope further to their own branch once they
-            # have one; branch-less legacy staff/tables still see everything
-            # restaurant-wide.
+            # have one; branch-less legacy tables still see everything
+            # restaurant-wide for Admin/Manager (oversight/cleanup of old
+            # single-branch data) — but a Server should never see a table
+            # outside their own branch, legacy or not, so that inclusion is
+            # deliberately skipped for them below.
             user_branch_id = getattr(self.request.user, "branch_id", None)
+            role = getattr(self.request.user, "role", None)
             if user_branch_id is not None:
-                qs = qs.filter(models.Q(branch_id=user_branch_id) | models.Q(branch__isnull=True))
+                if role == "SERVER":
+                    qs = qs.filter(branch_id=user_branch_id)
+                else:
+                    qs = qs.filter(models.Q(branch_id=user_branch_id) | models.Q(branch__isnull=True))
             # A Server only ever sees their own assigned tables plus
             # whatever's currently free — never another server's occupied
             # table. Admin/Manager/Cashier are unaffected (full visibility).
-            if getattr(self.request.user, "role", None) == "SERVER":
+            if role == "SERVER":
                 qs = qs.filter(
                     models.Q(status=Table.Status.AVAILABLE)
                     | models.Q(sessions__status__in=["ACTIVE", "BILL_REQUESTED"], sessions__assigned_server=self.request.user)

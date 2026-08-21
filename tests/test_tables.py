@@ -114,3 +114,35 @@ def test_table_list_scopes_server_to_own_assigned_and_free_tables(restaurant, br
     assert str(table_free.id) in ids
     assert str(table_a.id) in ids
     assert str(table_b.id) not in ids
+
+
+def test_table_list_excludes_branch_less_legacy_tables_for_server(restaurant, branch):
+    from rest_framework.test import APIClient
+
+    from apps.authentication.serializers import DineOSTokenObtainPairSerializer
+
+    server = _make_server(restaurant, branch, "srv-f@demo-bistro.demo", "Server F")
+    legacy_table = Table.objects.create(restaurant=restaurant, branch=None, table_number="Legacy1", capacity=4)
+
+    token = DineOSTokenObtainPairSerializer.get_token(server)
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.access_token}")
+
+    response = client.get("/v1/tables/")
+
+    assert response.status_code == 200
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    ids = {t["id"] for t in results}
+    assert str(legacy_table.id) not in ids
+
+
+def test_table_list_still_includes_branch_less_tables_for_manager(restaurant, branch, manager_client):
+    _, client = manager_client
+    legacy_table = Table.objects.create(restaurant=restaurant, branch=None, table_number="Legacy2", capacity=4)
+
+    response = client.get("/v1/tables/")
+
+    assert response.status_code == 200
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    ids = {t["id"] for t in results}
+    assert str(legacy_table.id) in ids
