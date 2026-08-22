@@ -246,12 +246,15 @@ class OrderItemKitchenStatusView(APIView):
     pattern used by OrderDetailView, so an item under another restaurant's
     order 404s rather than leaking/mutating cross-tenant data.
 
-    Auto-advance note (2026-08-20): once every item under the order has
-    independently reached READY via this endpoint, the whole order's
-    status is auto-advanced to READY too (if it isn't already there or
-    past it) — see services._maybe_auto_advance_order_to_ready. Restaurants
-    that never call this per-item endpoint are unaffected; the existing
-    whole-order PATCH /v1/orders/{order_id}/status/ flow is unchanged.
+    Auto-advance note (updated 2026-08-21): the whole order's own status
+    auto-advances alongside item-level progress via this endpoint — see
+    services._maybe_auto_advance_order. The moment the first item reaches
+    PREPARING, the order advances ACCEPTED → PREPARING; once every item has
+    independently reached READY, the order advances to READY too (unless
+    already there or past it). Restaurants that never call this per-item
+    endpoint are unaffected; the whole-order PATCH /v1/orders/{order_id}/status/
+    endpoint still cascades every item forward in the other direction (see
+    services._cascade_items_forward), so both flows stay in sync either way.
     """
 
     authentication_classes = [KDSKeyAuthentication]

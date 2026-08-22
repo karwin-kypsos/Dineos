@@ -1,0 +1,21 @@
+$kind: http-request
+url: "{{base_url}}/orders/{{order_1_id}}/items/{{order_1_item_1_id}}/status/"
+method: PATCH
+headers:
+  X-KDS-API-Key: "{{kds_api_key}}"
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"status": "preparing"}'
+scripts:
+  - type: afterResponse
+    code: |-
+      const item1PreparingData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('item is PREPARING', () => {
+        const item = item1PreparingData.items.find((i) => String(i.id) === String(pm.collectionVariables.get('order_1_item_1_id')));
+        pm.expect(item.status).to.eql('PREPARING');
+      });
+      pm.test('whole order auto-advanced from ACCEPTED to PREPARING', () => pm.expect(item1PreparingData.status).to.eql('PREPARING'));
+    language: text/javascript
+order: 7500

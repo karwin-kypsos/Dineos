@@ -1,0 +1,14 @@
+$kind: http-request
+url: "{{base_url}}/orders/"
+method: POST
+headers:
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"session_id": "{{session_id}}", "items": [{"menu_item": 999999999, "quantity": 1}]}'
+scripts:
+  - type: afterResponse
+    code: |-
+      pm.test('status is 400, not a bare 500', () => pm.response.to.have.status(400));
+    language: text/javascript
+order: 1050
