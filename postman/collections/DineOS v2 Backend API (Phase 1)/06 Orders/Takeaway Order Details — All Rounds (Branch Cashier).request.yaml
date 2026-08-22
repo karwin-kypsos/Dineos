@@ -1,0 +1,17 @@
+$kind: http-request
+url: "{{base_url}}/orders/takeaway/{{takeaway_order_id}}/details/"
+method: GET
+headers:
+  Authorization: Bearer {{branch_cashier_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const detailsData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('order_id is round 1 (the root)', () => pm.expect(detailsData.order_id).to.eql(pm.collectionVariables.get('takeaway_order_id')));
+      pm.test('has both rounds', () => pm.expect(detailsData.rounds.length).to.eql(2));
+      pm.test('rounds are numbered 1 and 2', () => pm.expect(detailsData.rounds.map(r => r.round_number)).to.eql([1, 2]));
+      pm.test('is_billed is false', () => pm.expect(detailsData.is_billed).to.eql(false));
+      pm.test('combined_total_amount exists', () => pm.expect(detailsData.combined_total_amount).to.exist);
+    language: text/javascript
+order: 20575

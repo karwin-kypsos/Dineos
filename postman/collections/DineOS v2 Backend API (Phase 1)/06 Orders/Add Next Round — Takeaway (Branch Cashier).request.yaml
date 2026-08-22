@@ -1,0 +1,24 @@
+$kind: http-request
+url: "{{base_url}}/orders/takeaway/"
+method: POST
+headers:
+  Authorization: Bearer {{branch_cashier_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "existing_order_id": "{{takeaway_order_id}}",
+      "items": [{"menu_item": {{menu_item_id}}, "quantity": 1, "notes": "Second round"}]
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      const addRoundData = pm.response.json();
+      pm.collectionVariables.set('takeaway_round_2_id', addRoundData.id);
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+      pm.test('round_number is 2', () => pm.expect(addRoundData.round_number).to.eql(2));
+      pm.test('parent_order points at round 1', () => pm.expect(addRoundData.parent_order).to.eql(pm.collectionVariables.get('takeaway_order_id')));
+      pm.test('customer info carried forward from round 1', () => pm.expect(addRoundData.customer_name).to.eql('Rahul Sharma'));
+    language: text/javascript
+order: 20100
