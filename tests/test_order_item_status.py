@@ -159,9 +159,96 @@ def test_order_auto_advances_to_ready_once_all_items_ready(kds_client, table, me
     assert order.ready_at is not None
 
 
+def test_order_level_status_endpoint_cascades_to_all_items(kds_client, table, menu_item, other_menu_item):
+    """Whole-order PATCH .../status/ must cascade every item forward to
+    match, in the same transaction — restaurants that never touch the
+    per-item endpoint still see item statuses stay in sync with the order."""
+    _, kitchen = kds_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order = _place_order_with_two_items(session.id, menu_item, other_menu_item)
+
+    response = kitchen.patch(f"/v1/orders/{order.id}/status/", {"status": "accepted"}, format="json")
+    assert response.status_code == 200, response.data
+    order.refresh_from_db()
+    assert order.status == "ACCEPTED"
+    assert all(item.status == "ACCEPTED" for item in order.items.all())
+
+    response = kitchen.patch(f"/v1/orders/{order.id}/status/", {"status": "preparing"}, format="json")
+    assert response.status_code == 200
+    order.refresh_from_db()
+    assert order.status == "PREPARING"
+    assert order.preparing_at is not None
+    assert all(item.status == "PREPARING" for item in order.items.all())
+
+    response = kitchen.patch(f"/v1/orders/{order.id}/status/", {"status": "ready"}, format="json")
+    assert response.status_code == 200
+    order.refresh_from_db()
+    assert order.status == "READY"
+    assert all(item.status == "READY" for item in order.items.all())
+
+
+def test_order_level_cascade_does_not_downgrade_an_item_already_ahead(kds_client, table, menu_item, other_menu_item):
+    """An item advanced ahead via the per-item endpoint (while the order
+    itself was never explicitly accepted, so no auto-advance fired) must
+    never be pushed backward once the whole-order endpoint catches up —
+    cascade only fills items in, it never overwrites one already at/past
+    the target status."""
+    _, kitchen = kds_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order = _place_order_with_two_items(session.id, menu_item, other_menu_item)
+    item_a, item_b = order.items.all()
+
+    # Walk item_a all the way to READY via the per-item endpoint alone,
+    # without ever touching the whole-order endpoint — the order stays NEW
+    # throughout (PREPARING auto-advance only fires from ACCEPTED; READY
+    # auto-advance only fires once EVERY item is ready, and item_b hasn't
+    # moved), so item_a ends up ahead of the still-NEW order.
+    for target in ("accepted", "preparing", "ready"):
+        response = kitchen.patch(f"/v1/orders/{order.id}/items/{item_a.id}/status/", {"status": target}, format="json")
+        assert response.status_code == 200, response.data
+
+    order.refresh_from_db()
+    assert order.status == "NEW"
+
+    # Now accept the whole order — item_b (still NEW) should cascade up to
+    # ACCEPTED, but item_a must stay exactly at READY, not get pulled back.
+    response = kitchen.patch(f"/v1/orders/{order.id}/status/", {"status": "accepted"}, format="json")
+    assert response.status_code == 200, response.data
+    order.refresh_from_db()
+    item_a.refresh_from_db()
+    item_b.refresh_from_db()
+    assert order.status == "ACCEPTED"
+    assert item_a.status == "READY"
+    assert item_b.status == "ACCEPTED"
+
+
+def test_item_reaching_preparing_auto_advances_order_from_accepted(kds_client, table, menu_item, other_menu_item):
+    """First item to start cooking advances the ORDER to PREPARING, without
+    forcing sibling items (still NEW/ACCEPTED) to jump ahead of their own
+    individual progress."""
+    _, kitchen = kds_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order = _place_order_with_two_items(session.id, menu_item, other_menu_item)
+    item_a, item_b = order.items.all()
+
+    kitchen.patch(f"/v1/orders/{order.id}/status/", {"status": "accepted"}, format="json")
+
+    response = kitchen.patch(
+        f"/v1/orders/{order.id}/items/{item_a.id}/status/", {"status": "preparing"}, format="json"
+    )
+    assert response.status_code == 200, response.data
+
+    order.refresh_from_db()
+    item_a.refresh_from_db()
+    item_b.refresh_from_db()
+    assert order.status == "PREPARING"
+    assert item_a.status == "PREPARING"
+    assert item_b.status == "ACCEPTED"  # untouched — did not jump ahead
+
+
 def test_order_level_status_endpoint_still_works_unchanged(kds_client, table, menu_item):
-    """Regression guard: restaurants that never touch per-item status must
-    keep working exactly as before through the whole-order endpoint."""
+    """Regression guard: a single-item order still walks the whole-order
+    lifecycle end to end, with the item now correctly tracking it."""
     _, kitchen = kds_client
     session, _ = table_services.get_or_create_active_session(table.id)
     order = order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
@@ -180,6 +267,4 @@ def test_order_level_status_endpoint_still_works_unchanged(kds_client, table, me
     assert response.status_code == 200
     order.refresh_from_db()
     assert order.status == "READY"
-    # The lone item's own status is left untouched by the whole-order path —
-    # items only move via the per-item endpoint.
-    assert order.items.first().status == "NEW"
+    assert order.items.first().status == "READY"

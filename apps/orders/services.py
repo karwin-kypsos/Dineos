@@ -18,6 +18,7 @@ KITCHEN_NEXT_STATUS = {
 }
 KITCHEN_TIMESTAMP_FIELD = {
     Order.Status.ACCEPTED: "accepted_at",
+    Order.Status.PREPARING: "preparing_at",
     Order.Status.READY: "ready_at",
 }
 # Same transition table drives per-item status — NEW/ACCEPTED/PREPARING/READY
@@ -29,6 +30,7 @@ ORDER_STATUSES_AT_OR_PAST_READY = {
     Order.Status.SERVED,
     Order.Status.CANCELLED,
 }
+ITEM_STATUS_ORDER = list(Order.ITEM_STATUSES)  # NEW, ACCEPTED, PREPARING, READY
 
 
 class KitchenDisplayNotEnabledError(InvalidStatusTransitionError):
@@ -113,13 +115,34 @@ def place_takeaway_order(restaurant, branch, items, customer_name="", customer_p
     return order
 
 
-def _apply_order_status(order, restaurant, target_status):
+def _cascade_items_forward(order, target_status):
+    """Bump every item still behind target_status up to it — never touches
+    an item already at or past target_status (e.g. one already advanced
+    ahead via the per-item endpoint stays exactly where it is, it's never
+    downgraded). Only meaningful for the three kitchen-prep item statuses;
+    a no-op for anything else (NEW/COLLECTED/SERVED/CANCELLED)."""
+    if target_status not in ITEM_STATUS_ORDER:
+        return
+    behind = ITEM_STATUS_ORDER[: ITEM_STATUS_ORDER.index(target_status)]
+    order.items.filter(status__in=behind).update(status=target_status)
+
+
+def _apply_order_status(order, restaurant, target_status, *, cascade_items=True):
     """Shared set-status + timestamp + broadcast/notify body, used both by
     the explicit whole-order kitchen-status transition below and by the
-    auto-derived advance-to-READY triggered when every item under an order
-    independently reaches READY (see _maybe_auto_advance_order_to_ready).
-    The caller is responsible for validating the transition is legal —
-    this just applies it."""
+    auto-derived advances triggered by item-level progress (see
+    _maybe_auto_advance_order). The caller is responsible for validating
+    the transition is legal — this just applies it.
+
+    cascade_items=True (the explicit whole-order PATCH .../status/ path)
+    forward-fills every item that hasn't independently caught up yet — e.g.
+    tapping "Accept Order" moves every item NEW→ACCEPTED in the same
+    transaction, tapping "Mark Order Ready" moves every remaining item to
+    READY. cascade_items=False (the item-driven auto-advance path) leaves
+    sibling items exactly as they are — one item reaching PREPARING advances
+    the ORDER to PREPARING without forcing its still-NEW/ACCEPTED siblings
+    to jump ahead of their own individual progress.
+    """
     order.status = target_status
     timestamp_field = KITCHEN_TIMESTAMP_FIELD.get(target_status)
     update_fields = ["status"]
@@ -127,6 +150,8 @@ def _apply_order_status(order, restaurant, target_status):
         setattr(order, timestamp_field, timezone.now())
         update_fields.append(timestamp_field)
     order.save(update_fields=update_fields)
+    if cascade_items:
+        _cascade_items_forward(order, target_status)
 
     transaction.on_commit(lambda: _broadcast_status_changed(order, restaurant))
     if target_status == Order.Status.READY:
@@ -148,24 +173,33 @@ def advance_kitchen_status(order_id, target_status):
     return order
 
 
-def _maybe_auto_advance_order_to_ready(order, restaurant):
-    """Backward-compat bridge between the per-item and whole-order status
-    flows: restaurants that never touch per-item status are entirely
-    unaffected (this only ever runs from advance_item_kitchen_status,
-    right after an item is set to READY). Once every item under the order
-    has independently reached READY, the order itself is advanced to READY
-    too — unless it's already there or past it (READY/COLLECTED/SERVED/
-    CANCELLED), in which case this is a no-op. This intentionally bypasses
-    the strict KITCHEN_NEXT_STATUS transition check that advance_kitchen_status
-    enforces: it's a derived side-effect of item-level progress, not a
-    manual kitchen action, so the order can jump straight from NEW/ACCEPTED
-    to READY if its items got there first via the per-item endpoint alone.
+def _maybe_auto_advance_order(order, restaurant, item_target_status):
+    """Bridge between the per-item and whole-order status flows: restaurants
+    that never touch per-item status are entirely unaffected (this only
+    ever runs from advance_item_kitchen_status, right after one item's
+    status changes). Both derived advances intentionally bypass the strict
+    KITCHEN_NEXT_STATUS transition check that advance_kitchen_status
+    enforces — they're a side-effect of item-level progress, not a manual
+    kitchen action — and both call _apply_order_status with
+    cascade_items=False so a lone item's progress never forces its
+    siblings to jump ahead of their own individual state.
+
+    - item → PREPARING: the moment the first item starts cooking, the
+      order itself auto-advances ACCEPTED → PREPARING (only from ACCEPTED —
+      if the order is still NEW, e.g. a stray item update the kitchen
+      hasn't accepted the ticket for yet, this is a no-op).
+    - item → READY: once every item under the order has independently
+      reached READY, the order itself advances to READY too — unless
+      it's already there or past it (READY/COLLECTED/SERVED/CANCELLED).
     """
     if order.status in ORDER_STATUSES_AT_OR_PAST_READY:
         return
-    if order.items.exclude(status=Order.Status.READY).exists():
-        return
-    _apply_order_status(order, restaurant, Order.Status.READY)
+    if item_target_status == Order.Status.PREPARING:
+        if order.status == Order.Status.ACCEPTED:
+            _apply_order_status(order, restaurant, Order.Status.PREPARING, cascade_items=False)
+    elif item_target_status == Order.Status.READY:
+        if not order.items.exclude(status=Order.Status.READY).exists():
+            _apply_order_status(order, restaurant, Order.Status.READY, cascade_items=False)
 
 
 @transaction.atomic
@@ -191,8 +225,8 @@ def advance_item_kitchen_status(order, item_id, target_status):
 
     transaction.on_commit(lambda: _broadcast_item_status_changed(item, order, restaurant))
 
-    if target_status == Order.Status.READY:
-        _maybe_auto_advance_order_to_ready(order, restaurant)
+    if target_status in (Order.Status.PREPARING, Order.Status.READY):
+        _maybe_auto_advance_order(order, restaurant, target_status)
 
     return order, item
 
