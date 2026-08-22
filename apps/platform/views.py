@@ -485,6 +485,28 @@ class DashboardView(APIView):
             for day in (week_start.date() + timezone.timedelta(days=i) for i in range(7))
         ]
 
+        # Revenue graph (2026-08-22, per Shereena): last 7 days' revenue,
+        # platform-wide, plus a vs-last-week comparison for the "+X% vs last
+        # week" badge next to the graph — same day-bucketing approach as
+        # new_signups_this_week above, just against Bill.paid_at/total_amount
+        # instead of Restaurant.created_at.
+        revenue_by_day = {
+            row["day"]: row["total"]
+            for row in Bill.objects.filter(paid_at__gte=week_start)
+            .annotate(day=TruncDate("paid_at"))
+            .values("day")
+            .annotate(total=Sum("total_amount"))
+        }
+        weekly_revenue = [
+            {"date": str(day), "amount": revenue_by_day.get(day, Decimal("0"))}
+            for day in (week_start.date() + timezone.timedelta(days=i) for i in range(7))
+        ]
+        this_week_total = sum((row["amount"] for row in weekly_revenue), Decimal("0"))
+        previous_week_start = week_start - timezone.timedelta(days=7)
+        previous_week_total = Bill.objects.filter(
+            paid_at__gte=previous_week_start, paid_at__lt=week_start
+        ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
+
         # "Needing attention" (2026-08-22, per Shereena): SUSPENDED orgs, or
         # a TRIAL org whose trial_ends_at has passed. "Unpaid billing" was
         # also requested but isn't implemented — there's no payment/invoice
@@ -500,6 +522,15 @@ class DashboardView(APIView):
 
         total_branches = Branch.objects.count()
 
+        # "Recent activity" (clarified 2026-08-22, per Shereena): every
+        # platform action, not just new tenants — plan changes, team member
+        # added, org created, etc. This is exactly what PlatformActivityLog
+        # already records (see its ACTION_CHOICES) for the full Activity Log
+        # screen; the dashboard just shows the latest few as a preview.
+        recent_activity = PlatformActivityLog.objects.select_related("actor", "restaurant").order_by(
+            "-created_at"
+        )[:10]
+
         return Response(
             {
                 "total_tenants": total_tenants,
@@ -509,9 +540,12 @@ class DashboardView(APIView):
                 "recent_tenants": RestaurantSerializer(recent_tenants, many=True).data,
                 "monthly_revenue": monthly_revenue,
                 "new_signups_this_week": new_signups_this_week,
+                "weekly_revenue": weekly_revenue,
+                "revenue_vs_last_week": this_week_total - previous_week_total,
                 "organizations_needing_attention_count": attention_qs.count(),
                 "organizations_needing_attention": RestaurantSerializer(attention_qs[:10], many=True).data,
                 "total_branches": total_branches,
+                "recent_activity": PlatformActivityLogSerializer(recent_activity, many=True).data,
             }
         )
 

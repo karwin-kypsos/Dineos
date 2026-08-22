@@ -100,6 +100,39 @@ class TestDashboard:
         assert resp.status_code == 201, resp.data
         assert resp.data["trial_ends_at"] is not None
 
+    def test_dashboard_includes_weekly_revenue_and_comparison(self, platform_admin_client):
+        from apps.billing.models import Bill
+        from apps.orders.models import Order
+        from apps.restaurant.models import Branch
+
+        _, client = platform_admin_client
+        restaurant = Restaurant.objects.create(name="Revenue Graph Co", slug="revenue-graph-co")
+        branch = Branch.objects.create(restaurant=restaurant, name="Main")
+        order = Order.objects.create(order_type="TAKEAWAY", branch=branch, round_number=1)
+        Bill.objects.create(
+            order=order, branch=branch, subtotal="200.00", total_amount="200.00", payment_method="CASH",
+        )
+
+        resp = client.get("/platform/dashboard/")
+
+        assert resp.status_code == 200
+        assert len(resp.data["weekly_revenue"]) == 7
+        assert float(sum(float(day["amount"]) for day in resp.data["weekly_revenue"])) >= 200.0
+        assert "revenue_vs_last_week" in resp.data
+
+    def test_dashboard_recent_activity_includes_non_tenant_actions(self, platform_admin_client):
+        admin, client = platform_admin_client
+        restaurant = Restaurant.objects.create(name="Activity Co", slug="activity-co")
+        PlatformActivityLog.objects.create(
+            actor=admin, action="PLAN_CHANGED", restaurant=restaurant, description="Changed plan for Activity Co",
+        )
+
+        resp = client.get("/platform/dashboard/")
+
+        assert resp.status_code == 200
+        actions = {entry["action"] for entry in resp.data["recent_activity"]}
+        assert "PLAN_CHANGED" in actions
+
 
 @pytest.mark.django_db
 class TestActivityLog:
