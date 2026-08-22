@@ -418,11 +418,21 @@ def daily_collections(restaurant, date):
         bill_amounts.append(bill.total_amount)
     grand_total = totals["cash"] + totals["card"] + totals["upi"]
 
+    bills_count = bills.count()
+    # "Tables" on the My Sales screen = billed tables today + tables still
+    # actively being served (not yet billed) — a still-open dine-in session
+    # right now, restaurant-wide (this view is oversight, not per-cashier —
+    # see DailyCollectionsView). Takeaway has no table to count here.
+    active_tables_count = TableSession.objects.filter(
+        table__restaurant=restaurant, status__in=[TableSession.Status.ACTIVE, TableSession.Status.BILL_REQUESTED]
+    ).count()
+
     return {
         "date": date,
         "total_collected": grand_total,
         "vs_yesterday": grand_total - previous_day_total,
-        "tables_served": bills.count(),
+        "tables_served": bills_count,
+        "tables_count": bills_count + active_tables_count,
         "avg_bill_value": (grand_total / len(bill_amounts)) if bill_amounts else Decimal("0"),
         "largest_bill": max(bill_amounts) if bill_amounts else Decimal("0"),
         "smallest_bill": min(bill_amounts) if bill_amounts else Decimal("0"),

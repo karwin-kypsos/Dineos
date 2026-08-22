@@ -1,0 +1,23 @@
+$kind: http-request
+url: "{{server_root}}/platform/tenants/"
+method: POST
+headers:
+  Authorization: Bearer {{platform_token}}
+  Content-Type: application/json
+body:
+  type: text
+  content: |-
+    {
+      "name": "Trial Test Bistro {{$timestamp}}",
+      "slug": "trial-test-{{$timestamp}}",
+      "status": "TRIAL"
+    }
+scripts:
+  - type: afterResponse
+    code: |-
+      const createTrialTenantData = pm.response.json();
+      pm.test('status is 201', () => pm.response.to.have.status(201));
+      pm.test('status is TRIAL', () => pm.expect(createTrialTenantData.status).to.eql('TRIAL'));
+      pm.test('trial_ends_at is set automatically', () => pm.expect(createTrialTenantData.trial_ends_at).to.exist);
+    language: text/javascript
+order: 1850

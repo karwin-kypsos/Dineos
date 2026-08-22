@@ -8,5 +8,6 @@ scripts:
     code: |-
       const dailyData = pm.response.json();
       pm.test('tables_served is at least 1', () => pm.expect(dailyData.tables_served).to.be.at.least(1));
+      pm.test('tables_count is at least tables_served', () => pm.expect(dailyData.tables_count).to.be.at.least(dailyData.tables_served));
     language: text/javascript
 order: 9000

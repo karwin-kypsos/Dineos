@@ -229,6 +229,14 @@ class TenantViewSet(viewsets.ModelViewSet):
             if flag not in request.data:
                 extra[flag] = value
 
+        # A tenant created straight into TRIAL gets a trial window (14 days)
+        # so the Super Admin dashboard's "needing attention" list can flag
+        # it once that runs out — see DashboardView.
+        if serializer.validated_data.get("status") == Restaurant.Status.TRIAL and "trial_ends_at" not in request.data:
+            from django.utils import timezone
+
+            extra["trial_ends_at"] = timezone.now() + timezone.timedelta(days=14)
+
         # Atomic so a failure anywhere in here (e.g. an unforeseen race on
         # contact_email between the check above and this running) rolls
         # back the restaurant row too, instead of leaving an orphaned org
@@ -335,7 +343,16 @@ class TenantViewSet(viewsets.ModelViewSet):
 
         restaurant.status = new_status
         restaurant.is_active = new_status != Restaurant.Status.SUSPENDED
-        restaurant.save(update_fields=["status", "is_active"])
+        update_fields = ["status", "is_active"]
+        # Starting (or restarting) a trial gets a fresh 14-day window if one
+        # isn't already running — see the dashboard's "needing attention"
+        # trial-expiry check.
+        if new_status == Restaurant.Status.TRIAL and restaurant.trial_ends_at is None:
+            from django.utils import timezone
+
+            restaurant.trial_ends_at = timezone.now() + timezone.timedelta(days=14)
+            update_fields.append("trial_ends_at")
+        restaurant.save(update_fields=update_fields)
 
         PlatformActivityLog.objects.create(
             actor=request.user,
@@ -438,7 +455,7 @@ class DashboardView(APIView):
     def get(self, request):
         from decimal import Decimal
 
-        from django.db.models import Count, Sum
+        from django.db.models import Count, Q, Sum
         from django.db.models.functions import TruncDate
 
         from apps.billing.models import Bill
@@ -468,10 +485,18 @@ class DashboardView(APIView):
             for day in (week_start.date() + timezone.timedelta(days=i) for i in range(7))
         ]
 
-        # "Needing attention" = suspended orgs — the one unambiguous signal
-        # already on Restaurant.status; nothing else on the model currently
-        # tracks a soft billing/trial-expiry problem worth surfacing here.
-        attention_qs = Restaurant.objects.filter(status=Restaurant.Status.SUSPENDED).order_by("-created_at")
+        # "Needing attention" (2026-08-22, per Shereena): SUSPENDED orgs, or
+        # a TRIAL org whose trial_ends_at has passed. "Unpaid billing" was
+        # also requested but isn't implemented — there's no payment/invoice
+        # tracking anywhere on this platform (plan_tier is explicitly "an
+        # internal label only, no real payment processing" per the model's
+        # own docstring), so there's nothing to derive "unpaid" from yet;
+        # flagged back to her rather than faking a field with no real signal
+        # behind it.
+        attention_qs = Restaurant.objects.filter(
+            Q(status=Restaurant.Status.SUSPENDED)
+            | Q(status=Restaurant.Status.TRIAL, trial_ends_at__lt=now)
+        ).order_by("-created_at")
 
         total_branches = Branch.objects.count()
 

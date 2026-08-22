@@ -23,6 +23,12 @@ class Restaurant(models.Model):
     slug = models.SlugField(max_length=64, unique=True)
     is_active = models.BooleanField(default=True)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
+    # Only meaningful while status=TRIAL — set automatically (14 days out)
+    # the moment a tenant becomes TRIAL, either at creation or via the
+    # Organization Detail status toggle. Null for tenants that have never
+    # been on trial. Drives the Super Admin dashboard's "needing attention"
+    # list once a trial runs out (see apps.platform.views.DashboardView).
+    trial_ends_at = models.DateTimeField(null=True, blank=True)
     gst_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("5.00"))
     service_charge_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
 

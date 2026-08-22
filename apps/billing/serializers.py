@@ -168,6 +168,7 @@ class DailyCollectionsSerializer(serializers.Serializer):
     total_collected = serializers.DecimalField(max_digits=10, decimal_places=2)
     vs_yesterday = serializers.DecimalField(max_digits=10, decimal_places=2)
     tables_served = serializers.IntegerField()
+    tables_count = serializers.IntegerField()
     avg_bill_value = serializers.DecimalField(max_digits=10, decimal_places=2)
     largest_bill = serializers.DecimalField(max_digits=10, decimal_places=2)
     smallest_bill = serializers.DecimalField(max_digits=10, decimal_places=2)

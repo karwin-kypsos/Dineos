@@ -210,6 +210,25 @@ def test_manager_can_view_daily_collections(manager_client, cashier_client, tabl
     assert Decimal(response.data["payment_breakdown"]["cash"]) == _with_tax(menu_item.price)
 
 
+def test_daily_collections_tables_count_includes_billed_and_active(manager_client, cashier_client, table, menu_item):
+    from apps.tables import services as table_services
+
+    cashier_user, _ = cashier_client
+    _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+
+    from apps.tables.models import Table
+
+    other_table = Table.objects.create(restaurant=table.restaurant, branch=table.branch, table_number="ActiveOnly1")
+    table_services.get_or_create_active_session(other_table.id)
+
+    _, manager = manager_client
+    response = manager.get("/v1/cashier/collections/daily/")
+
+    assert response.status_code == 200
+    assert response.data["tables_served"] == 1  # billed only
+    assert response.data["tables_count"] == 2  # billed (1) + still-active (1)
+
+
 def test_cashier_endpoints_require_billing_enabled(cashier_client, restaurant):
     restaurant.billing_enabled = False
     restaurant.save()

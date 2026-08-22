@@ -66,6 +66,40 @@ class TestDashboard:
         names = {org["name"] for org in resp.data["organizations_needing_attention"]}
         assert names == {"Suspended Co"}
 
+    def test_dashboard_flags_expired_trials_as_needing_attention(self, platform_admin_client):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        _, client = platform_admin_client
+        Restaurant.objects.create(
+            name="Expired Trial Co", slug="expired-trial-co", status=Restaurant.Status.TRIAL,
+            trial_ends_at=timezone.now() - timedelta(days=1),
+        )
+        Restaurant.objects.create(
+            name="Fresh Trial Co", slug="fresh-trial-co", status=Restaurant.Status.TRIAL,
+            trial_ends_at=timezone.now() + timedelta(days=10),
+        )
+        Restaurant.objects.create(name="No Trial Set Co", slug="no-trial-set-co", status=Restaurant.Status.TRIAL)
+
+        resp = client.get("/platform/dashboard/")
+
+        assert resp.status_code == 200
+        names = {org["name"] for org in resp.data["organizations_needing_attention"]}
+        assert names == {"Expired Trial Co"}
+
+    def test_create_tenant_as_trial_sets_trial_ends_at(self, platform_admin_client):
+        _, client = platform_admin_client
+
+        resp = client.post(
+            "/platform/tenants/",
+            {"name": "New Trial Co", "slug": "new-trial-co", "status": "TRIAL"},
+            format="json",
+        )
+
+        assert resp.status_code == 201, resp.data
+        assert resp.data["trial_ends_at"] is not None
+
 
 @pytest.mark.django_db
 class TestActivityLog:

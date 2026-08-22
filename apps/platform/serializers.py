@@ -80,6 +80,7 @@ class RestaurantSerializer(serializers.ModelSerializer):
             "slug",
             "is_active",
             "status",
+            "trial_ends_at",
             "contact_name",
             "contact_email",
             "contact_phone",
@@ -98,7 +99,10 @@ class RestaurantSerializer(serializers.ModelSerializer):
             "staff_count",
             "created_at",
         ]
-        read_only_fields = ["id", "created_at"]
+        # trial_ends_at is server-computed only (see TenantViewSet.create()
+        # and .update_status()) — never client-settable, so the "needing
+        # attention" trial-expiry check can't be gamed via a plain PATCH.
+        read_only_fields = ["id", "created_at", "trial_ends_at"]
 
 
 class PlatformAdminSerializer(serializers.ModelSerializer):
