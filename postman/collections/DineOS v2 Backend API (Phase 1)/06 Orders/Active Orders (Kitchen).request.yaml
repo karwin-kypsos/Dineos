@@ -3,4 +3,47 @@ url: "{{base_url}}/orders/active/"
 method: GET
 headers:
   X-KDS-API-Key: "{{kds_api_key}}"
+scripts:
+  - type: afterResponse
+    code: |-
+      // 2026-08-21: this endpoint now returns a Dashboard Envelope
+      // ({server_time, summary, orders}) instead of a flat array — see
+      // Section 8's Note in the docx and apps/orders/views.py::ActiveOrdersView.
+      const activeOrdersData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('envelope has server_time, summary, orders', () => {
+        pm.expect(activeOrdersData).to.have.property('server_time');
+        pm.expect(activeOrdersData).to.have.property('summary');
+        pm.expect(activeOrdersData.orders).to.be.an('array');
+      });
+      pm.test('summary has the four status counts + total', () => {
+        const summary = activeOrdersData.summary;
+        ['total_orders_count', 'new_count', 'accepted_count', 'preparing_count', 'ready_count']
+          .forEach(key => pm.expect(summary).to.have.property(key));
+      });
+      pm.test('summary counts match the actual order list', () => {
+        const summary = activeOrdersData.summary;
+        pm.expect(summary.total_orders_count).to.eql(activeOrdersData.orders.length);
+        const byStatus = { NEW: 0, ACCEPTED: 0, PREPARING: 0, READY: 0 };
+        activeOrdersData.orders.forEach(o => { byStatus[o.status] = (byStatus[o.status] || 0) + 1; });
+        pm.expect(summary.new_count).to.eql(byStatus.NEW);
+        pm.expect(summary.accepted_count).to.eql(byStatus.ACCEPTED);
+        pm.expect(summary.preparing_count).to.eql(byStatus.PREPARING);
+        pm.expect(summary.ready_count).to.eql(byStatus.READY);
+      });
+      pm.test('every order card has the new KDS fields', () => {
+        activeOrdersData.orders.forEach(o => {
+          pm.expect(o.table_number).to.be.a('string');
+          pm.expect(o.elapsed_seconds).to.be.a('number');
+          pm.expect(o.elapsed_formatted).to.match(/^\d{2,}:\d{2}$/);
+          pm.expect(o.is_urgent).to.be.a('boolean');
+          ['total_items_count', 'pending_items_count', 'cooking_items_count', 'ready_items_count']
+            .forEach(key => pm.expect(o[key]).to.be.a('number'));
+          pm.expect(o.table_number).to.satisfy(
+            t => t === 'Takeaway' || /^Table /.test(t),
+            'table_number should be "Takeaway" or "Table {n}"',
+          );
+        });
+      });
+    language: text/javascript
 order: 3000
