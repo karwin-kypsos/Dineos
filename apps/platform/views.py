@@ -467,6 +467,34 @@ class DashboardView(APIView):
         recent_tenants = Restaurant.objects.order_by("-created_at")[:5]
 
         now = timezone.now()
+
+        # Growth badges (2026-08-22, per Shereena's reference image, which
+        # shows a +/- % on every top card, not just revenue): current count
+        # vs. the count as of 7 days ago, approximated from created_at since
+        # none of these models keep historical snapshots. This slightly
+        # undercounts e.g. an org that was active a week ago, got suspended,
+        # then reactivated since — same class of approximation as
+        # new_signups_this_week/weekly_revenue above, just for a running
+        # total instead of a per-day bucket.
+        def _percent_change(current, baseline):
+            if not baseline:
+                return None
+            return float((Decimal(current - baseline) / baseline * 100).quantize(Decimal("0.1")))
+
+        seven_days_ago = now - timezone.timedelta(days=7)
+        total_branches = Branch.objects.count()
+        active_tenants_percentage = _percent_change(
+            active_tenants,
+            Restaurant.objects.filter(is_active=True, created_at__lte=seven_days_ago).count(),
+        )
+        total_branches_percentage = _percent_change(
+            total_branches,
+            Branch.objects.filter(created_at__lte=seven_days_ago).count(),
+        )
+        total_staff_percentage = _percent_change(
+            total_staff,
+            User.objects.filter(created_at__lte=seven_days_ago).count(),
+        )
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         monthly_revenue = Bill.objects.filter(paid_at__gte=month_start).aggregate(total=Sum("total_amount"))[
             "total"
@@ -530,8 +558,6 @@ class DashboardView(APIView):
             | Q(status=Restaurant.Status.TRIAL, trial_ends_at__lt=now)
         ).order_by("-created_at")
 
-        total_branches = Branch.objects.count()
-
         # "Recent activity" (clarified 2026-08-22, per Shereena): every
         # platform action, not just new tenants — plan changes, team member
         # added, org created, etc. This is exactly what PlatformActivityLog
@@ -545,8 +571,10 @@ class DashboardView(APIView):
             {
                 "total_tenants": total_tenants,
                 "active_tenants": active_tenants,
+                "active_tenants_percentage": active_tenants_percentage,
                 "inactive_tenants": total_tenants - active_tenants,
                 "total_staff_across_platform": total_staff,
+                "total_staff_percentage": total_staff_percentage,
                 "recent_tenants": RestaurantSerializer(recent_tenants, many=True).data,
                 "monthly_revenue": monthly_revenue,
                 "new_signups_this_week": new_signups_this_week,
@@ -556,6 +584,7 @@ class DashboardView(APIView):
                 "organizations_needing_attention_count": attention_qs.count(),
                 "organizations_needing_attention": RestaurantSerializer(attention_qs[:10], many=True).data,
                 "total_branches": total_branches,
+                "total_branches_percentage": total_branches_percentage,
                 "recent_activity": PlatformActivityLogSerializer(recent_activity, many=True).data,
             }
         )

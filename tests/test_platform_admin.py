@@ -171,6 +171,55 @@ class TestDashboard:
         assert resp.data["revenue_vs_last_week_percentage"] is not None
         assert resp.data["revenue_vs_last_week_percentage"] > 0
 
+    def test_dashboard_growth_percentages_null_with_nothing_from_last_week(self, platform_admin_client):
+        _, client = platform_admin_client
+        Restaurant.objects.create(name="Fresh Org", slug="fresh-org-null-pct")
+
+        resp = client.get("/platform/dashboard/")
+
+        assert resp.status_code == 200
+        # Everything in a fresh test transaction was created "now", so there's
+        # no baseline from 7+ days ago to compare against.
+        assert resp.data["active_tenants_percentage"] is None
+        assert resp.data["total_branches_percentage"] is None
+        assert resp.data["total_staff_percentage"] is None
+
+    def test_dashboard_growth_percentages_computed_against_prior_week(self, platform_admin_client):
+        from django.utils import timezone
+
+        from apps.authentication.models import User
+        from apps.restaurant.models import Branch
+
+        _, client = platform_admin_client
+
+        old_restaurant = Restaurant.objects.create(name="Old Org", slug="old-org-growth-pct")
+        Restaurant.objects.filter(id=old_restaurant.id).update(
+            created_at=timezone.now() - timezone.timedelta(days=10)
+        )
+        Restaurant.objects.create(name="New Org", slug="new-org-growth-pct")
+
+        old_branch = Branch.objects.create(restaurant=old_restaurant, name="Old Branch")
+        Branch.objects.filter(id=old_branch.id).update(created_at=timezone.now() - timezone.timedelta(days=10))
+        Branch.objects.create(restaurant=old_restaurant, name="New Branch")
+
+        old_user = User.objects.create_user(
+            email="old-staff@growth-pct.demo", password="Test@1234", role="MANAGER",
+            name="Old Staff", restaurant=old_restaurant,
+        )
+        User.objects.filter(id=old_user.id).update(created_at=timezone.now() - timezone.timedelta(days=10))
+        User.objects.create_user(
+            email="new-staff@growth-pct.demo", password="Test@1234", role="MANAGER",
+            name="New Staff", restaurant=old_restaurant,
+        )
+
+        resp = client.get("/platform/dashboard/")
+
+        assert resp.status_code == 200
+        # 1 old + 1 new -> doubled -> +100% for each metric
+        assert resp.data["active_tenants_percentage"] == 100.0
+        assert resp.data["total_branches_percentage"] == 100.0
+        assert resp.data["total_staff_percentage"] == 100.0
+
     def test_dashboard_recent_activity_includes_non_tenant_actions(self, platform_admin_client):
         admin, client = platform_admin_client
         restaurant = Restaurant.objects.create(name="Activity Co", slug="activity-co")
