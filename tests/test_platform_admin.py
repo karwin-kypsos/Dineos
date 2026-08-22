@@ -120,6 +120,57 @@ class TestDashboard:
         assert float(sum(float(day["amount"]) for day in resp.data["weekly_revenue"])) >= 200.0
         assert "revenue_vs_last_week" in resp.data
 
+    def test_dashboard_revenue_percentage_null_with_no_prior_week_revenue(self, platform_admin_client):
+        from apps.billing.models import Bill
+        from apps.orders.models import Order
+        from apps.restaurant.models import Branch
+
+        _, client = platform_admin_client
+        restaurant = Restaurant.objects.create(name="Percentage Null Co", slug="percentage-null-co")
+        branch = Branch.objects.create(restaurant=restaurant, name="Main")
+        order = Order.objects.create(order_type="TAKEAWAY", branch=branch, round_number=1)
+        Bill.objects.create(
+            order=order, branch=branch, subtotal="100.00", total_amount="100.00", payment_method="CASH",
+        )
+
+        resp = client.get("/platform/dashboard/")
+
+        assert resp.status_code == 200
+        # No bills exist from 7-14 days ago in a fresh test transaction, so
+        # percent-vs-last-week is undefined (can't divide by a zero base).
+        assert resp.data["revenue_vs_last_week_percentage"] is None
+
+    def test_dashboard_revenue_percentage_computed_against_prior_week(self, platform_admin_client):
+        from django.utils import timezone
+
+        from apps.billing.models import Bill
+        from apps.orders.models import Order
+        from apps.restaurant.models import Branch
+
+        _, client = platform_admin_client
+        restaurant = Restaurant.objects.create(name="Percentage Co", slug="percentage-co")
+        branch = Branch.objects.create(restaurant=restaurant, name="Main")
+
+        this_week_order = Order.objects.create(order_type="TAKEAWAY", branch=branch, round_number=1)
+        Bill.objects.create(
+            order=this_week_order, branch=branch, subtotal="150.00", total_amount="150.00", payment_method="CASH",
+        )
+
+        last_week_order = Order.objects.create(order_type="TAKEAWAY", branch=branch, round_number=1)
+        last_week_bill = Bill.objects.create(
+            order=last_week_order, branch=branch, subtotal="100.00", total_amount="100.00", payment_method="CASH",
+        )
+        Bill.objects.filter(id=last_week_bill.id).update(paid_at=timezone.now() - timezone.timedelta(days=10))
+
+        resp = client.get("/platform/dashboard/")
+
+        assert resp.status_code == 200
+        # this week >= 150 (at least our bill; platform-wide so could be more
+        # from other fixtures), last week == 100 exactly (isolated to our one
+        # backdated bill) -> percentage is a positive number, not null.
+        assert resp.data["revenue_vs_last_week_percentage"] is not None
+        assert resp.data["revenue_vs_last_week_percentage"] > 0
+
     def test_dashboard_recent_activity_includes_non_tenant_actions(self, platform_admin_client):
         admin, client = platform_admin_client
         restaurant = Restaurant.objects.create(name="Activity Co", slug="activity-co")

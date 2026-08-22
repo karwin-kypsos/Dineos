@@ -506,6 +506,16 @@ class DashboardView(APIView):
         previous_week_total = Bill.objects.filter(
             paid_at__gte=previous_week_start, paid_at__lt=week_start
         ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
+        # revenue_vs_last_week was an absolute amount only — the frontend's
+        # "+X% vs last week" badge needs the percentage too (2026-08-22, per
+        # Shereena). Null when last week had zero revenue (percent change is
+        # undefined against a zero base) rather than a fake/infinite number.
+        if previous_week_total > 0:
+            revenue_vs_last_week_percentage = float(
+                ((this_week_total - previous_week_total) / previous_week_total * 100).quantize(Decimal("0.1"))
+            )
+        else:
+            revenue_vs_last_week_percentage = None
 
         # "Needing attention" (2026-08-22, per Shereena): SUSPENDED orgs, or
         # a TRIAL org whose trial_ends_at has passed. "Unpaid billing" was
@@ -542,6 +552,7 @@ class DashboardView(APIView):
                 "new_signups_this_week": new_signups_this_week,
                 "weekly_revenue": weekly_revenue,
                 "revenue_vs_last_week": this_week_total - previous_week_total,
+                "revenue_vs_last_week_percentage": revenue_vs_last_week_percentage,
                 "organizations_needing_attention_count": attention_qs.count(),
                 "organizations_needing_attention": RestaurantSerializer(attention_qs[:10], many=True).data,
                 "total_branches": total_branches,
