@@ -1,5 +1,8 @@
+from collections import Counter
+
 from django.db import models
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -13,6 +16,7 @@ from core.tenancy import get_tenant_from_session
 from . import services
 from .models import Order
 from .serializers import (
+    KDSOrderSerializer,
     OrderCreateSerializer,
     OrderSerializer,
     OrderStatusUpdateSerializer,
@@ -99,6 +103,18 @@ class TakeawayOrderView(APIView):
 
 
 class ActiveOrdersView(APIView):
+    """KDS "Live" dashboard envelope (Shereena's KOT Live spec, 2026-08-21):
+    server_time + summary status counts + the active order list, each order
+    carrying pre-calculated card metrics (elapsed wait time, urgency, item
+    breakdown) via KDSOrderSerializer. Used by both the Kitchen Display and
+    the Server app; scoped to this one endpoint only — Ready Orders and
+    every other endpoint keep their existing flat-array shape.
+
+    Deliberately cheap: the active-orders queryset is materialized ONCE and
+    reused for both the summary counts and the serialized order list (no
+    second DB round-trip), same performance posture as the admin dashboard.
+    """
+
     authentication_classes = [JWTAuthentication, KDSKeyAuthentication]
     permission_classes = [IsServerOrKDSDevice]
 
@@ -114,7 +130,21 @@ class ActiveOrdersView(APIView):
         branch = _request_branch(request)
         if branch is not None:
             orders = orders.filter(models.Q(branch=branch) | models.Q(branch__isnull=True))
-        return Response(OrderSerializer(orders, many=True).data)
+
+        orders = list(orders)
+        status_counts = Counter(order.status for order in orders)
+
+        return Response({
+            "server_time": timezone.now(),
+            "summary": {
+                "total_orders_count": len(orders),
+                "new_count": status_counts.get("NEW", 0),
+                "accepted_count": status_counts.get("ACCEPTED", 0),
+                "preparing_count": status_counts.get("PREPARING", 0),
+                "ready_count": status_counts.get("READY", 0),
+            },
+            "orders": KDSOrderSerializer(orders, many=True).data,
+        })
 
 
 class ReadyOrdersView(APIView):

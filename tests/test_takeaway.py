@@ -216,7 +216,10 @@ def test_active_orders_includes_takeaway(cashier_with_branch, manager_client, me
     response = manager.get("/v1/orders/active/")
 
     assert response.status_code == 200
-    ids = {o["id"] for o in response.data}
+    # /v1/orders/active/ returns a Dashboard Envelope ({server_time, summary,
+    # orders}), not a flat array — see tests/test_active_orders_envelope.py
+    # for full coverage of the envelope shape itself.
+    ids = {o["id"] for o in response.data["orders"]}
     assert order_id in ids
 
 
