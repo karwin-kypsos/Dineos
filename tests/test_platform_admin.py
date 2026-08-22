@@ -34,6 +34,38 @@ class TestDashboard:
         assert resp.data["inactive_tenants"] == 1
         assert len(resp.data["recent_tenants"]) == 2
 
+    def test_dashboard_includes_monthly_revenue_and_branch_count(self, platform_admin_client):
+        from apps.billing.models import Bill
+        from apps.orders.models import Order
+        from apps.restaurant.models import Branch
+
+        _, client = platform_admin_client
+        restaurant = Restaurant.objects.create(name="Revenue Co", slug="revenue-co")
+        branch = Branch.objects.create(restaurant=restaurant, name="Main")
+        order = Order.objects.create(order_type="TAKEAWAY", branch=branch, round_number=1)
+        Bill.objects.create(
+            order=order, branch=branch, subtotal="100.00", total_amount="100.00", payment_method="CASH",
+        )
+
+        resp = client.get("/platform/dashboard/")
+
+        assert resp.status_code == 200
+        assert float(resp.data["monthly_revenue"]) >= 100.0
+        assert resp.data["total_branches"] >= 1
+        assert len(resp.data["new_signups_this_week"]) == 7
+
+    def test_dashboard_lists_suspended_orgs_as_needing_attention(self, platform_admin_client):
+        _, client = platform_admin_client
+        Restaurant.objects.create(name="Suspended Co", slug="suspended-co", status=Restaurant.Status.SUSPENDED)
+        Restaurant.objects.create(name="Healthy Co", slug="healthy-co", status=Restaurant.Status.ACTIVE)
+
+        resp = client.get("/platform/dashboard/")
+
+        assert resp.status_code == 200
+        assert resp.data["organizations_needing_attention_count"] == 1
+        names = {org["name"] for org in resp.data["organizations_needing_attention"]}
+        assert names == {"Suspended Co"}
+
 
 @pytest.mark.django_db
 class TestActivityLog:

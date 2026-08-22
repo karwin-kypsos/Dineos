@@ -436,10 +436,44 @@ class DashboardView(APIView):
     permission_classes = [IsPlatformAdmin]
 
     def get(self, request):
+        from decimal import Decimal
+
+        from django.db.models import Count, Sum
+        from django.db.models.functions import TruncDate
+
+        from apps.billing.models import Bill
+        from apps.restaurant.models import Branch
+
         total_tenants = Restaurant.objects.count()
         active_tenants = Restaurant.objects.filter(is_active=True).count()
         total_staff = User.objects.count()
         recent_tenants = Restaurant.objects.order_by("-created_at")[:5]
+
+        now = timezone.now()
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        monthly_revenue = Bill.objects.filter(paid_at__gte=month_start).aggregate(total=Sum("total_amount"))[
+            "total"
+        ] or Decimal("0")
+
+        week_start = (now - timezone.timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+        signups_by_day = {
+            row["day"]: row["count"]
+            for row in Restaurant.objects.filter(created_at__gte=week_start)
+            .annotate(day=TruncDate("created_at"))
+            .values("day")
+            .annotate(count=Count("id"))
+        }
+        new_signups_this_week = [
+            {"date": str(day), "count": signups_by_day.get(day, 0)}
+            for day in (week_start.date() + timezone.timedelta(days=i) for i in range(7))
+        ]
+
+        # "Needing attention" = suspended orgs — the one unambiguous signal
+        # already on Restaurant.status; nothing else on the model currently
+        # tracks a soft billing/trial-expiry problem worth surfacing here.
+        attention_qs = Restaurant.objects.filter(status=Restaurant.Status.SUSPENDED).order_by("-created_at")
+
+        total_branches = Branch.objects.count()
 
         return Response(
             {
@@ -448,6 +482,11 @@ class DashboardView(APIView):
                 "inactive_tenants": total_tenants - active_tenants,
                 "total_staff_across_platform": total_staff,
                 "recent_tenants": RestaurantSerializer(recent_tenants, many=True).data,
+                "monthly_revenue": monthly_revenue,
+                "new_signups_this_week": new_signups_this_week,
+                "organizations_needing_attention_count": attention_qs.count(),
+                "organizations_needing_attention": RestaurantSerializer(attention_qs[:10], many=True).data,
+                "total_branches": total_branches,
             }
         )
 
