@@ -24,3 +24,9 @@ class MenuItemNotFoundError(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "One or more menu items don't exist, aren't available, or don't belong to this restaurant."
     default_code = "menu_item_not_found"
+
+
+class OrderAlreadyBilledError(APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "This takeaway order has already been billed — a new round can't be added to it."
+    default_code = "order_already_billed"

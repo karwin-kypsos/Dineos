@@ -240,6 +240,142 @@ def test_ready_orders_includes_takeaway(cashier_with_branch, manager_client, men
     assert order_id in ids
 
 
+def test_adding_a_round_to_a_takeaway_order_links_it_and_increments_round_number(cashier_with_branch, menu_item):
+    _, client = cashier_with_branch
+
+    first = client.post(
+        "/v1/orders/takeaway/",
+        {"customer_name": "Sam", "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+    assert first.status_code == 201, first.data
+    root_id = first.data["id"]
+    assert first.data["round_number"] == 1
+    assert first.data["parent_order"] is None
+
+    second = client.post(
+        "/v1/orders/takeaway/",
+        {"existing_order_id": root_id, "items": [{"menu_item": menu_item.id, "quantity": 2}]},
+        format="json",
+    )
+    assert second.status_code == 201, second.data
+    assert second.data["round_number"] == 2
+    assert str(second.data["parent_order"]) == root_id
+    # customer info carries forward from the root order automatically
+    assert second.data["customer_name"] == "Sam"
+    assert second.data["id"] != root_id
+
+    third = client.post(
+        "/v1/orders/takeaway/",
+        {"existing_order_id": second.data["id"], "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+    assert third.status_code == 201, third.data
+    assert third.data["round_number"] == 3
+    # passing a later round's id still resolves back to the same root
+    assert str(third.data["parent_order"]) == root_id
+
+
+def test_cannot_add_takeaway_round_to_another_restaurants_order(cashier_with_branch, menu_item, restaurant):
+    _, client = cashier_with_branch
+
+    from apps.restaurant.models import Branch, Restaurant
+
+    foreign_restaurant = Restaurant.objects.create(name="Foreign TA Rounds", slug="foreign-ta-rounds")
+    foreign_branch = Branch.objects.create(restaurant=foreign_restaurant, name="Foreign Branch")
+    foreign_order = Order.objects.create(order_type="TAKEAWAY", branch=foreign_branch, round_number=1)
+
+    response = client.post(
+        "/v1/orders/takeaway/",
+        {"existing_order_id": str(foreign_order.id), "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+
+    assert response.status_code == 403
+
+
+def test_cannot_add_takeaway_round_once_order_is_billed(cashier_with_branch, menu_item):
+    _, client = cashier_with_branch
+
+    first = client.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    )
+    order_id = first.data["id"]
+    pay = client.post(
+        "/v1/bills/takeaway-payment/", {"order_id": order_id, "payment_method": "CASH"}, format="json",
+    )
+    assert pay.status_code == 201
+
+    response = client.post(
+        "/v1/orders/takeaway/",
+        {"existing_order_id": order_id, "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+
+    assert response.status_code == 409
+
+
+def test_takeaway_bill_preview_and_payment_combine_every_round(cashier_with_branch, menu_item):
+    _, client = cashier_with_branch
+
+    first = client.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 2}]}, format="json",
+    )
+    root_id = first.data["id"]
+    second = client.post(
+        "/v1/orders/takeaway/",
+        {"existing_order_id": root_id, "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+    assert second.status_code == 201, second.data
+
+    preview = client.get(f"/v1/bills/takeaway/{root_id}/")
+    assert preview.status_code == 200
+    assert Decimal(preview.data["subtotal"]) == menu_item.price * 3
+    # One line item per round (each round is its own OrderItem row, even
+    # for the same menu item) — this stays consistent with how a multi-round
+    # dine-in bill already lists items, see services.line_items.
+    assert len(preview.data["items"]) == 2
+    assert sorted(item["quantity"] for item in preview.data["items"]) == [1, 2]
+
+    # Previewing/paying via the SECOND round's id resolves to the same bill.
+    preview_via_round = client.get(f"/v1/bills/takeaway/{second.data['id']}/")
+    assert Decimal(preview_via_round.data["subtotal"]) == menu_item.price * 3
+
+    pay = client.post(
+        "/v1/bills/takeaway-payment/", {"order_id": second.data["id"], "payment_method": "CASH"}, format="json",
+    )
+    assert pay.status_code == 201, pay.data
+    assert str(pay.data["order"]) == root_id
+    assert Decimal(str(pay.data["total_amount"])) == Decimal(str(preview.data["total_amount"]))
+
+
+def test_takeaway_order_details_returns_every_round(cashier_with_branch, menu_item):
+    _, client = cashier_with_branch
+
+    first = client.post(
+        "/v1/orders/takeaway/",
+        {"customer_name": "Priya", "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+    root_id = first.data["id"]
+    client.post(
+        "/v1/orders/takeaway/",
+        {"existing_order_id": root_id, "items": [{"menu_item": menu_item.id, "quantity": 2}]},
+        format="json",
+    )
+
+    response = client.get(f"/v1/orders/takeaway/{root_id}/details/")
+
+    assert response.status_code == 200, response.data
+    assert response.data["order_id"] == root_id
+    assert response.data["customer_name"] == "Priya"
+    assert response.data["is_billed"] is False
+    assert len(response.data["rounds"]) == 2
+    assert [r["round_number"] for r in response.data["rounds"]] == [1, 2]
+    assert Decimal(str(response.data["combined_total_amount"])) == menu_item.price * 3
+
+
 def test_kitchen_disabled_takeaway_order_auto_serves(cashier_with_branch, menu_item, restaurant):
     restaurant.kitchen_enabled = False
     restaurant.save(update_fields=["kitchen_enabled"])

@@ -12,12 +12,14 @@ from .views import (
     OrdersBySessionView,
     OrdersByTableView,
     ReadyOrdersView,
+    TakeawayOrderDetailView,
     TakeawayOrderView,
 )
 
 urlpatterns = [
     path("", CreateOrderView.as_view(), name="orders-create"),
     path("takeaway/", TakeawayOrderView.as_view(), name="orders-takeaway-create"),
+    path("takeaway/<uuid:order_id>/details/", TakeawayOrderDetailView.as_view(), name="orders-takeaway-detail"),
     path("active/", ActiveOrdersView.as_view(), name="orders-active"),
     path("ready/", ReadyOrdersView.as_view(), name="orders-ready"),
     path("mine/", MyOrdersView.as_view(), name="orders-mine"),

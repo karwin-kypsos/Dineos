@@ -39,6 +39,15 @@ class Order(models.Model):
     branch = models.ForeignKey(
         "restaurant.Branch", on_delete=models.SET_NULL, null=True, blank=True, related_name="orders"
     )
+    # Takeaway-only "next round" support (2026-08-22): dine-in gets extra
+    # rounds for free by reusing session_id across POST /v1/orders calls
+    # (see services.place_order's round_number computation); takeaway has no
+    # session to reuse, so a later round instead points parent_order at the
+    # very first order placed for that customer. Null on the first round
+    # (the "root") and on every dine-in order. See services.place_takeaway_order.
+    parent_order = models.ForeignKey(
+        "self", on_delete=models.CASCADE, null=True, blank=True, related_name="rounds"
+    )
     customer_name = models.CharField(max_length=255, blank=True)
     customer_phone = models.CharField(max_length=32, blank=True)
     round_number = models.PositiveIntegerField(default=1)

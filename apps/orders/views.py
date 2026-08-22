@@ -98,8 +98,41 @@ class TakeawayOrderView(APIView):
         order = services.place_takeaway_order(
             request.tenant, branch, items, customer_name=data["customer_name"],
             customer_phone=data["customer_phone"], placed_by=request.user, notes=data.get("notes", ""),
+            existing_order_id=data.get("existing_order_id"),
         )
         return Response(OrderSerializer(order).data, status=201)
+
+
+class TakeawayOrderDetailView(APIView):
+    """Takeaway Order Details API (Shereena, 2026-08-22): the complete
+    picture of one takeaway order across every round placed against it —
+    round 1 plus every later round added via existing_order_id (see
+    services.place_takeaway_order/takeaway_group) — since a single round's
+    plain GET /v1/orders/{order_id}/ only shows that one round's items.
+    order_id may be the root order's id or any later round's id; either way
+    this resolves to the same group and returns it root-first."""
+
+    permission_classes = [IsAnyStaff]
+
+    def get(self, request, order_id):
+        order = get_object_or_404(
+            Order.objects.filter(order_type=Order.OrderType.TAKEAWAY, branch__restaurant=request.tenant),
+            id=order_id,
+        )
+        root = order if order.parent_order_id is None else order.parent_order
+        rounds = services.takeaway_group(
+            Order.objects.select_related("branch").prefetch_related("items").get(id=root.id)
+        )
+        return Response({
+            "order_id": str(root.id),
+            "customer_name": root.customer_name,
+            "customer_phone": root.customer_phone,
+            "is_billed": hasattr(root, "takeaway_bill"),
+            "rounds": OrderSerializer(rounds, many=True).data,
+            "combined_total_amount": sum(
+                (item.line_total for round_order in rounds for item in round_order.items.all()), 0
+            ),
+        })
 
 
 class ActiveOrdersView(APIView):

@@ -20,9 +20,19 @@ class BillSerializer(serializers.ModelSerializer):
         return obj.session.table.table_number if obj.session_id else None
 
     def get_items(self, obj):
+        from apps.orders.services import takeaway_group
+
         from . import services
 
-        orders = [obj.order] if obj.order_id else obj.session.orders.exclude(status="CANCELLED").prefetch_related("items")
+        # A takeaway bill's order is always the root of its group (see
+        # services.pay_takeaway_bill) — pull every round's items in, not
+        # just the root's, so a multi-round takeaway receipt isn't missing
+        # whatever was added in round 2/3/etc.
+        orders = (
+            takeaway_group(obj.order)
+            if obj.order_id
+            else obj.session.orders.exclude(status="CANCELLED").prefetch_related("items")
+        )
         return services.line_items(orders)
 
     def _restaurant(self, obj):

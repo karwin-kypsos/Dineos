@@ -135,27 +135,44 @@ def pay_bill(session_id, payment_method, processed_by, amount_received=None):
     return bill
 
 
+def _takeaway_root(order):
+    """Billing is always keyed off the first round (Bill.order is a
+    OneToOne) — a later round's id resolves back to it so paying/previewing
+    with any round's order_id bills the whole takeaway order, same as
+    dine-in bills the whole session regardless of which order the caller
+    has in hand."""
+    return order if order.parent_order_id is None else order.parent_order
+
+
 def _compute_order_totals(order, restaurant):
-    subtotal = sum((item.unit_price * item.quantity for item in order.items.all()), Decimal("0"))
+    from apps.orders.services import takeaway_group
+
+    orders = takeaway_group(order)
+    subtotal = sum(
+        (item.unit_price * item.quantity for round_order in orders for item in round_order.items.all()), Decimal("0")
+    )
     tax_amount = (subtotal * restaurant.gst_percentage / Decimal("100")).quantize(Decimal("0.01"))
     service_charge = (subtotal * restaurant.service_charge_percentage / Decimal("100")).quantize(Decimal("0.01"))
     total_amount = subtotal + tax_amount + service_charge
-    return subtotal, tax_amount, service_charge, total_amount
+    return subtotal, tax_amount, service_charge, total_amount, orders
 
 
 @transaction.atomic
 def get_takeaway_bill_preview(order_id):
-    order = Order.objects.select_related("branch__restaurant").prefetch_related("items").get(id=order_id)
-    restaurant = order.branch.restaurant
-    subtotal, tax_amount, service_charge, total_amount = _compute_order_totals(order, restaurant)
+    order = Order.objects.select_related("branch__restaurant").prefetch_related("items", "rounds__items").get(
+        id=order_id
+    )
+    root = _takeaway_root(order)
+    restaurant = root.branch.restaurant
+    subtotal, tax_amount, service_charge, total_amount, orders = _compute_order_totals(root, restaurant)
     return {
-        "order_id": str(order.id),
+        "order_id": str(root.id),
         "subtotal": subtotal,
         "tax_amount": tax_amount,
         "service_charge": service_charge,
         "total_amount": total_amount,
-        "items": line_items([order]),
-        **receipt_branch_info(order.branch, restaurant),
+        "items": line_items(orders),
+        **receipt_branch_info(root.branch, restaurant),
     }
 
 
@@ -169,20 +186,21 @@ def pay_takeaway_bill(order_id, payment_method, processed_by, amount_received=No
     order = (
         Order.objects.select_for_update(of=("self",))
         .select_related("branch__restaurant")
-        .prefetch_related("items")
+        .prefetch_related("items", "rounds__items")
         .get(id=order_id)
     )
+    root = _takeaway_root(order)
 
-    existing_bill = Bill.objects.filter(order=order).first()
+    existing_bill = Bill.objects.filter(order=root).first()
     if existing_bill:
         return existing_bill  # idempotent replay
 
-    restaurant = order.branch.restaurant
-    subtotal, tax_amount, service_charge, total_amount = _compute_order_totals(order, restaurant)
+    restaurant = root.branch.restaurant
+    subtotal, tax_amount, service_charge, total_amount, _orders = _compute_order_totals(root, restaurant)
     change_given = amount_received - total_amount if amount_received is not None else None
     bill = Bill.objects.create(
-        order=order,
-        branch=order.branch,
+        order=root,
+        branch=root.branch,
         subtotal=subtotal,
         tax_amount=tax_amount,
         service_charge=service_charge,
@@ -193,7 +211,7 @@ def pay_takeaway_bill(order_id, payment_method, processed_by, amount_received=No
         change_given=change_given,
     )
 
-    transaction.on_commit(lambda: _notify_takeaway_payment_confirmed(bill, order, restaurant))
+    transaction.on_commit(lambda: _notify_takeaway_payment_confirmed(bill, root, restaurant))
     return bill
 
 

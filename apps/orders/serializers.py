@@ -36,6 +36,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "session",
             "table",
             "branch",
+            "parent_order",
             "customer_name",
             "customer_phone",
             "round_number",
@@ -157,6 +158,10 @@ class TakeawayOrderCreateSerializer(serializers.Serializer):
     customer_phone = serializers.CharField(required=False, allow_blank=True, default="")
     notes = serializers.CharField(required=False, allow_blank=True, default="")
     items = OrderItemInputSerializer(many=True)
+    # Pass an existing takeaway order's id here to add a "next round" of
+    # items to it, instead of starting an unrelated order — the takeaway
+    # equivalent of dine-in reusing session_id across POST /v1/orders calls.
+    existing_order_id = serializers.UUIDField(required=False, allow_null=True, default=None)
 
     def validate_items(self, value):
         if not value:

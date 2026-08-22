@@ -7,7 +7,12 @@ from django.utils import timezone
 from apps.menu.models import MenuItem
 from apps.menu.services import decrement_portions
 from apps.tables.models import TableSession
-from core.exceptions import InvalidStatusTransitionError, MenuItemNotFoundError, SessionNotOpenError
+from core.exceptions import (
+    InvalidStatusTransitionError,
+    MenuItemNotFoundError,
+    OrderAlreadyBilledError,
+    SessionNotOpenError,
+)
 
 from .models import Order, OrderItem
 
@@ -105,13 +110,55 @@ def place_order(session_id, items, placed_by=None, notes=""):
     return order
 
 
+def takeaway_group(root):
+    """root + every round placed against it, oldest first — the takeaway
+    equivalent of `Order.objects.filter(session=session)` for dine-in."""
+    return [root, *root.rounds.order_by("round_number")]
+
+
 @transaction.atomic
-def place_takeaway_order(restaurant, branch, items, customer_name="", customer_phone="", placed_by=None, notes=""):
+def place_takeaway_order(
+    restaurant, branch, items, customer_name="", customer_phone="", placed_by=None, notes="", existing_order_id=None
+):
     """Same lifecycle as a dine-in order (kitchen states, portion
-    deduction) but with no table/session — see Order.OrderType.TAKEAWAY."""
+    deduction) but with no table/session — see Order.OrderType.TAKEAWAY.
+
+    existing_order_id is the takeaway analogue of dine-in's session_id reuse
+    (see place_order above): pass the id of an order already placed for this
+    customer to add a new round of items to it instead of starting a
+    separate, unrelated order. A brand-new Order row is still created for
+    the round (so the kitchen sees it as fresh, unprepared work — mirrors
+    why dine-in gives each round its own Order rather than appending items
+    to one that may already be READY/COLLECTED), but it's linked back to the
+    first order via parent_order so it bills as one order (see
+    apps.billing.services.get_takeaway_bill_preview/pay_takeaway_bill) and
+    shows up together via GET /v1/orders/takeaway/{order_id}/details/.
+    """
+    parent = None
+    round_number = 1
+    if existing_order_id is not None:
+        from rest_framework.exceptions import PermissionDenied
+
+        from apps.billing.models import Bill
+
+        try:
+            existing = Order.objects.select_for_update().get(
+                id=existing_order_id, order_type=Order.OrderType.TAKEAWAY, branch__restaurant=restaurant
+            )
+        except Order.DoesNotExist:
+            raise PermissionDenied("This order does not belong to your restaurant.")
+        root = existing if existing.parent_order_id is None else existing.parent_order
+        if Bill.objects.filter(order=root).exists():
+            raise OrderAlreadyBilledError()
+        parent = root
+        customer_name = customer_name or root.customer_name
+        customer_phone = customer_phone or root.customer_phone
+        round_number = len(takeaway_group(root)) + 1
+
     order = Order.objects.create(
         order_type=Order.OrderType.TAKEAWAY, branch=branch,
         customer_name=customer_name, customer_phone=customer_phone,
+        parent_order=parent, round_number=round_number,
         placed_by=placed_by, notes=notes,
     )
 
