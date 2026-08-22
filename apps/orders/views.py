@@ -165,6 +165,30 @@ class ReadyOrdersView(APIView):
         return Response(OrderSerializer(orders, many=True).data)
 
 
+class MyOrdersView(APIView):
+    """Server's own 'My Orders' screen — every order across every active
+    status (NEW/ACCEPTED/PREPARING/READY) for just the tables assigned to
+    the calling server, unlike Active/Ready Orders above which are
+    branch-wide across every server. Dine-in only — assigned_server lives
+    on TableSession, which takeaway orders don't have (round-robin
+    assignment is dine-in only, see apps.tables.services.assign_next_server).
+    """
+
+    permission_classes = [IsAnyStaff]
+
+    def get(self, request):
+        orders = (
+            Order.objects.filter(
+                table__restaurant=request.tenant,
+                session__assigned_server=request.user,
+                status__in=["NEW", "ACCEPTED", "PREPARING", "READY"],
+            )
+            .select_related("table")
+            .prefetch_related("items")
+        )
+        return Response(OrderSerializer(orders, many=True).data)
+
+
 class OrderDetailView(APIView):
     authentication_classes = [JWTAuthentication, KDSKeyAuthentication]
     permission_classes = [IsServerOrKDSDevice]

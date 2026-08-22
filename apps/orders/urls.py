@@ -3,6 +3,7 @@ from django.urls import path
 from .views import (
     ActiveOrdersView,
     CreateOrderView,
+    MyOrdersView,
     OrderCollectedView,
     OrderDetailView,
     OrderItemKitchenStatusView,
@@ -19,6 +20,7 @@ urlpatterns = [
     path("takeaway/", TakeawayOrderView.as_view(), name="orders-takeaway-create"),
     path("active/", ActiveOrdersView.as_view(), name="orders-active"),
     path("ready/", ReadyOrdersView.as_view(), name="orders-ready"),
+    path("mine/", MyOrdersView.as_view(), name="orders-mine"),
     path("session/<uuid:session_id>/", OrdersBySessionView.as_view(), name="orders-by-session"),
     path("table/<uuid:table_id>/", OrdersByTableView.as_view(), name="orders-by-table"),
     path("<uuid:order_id>/status/", OrderKitchenStatusView.as_view(), name="orders-kitchen-status"),

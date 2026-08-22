@@ -18,3 +18,9 @@ class InvalidStatusTransitionError(APIException):
     status_code = status.HTTP_400_BAD_REQUEST
     default_detail = "That status transition is not allowed."
     default_code = "invalid_status_transition"
+
+
+class MenuItemNotFoundError(APIException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_detail = "One or more menu items don't exist, aren't available, or don't belong to this restaurant."
+    default_code = "menu_item_not_found"

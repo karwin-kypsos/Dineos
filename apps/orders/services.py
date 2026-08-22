@@ -7,7 +7,7 @@ from django.utils import timezone
 from apps.menu.models import MenuItem
 from apps.menu.services import decrement_portions
 from apps.tables.models import TableSession
-from core.exceptions import InvalidStatusTransitionError, SessionNotOpenError
+from core.exceptions import InvalidStatusTransitionError, MenuItemNotFoundError, SessionNotOpenError
 
 from .models import Order, OrderItem
 
@@ -51,9 +51,14 @@ def _create_order_items(order, items, restaurant):
     zero_hits = []
     portion_updates = []
     for item in items:
-        menu_item = MenuItem.objects.select_for_update().get(
-            id=item["menu_item_id"], is_available=True, category__restaurant=restaurant
-        )
+        try:
+            menu_item = MenuItem.objects.select_for_update().get(
+                id=item["menu_item_id"], is_available=True, category__restaurant=restaurant
+            )
+        except MenuItem.DoesNotExist:
+            raise MenuItemNotFoundError(
+                f"Menu item {item['menu_item_id']} doesn't exist, isn't available, or doesn't belong to this restaurant."
+            )
         OrderItem.objects.create(
             order=order, menu_item=menu_item, quantity=item["quantity"], notes=item.get("notes", ""), unit_price=menu_item.price
         )
