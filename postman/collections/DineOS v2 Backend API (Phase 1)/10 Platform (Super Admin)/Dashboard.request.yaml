@@ -15,6 +15,7 @@ scripts:
       pm.test('has total_branches', () => pm.expect(dashboardData.total_branches).to.be.a('number'));
       pm.test('weekly_revenue has 7 days', () => pm.expect(dashboardData.weekly_revenue).to.have.lengthOf(7));
       pm.test('has revenue_vs_last_week', () => pm.expect(dashboardData).to.have.property('revenue_vs_last_week'));
+      pm.test('has revenue_vs_last_week_percentage', () => pm.expect(dashboardData).to.have.property('revenue_vs_last_week_percentage'));
       pm.test('recent_activity is a list', () => pm.expect(dashboardData.recent_activity).to.be.an('array'));
     language: text/javascript
 order: 4000
