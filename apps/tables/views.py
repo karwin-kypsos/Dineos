@@ -47,10 +47,21 @@ class TableViewSet(viewsets.ReadOnlyModelViewSet):
             # A Server only ever sees their own assigned tables plus
             # whatever's currently free — never another server's occupied
             # table. Admin/Manager/Cashier are unaffected (full visibility).
+            #
+            # Safety net (2026-08-23, per Shereena): POST .../session/ marks
+            # the table OCCUPIED immediately, before any order exists — if a
+            # server opens a session and backs out without ordering, nobody
+            # gets assigned (assign_next_server only runs on the first order,
+            # see apps.tables.services), so the table matched neither clause
+            # above and got permanently stuck, invisible to every server.
+            # Checked via assigned_server (not order count directly) so an
+            # already-assigned table — even one with zero orders — stays
+            # visible to only its own server, same as always.
             if role == "SERVER":
                 qs = qs.filter(
                     models.Q(status=Table.Status.AVAILABLE)
                     | models.Q(sessions__status__in=["ACTIVE", "BILL_REQUESTED"], sessions__assigned_server=self.request.user)
+                    | models.Q(sessions__status__in=["ACTIVE", "BILL_REQUESTED"], sessions__assigned_server__isnull=True)
                 ).distinct()
         return qs
 

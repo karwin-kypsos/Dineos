@@ -376,6 +376,28 @@ def test_takeaway_order_details_returns_every_round(cashier_with_branch, menu_it
     assert Decimal(str(response.data["combined_total_amount"])) == menu_item.price * 3
 
 
+def test_takeaway_order_payment_status_pending_then_paid(cashier_with_branch, menu_item):
+    _, client = cashier_with_branch
+
+    create = client.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    )
+    assert create.data["payment_status"] == "PENDING"
+    order_id = create.data["id"]
+
+    preview = client.get(f"/v1/bills/takeaway/{order_id}/")
+    assert preview.data["payment_status"] == "PENDING"
+
+    pay = client.post(
+        "/v1/bills/takeaway-payment/", {"order_id": order_id, "payment_method": "CASH"}, format="json",
+    )
+    assert pay.status_code == 201
+    assert pay.data["payment_status"] == "PAID"
+
+    detail = client.get(f"/v1/orders/takeaway/{order_id}/details/")
+    assert detail.data["rounds"][0]["payment_status"] == "PAID"
+
+
 def test_kitchen_disabled_takeaway_order_auto_serves(cashier_with_branch, menu_item, restaurant):
     restaurant.kitchen_enabled = False
     restaurant.save(update_fields=["kitchen_enabled"])

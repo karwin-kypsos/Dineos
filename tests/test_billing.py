@@ -61,6 +61,48 @@ def test_bill_preview_includes_items_and_table_number(cashier_client, table, men
     assert response.data["items"][0]["quantity"] == 2
 
 
+def test_bill_preview_payment_status_pending_then_bill_requested(cashier_client, table, menu_item):
+    _, client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+
+    preview = client.get(f"/v1/bills/session/{session.id}/")
+    assert preview.data["payment_status"] == "PENDING"
+
+    table_services.request_bill(session.id)
+    preview = client.get(f"/v1/bills/session/{session.id}/")
+    assert preview.data["payment_status"] == "BILL_REQUESTED"
+
+
+def test_bill_serializer_payment_status_is_paid(cashier_client, table, menu_item):
+    cashier_user, client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    billing_services.pay_bill(session.id, "CASH", cashier_user)
+
+    response = client.get(f"/v1/bills/session/{session.id}/")
+
+    assert response.data["payment_status"] == "PAID"
+
+
+def test_order_payment_status_follows_session_lifecycle(cashier_client, table, menu_item):
+    cashier_user, client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order = order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+
+    response = client.get(f"/v1/orders/session/{session.id}/")
+    assert response.data[0]["payment_status"] == "PENDING"
+
+    table_services.request_bill(session.id)
+    response = client.get(f"/v1/orders/session/{session.id}/")
+    assert response.data[0]["payment_status"] == "BILL_REQUESTED"
+
+    billing_services.pay_bill(session.id, "CASH", cashier_user)
+    response = client.get(f"/v1/orders/session/{session.id}/")
+    assert response.data[0]["payment_status"] == "PAID"
+    assert order.id  # sanity: same order throughout
+
+
 def test_receipt_includes_items_branch_info_and_cashier_name(cashier_client, restaurant, menu_item):
     from apps.restaurant.models import Branch
     from apps.tables.models import Table

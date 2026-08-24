@@ -24,9 +24,25 @@ class OrderItemSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     total_amount = serializers.SerializerMethodField()
+    payment_status = serializers.SerializerMethodField()
 
     def get_total_amount(self, obj):
         return sum((item.line_total for item in obj.items.all()), Decimal("0"))
+
+    def get_payment_status(self, obj):
+        # PAID/PENDING/BILL_REQUESTED (2026-08-23, per Shereena) — dine-in
+        # keys off the session's own Bill/status; takeaway keys off the
+        # ROOT order's Bill (see apps.orders.services.place_takeaway_order —
+        # billing always bills the whole round-group via the root, never a
+        # later round directly), since takeaway has no "bill requested" step.
+        if obj.order_type == Order.OrderType.TAKEAWAY:
+            root = obj.parent_order if obj.parent_order_id else obj
+            return "PAID" if hasattr(root, "takeaway_bill") else "PENDING"
+        if obj.session_id is None:
+            return None
+        if hasattr(obj.session, "bill"):
+            return "PAID"
+        return "BILL_REQUESTED" if obj.session.status == "BILL_REQUESTED" else "PENDING"
 
     class Meta:
         model = Order
@@ -41,6 +57,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "customer_phone",
             "round_number",
             "status",
+            "payment_status",
             "placed_by",
             "notes",
             "items",

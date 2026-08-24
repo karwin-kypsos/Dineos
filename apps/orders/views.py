@@ -69,6 +69,7 @@ class TakeawayOrderView(APIView):
     def get(self, request):
         orders = (
             Order.objects.filter(order_type=Order.OrderType.TAKEAWAY, branch__restaurant=request.tenant)
+            .select_related("parent_order", "parent_order__takeaway_bill", "takeaway_bill")
             .prefetch_related("items")
             .order_by("-placed_at")
         )
@@ -242,7 +243,12 @@ class OrdersBySessionView(APIView):
     def get(self, request, session_id):
         # session_id is itself an unguessable UUID acting as the customer's
         # access token — no further tenant scoping needed to address it.
-        orders = Order.objects.filter(session_id=session_id).order_by("round_number").prefetch_related("items")
+        orders = (
+            Order.objects.filter(session_id=session_id)
+            .select_related("session", "session__bill")
+            .order_by("round_number")
+            .prefetch_related("items")
+        )
         return Response(OrderSerializer(orders, many=True).data)
 
 

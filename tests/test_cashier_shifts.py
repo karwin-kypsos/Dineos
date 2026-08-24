@@ -49,6 +49,30 @@ def test_current_shift_dashboard_reflects_awaiting_and_active_tables(cashier_cli
     assert response.data["paid_today_count"] == 0
 
 
+def test_current_shift_dashboard_includes_item_count_and_elapsed_time(cashier_client, table, menu_item):
+    cashier_user, client = cashier_client
+    client.post("/v1/cashier/shifts/open/")
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 3}])
+
+    response = client.get("/v1/cashier/shifts/current/")
+
+    assert response.status_code == 200
+    active_table = response.data["active_tables"][0]
+    assert active_table["item_count"] == 3
+    assert active_table["elapsed_seconds"] >= 0
+    assert active_table["elapsed_formatted"] == "00:00"
+
+    from apps.tables.services import request_bill
+
+    request_bill(session.id)
+    response = client.get("/v1/cashier/shifts/current/")
+    awaiting_table = response.data["awaiting_payment"][0]
+    assert awaiting_table["item_count"] == 3
+    assert "elapsed_seconds" in awaiting_table
+
+
 def test_current_shift_dashboard_scopes_to_cashiers_own_branch(admin_client, cashier_client, branch, restaurant, menu_item):
     from apps.restaurant.models import Branch
     from apps.tables.models import Table

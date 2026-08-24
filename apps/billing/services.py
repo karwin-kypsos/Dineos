@@ -76,24 +76,26 @@ def receipt_branch_info(branch, restaurant):
 
 
 def _compute_totals(session):
-    orders = Order.objects.filter(session=session).exclude(status="CANCELLED").prefetch_related("items")
+    orders = list(Order.objects.filter(session=session).exclude(status="CANCELLED").prefetch_related("items"))
     subtotal = sum((item.unit_price * item.quantity for order in orders for item in order.items.all()), Decimal("0"))
 
     restaurant = session.table.restaurant
     tax_amount = (subtotal * restaurant.gst_percentage / Decimal("100")).quantize(Decimal("0.01"))
     service_charge = (subtotal * restaurant.service_charge_percentage / Decimal("100")).quantize(Decimal("0.01"))
     total_amount = subtotal + tax_amount + service_charge
-    return subtotal, tax_amount, service_charge, total_amount
+    return subtotal, tax_amount, service_charge, total_amount, orders
 
 
 @transaction.atomic
 def get_bill_preview(session_id):
     session = TableSession.objects.select_related("table__branch__restaurant").get(id=session_id)
-    subtotal, tax_amount, service_charge, total_amount = _compute_totals(session)
-    orders = Order.objects.filter(session=session).exclude(status="CANCELLED").prefetch_related("items")
+    subtotal, tax_amount, service_charge, total_amount, orders = _compute_totals(session)
     return {
         "session_id": str(session.id),
         "table_number": session.table.table_number,
+        # Never "PAID" here — a paid session returns via BillSerializer
+        # instead (see SessionBillView), never this preview.
+        "payment_status": "BILL_REQUESTED" if session.status == TableSession.Status.BILL_REQUESTED else "PENDING",
         "subtotal": subtotal,
         "tax_amount": tax_amount,
         "service_charge": service_charge,
@@ -111,7 +113,7 @@ def pay_bill(session_id, payment_method, processed_by, amount_received=None):
     if existing_bill:
         return existing_bill  # idempotent replay — session already paid
 
-    subtotal, tax_amount, service_charge, total_amount = _compute_totals(session)
+    subtotal, tax_amount, service_charge, total_amount, _orders = _compute_totals(session)
     change_given = amount_received - total_amount if amount_received is not None else None
     bill = Bill.objects.create(
         session=session,
@@ -167,6 +169,10 @@ def get_takeaway_bill_preview(order_id):
     subtotal, tax_amount, service_charge, total_amount, orders = _compute_order_totals(root, restaurant)
     return {
         "order_id": str(root.id),
+        # Always "PENDING" — a paid order returns via BillSerializer instead
+        # (see TakeawayBillView), never this preview; takeaway has no
+        # "bill requested" step the way a dine-in session does.
+        "payment_status": "PENDING",
         "subtotal": subtotal,
         "tax_amount": tax_amount,
         "service_charge": service_charge,
@@ -334,12 +340,23 @@ def cashier_dashboard(restaurant, cashier):
     collected_today = shift_totals_by_method(shift)["total"] if shift else Decimal("0")
 
     def _session_summary(session):
-        _, _, _, total = _compute_totals(session)
+        # item_count/elapsed_seconds/elapsed_formatted (2026-08-23, per
+        # Shereena): Cashier Home's active/awaiting-payment table lists
+        # needed the same "how long has this been sitting" + "how much is on
+        # it" signals the KDS cards already show — see KDSOrderSerializer's
+        # identical elapsed_seconds/elapsed_formatted pattern.
+        _, _, _, total, orders = _compute_totals(session)
+        item_count = sum(item.quantity for order in orders for item in order.items.all())
+        elapsed_seconds = max(0, int((timezone.now() - session.opened_at).total_seconds()))
+        minutes, seconds = divmod(elapsed_seconds, 60)
         return {
             "session_id": str(session.id),
             "table_id": str(session.table_id),
             "table_number": session.table.table_number,
             "total_amount": total,
+            "item_count": item_count,
+            "elapsed_seconds": elapsed_seconds,
+            "elapsed_formatted": f"{minutes:02d}:{seconds:02d}",
         }
 
     return {

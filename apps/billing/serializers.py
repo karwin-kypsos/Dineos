@@ -15,6 +15,7 @@ class BillSerializer(serializers.ModelSerializer):
     branch_phone = serializers.SerializerMethodField()
     gst_percentage = serializers.SerializerMethodField()
     service_charge_percentage = serializers.SerializerMethodField()
+    payment_status = serializers.SerializerMethodField()
 
     def get_table_number(self, obj):
         return obj.session.table.table_number if obj.session_id else None
@@ -63,6 +64,13 @@ class BillSerializer(serializers.ModelSerializer):
     def get_service_charge_percentage(self, obj):
         return self._branch_info(obj)["service_charge_percentage"]
 
+    def get_payment_status(self, obj):
+        # A Bill row existing at all means it's paid — see SessionBillView/
+        # TakeawayBillView, which only ever return this serializer once
+        # payment has actually happened (a not-yet-paid session/order goes
+        # through get_bill_preview/get_takeaway_bill_preview instead).
+        return "PAID"
+
     class Meta:
         model = Bill
         fields = [
@@ -70,6 +78,7 @@ class BillSerializer(serializers.ModelSerializer):
             "session",
             "order",
             "branch",
+            "payment_status",
             "table_number",
             "restaurant_name",
             "branch_name",
@@ -135,6 +144,9 @@ class TableBillSummarySerializer(serializers.Serializer):
     table_id = serializers.UUIDField()
     table_number = serializers.CharField()
     total_amount = serializers.DecimalField(max_digits=10, decimal_places=2)
+    item_count = serializers.IntegerField()
+    elapsed_seconds = serializers.IntegerField()
+    elapsed_formatted = serializers.CharField()
 
 
 class CashierDashboardSerializer(serializers.Serializer):

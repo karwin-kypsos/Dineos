@@ -116,6 +116,63 @@ def test_table_list_scopes_server_to_own_assigned_and_free_tables(restaurant, br
     assert str(table_b.id) not in ids
 
 
+def test_table_list_shows_stuck_empty_session_table_to_every_server(restaurant, branch):
+    """Regression (2026-08-23, Shereena): a session created without ever
+    placing an order has no assigned_server (assign_next_server only runs on
+    the first order) — such a table used to match neither the AVAILABLE nor
+    the assigned-to-me clause and vanished from every server's table list."""
+    from rest_framework.test import APIClient
+
+    from apps.authentication.serializers import DineOSTokenObtainPairSerializer
+
+    server_a = _make_server(restaurant, branch, "srv-g@demo-bistro.demo", "Server G")
+
+    stuck_table = Table.objects.create(restaurant=restaurant, branch=branch, table_number="S1", capacity=4)
+    services.get_or_create_active_session(stuck_table.id)  # no order placed -> no assigned_server
+    stuck_table.refresh_from_db()
+    assert stuck_table.status == Table.Status.OCCUPIED  # confirms it's genuinely "stuck", not still AVAILABLE
+
+    token = DineOSTokenObtainPairSerializer.get_token(server_a)
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.access_token}")
+
+    response = client.get("/v1/tables/")
+
+    assert response.status_code == 200
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    ids = {t["id"] for t in results}
+    assert str(stuck_table.id) in ids
+
+
+def test_table_list_still_hides_another_servers_assigned_empty_session_table(restaurant, branch):
+    """The safety net above must not leak visibility into a table that IS
+    already assigned to a different server, even if that session happens to
+    have zero orders (synthetic here — assignment normally only happens
+    alongside the first order, see assign_next_server)."""
+    from rest_framework.test import APIClient
+
+    from apps.authentication.serializers import DineOSTokenObtainPairSerializer
+
+    server_a = _make_server(restaurant, branch, "srv-h@demo-bistro.demo", "Server H")
+    server_b = _make_server(restaurant, branch, "srv-i@demo-bistro.demo", "Server I")
+
+    table_b = Table.objects.create(restaurant=restaurant, branch=branch, table_number="S2", capacity=4)
+    session_b, _ = services.get_or_create_active_session(table_b.id)
+    session_b.assigned_server = server_b
+    session_b.save(update_fields=["assigned_server"])
+
+    token = DineOSTokenObtainPairSerializer.get_token(server_a)
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.access_token}")
+
+    response = client.get("/v1/tables/")
+
+    assert response.status_code == 200
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    ids = {t["id"] for t in results}
+    assert str(table_b.id) not in ids
+
+
 def test_table_list_excludes_branch_less_legacy_tables_for_server(restaurant, branch):
     from rest_framework.test import APIClient
 
