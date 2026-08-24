@@ -12,5 +12,8 @@ scripts:
         pm.expect(billPreviewData.items.length).to.be.above(0);
         pm.expect(billPreviewData.table_number).to.exist;
       });
+      pm.test('payment_status is BILL_REQUESTED (Request Bill ran first)', () => {
+        pm.expect(billPreviewData.payment_status).to.eql('BILL_REQUESTED');
+      });
     language: text/javascript
 order: 2000

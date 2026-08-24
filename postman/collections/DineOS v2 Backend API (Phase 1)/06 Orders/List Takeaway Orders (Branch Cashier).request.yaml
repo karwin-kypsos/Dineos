@@ -14,5 +14,9 @@ scripts:
       pm.test('every result has total_amount', () => {
         listTakeawayData.forEach(o => pm.expect(o.total_amount).to.exist);
       });
+      pm.test('our order is still PENDING (not billed yet)', () => {
+        const ours = listTakeawayData.find(o => o.id === pm.collectionVariables.get('takeaway_order_id'));
+        pm.expect(ours.payment_status).to.eql('PENDING');
+      });
     language: text/javascript
 order: 20500

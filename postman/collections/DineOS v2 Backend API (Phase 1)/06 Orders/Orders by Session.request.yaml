@@ -1,4 +1,13 @@
 $kind: http-request
 url: "{{base_url}}/orders/session/{{session_id}}/"
 method: GET
+scripts:
+  - type: afterResponse
+    code: |-
+      const ordersBySessionData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('every order has payment_status PENDING (not yet billed)', () => {
+        ordersBySessionData.forEach(o => pm.expect(o.payment_status).to.eql('PENDING'));
+      });
+    language: text/javascript
 order: 5000

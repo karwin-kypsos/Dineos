@@ -11,5 +11,6 @@ scripts:
       pm.test('preview has a total_amount', () => pm.expect(takeawayPreviewData.total_amount).to.exist);
       pm.test('preview has items', () => pm.expect(takeawayPreviewData.items.length).to.be.above(0));
       pm.test('preview has branch info', () => pm.expect(takeawayPreviewData.restaurant_name).to.exist);
+      pm.test('payment_status is PENDING (not paid yet)', () => pm.expect(takeawayPreviewData.payment_status).to.eql('PENDING'));
     language: text/javascript
 order: 20000

@@ -1,0 +1,20 @@
+$kind: http-request
+url: "{{base_url}}/tables/?page_size=100"
+method: GET
+headers:
+  Authorization: Bearer {{server_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const stuckTableData = pm.response.json();
+      const stuckTableList = stuckTableData.results || stuckTableData;
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test(
+        'table with an active but empty (no orders yet) session is visible to a Server, not stuck',
+        () => {
+          const match = stuckTableList.find(t => t.id === pm.collectionVariables.get('table_id'));
+          pm.expect(match, 'table should be in the Server table list even before any order is placed').to.exist;
+        }
+      );
+    language: text/javascript
+order: 3500

@@ -8,5 +8,12 @@ scripts:
     code: |-
       const dashboardData = pm.response.json();
       pm.test('paid_today_count is at least 1', () => pm.expect(dashboardData.paid_today_count).to.be.at.least(1));
+      pm.test('active_tables/awaiting_payment entries have item_count and elapsed time', () => {
+        [...dashboardData.active_tables, ...dashboardData.awaiting_payment].forEach(t => {
+          pm.expect(t.item_count).to.be.a('number');
+          pm.expect(t.elapsed_seconds).to.be.a('number');
+          pm.expect(t.elapsed_formatted).to.match(/^\d{2,}:\d{2}$/);
+        });
+      });
     language: text/javascript
 order: 5000

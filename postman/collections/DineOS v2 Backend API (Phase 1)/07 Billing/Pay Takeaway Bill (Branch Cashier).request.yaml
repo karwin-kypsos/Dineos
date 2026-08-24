@@ -27,5 +27,6 @@ scripts:
         const expected = (500.00 - parseFloat(payTakeawayData.total_amount)).toFixed(2);
         pm.expect(parseFloat(payTakeawayData.change_given).toFixed(2)).to.eql(expected);
       });
+      pm.test('payment_status is PAID', () => pm.expect(payTakeawayData.payment_status).to.eql('PAID'));
     language: text/javascript
 order: 20100

@@ -25,5 +25,6 @@ scripts:
         pm.expect(payBillData.amount_received).to.exist;
         pm.expect(payBillData.change_given).to.exist;
       });
+      pm.test('payment_status is PAID', () => pm.expect(payBillData.payment_status).to.eql('PAID'));
     language: text/javascript
 order: 3000
