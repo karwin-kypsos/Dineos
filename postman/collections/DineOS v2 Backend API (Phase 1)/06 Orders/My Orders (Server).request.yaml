@@ -10,5 +10,6 @@ scripts:
       pm.test('status is 200', () => pm.response.to.have.status(200));
       pm.test('response is a list', () => pm.expect(myOrdersData).to.be.an('array'));
       pm.test('every returned order is dine-in', () => pm.expect(myOrdersData.every((o) => o.order_type === 'DINE_IN')).to.be.true);
+      pm.test('every order has a raw table_number', () => pm.expect(myOrdersData.every((o) => !!o.table_number)).to.be.true);
     language: text/javascript
 order: 13500

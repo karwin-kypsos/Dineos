@@ -20,5 +20,6 @@ scripts:
       pm.test('status is 201', () => pm.response.to.have.status(201));
       pm.test('order_type is TAKEAWAY', () => pm.expect(placeTakeawayData.order_type).to.eql('TAKEAWAY'));
       pm.test('table is null', () => pm.expect(placeTakeawayData.table).to.eql(null));
+      pm.test('table_number is null', () => pm.expect(placeTakeawayData.table_number).to.eql(null));
     language: text/javascript
 order: 20000
