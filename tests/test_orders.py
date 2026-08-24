@@ -116,6 +116,33 @@ def test_my_orders_scopes_to_own_assigned_tables_across_all_active_statuses(rest
     assert returned_order_a["status"] == "ACCEPTED"
 
 
+def test_order_response_includes_raw_table_number(api_client, table, menu_item):
+    """Regression (2026-08-23, Shereena): GET /v1/orders/mine/ (and every
+    other order-list endpoint, all served by OrderSerializer) only had the
+    table's raw id, not its human-readable table_number."""
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+
+    response = api_client.get(f"/v1/orders/session/{session.id}/")
+
+    assert response.status_code == 200
+    assert response.data[0]["table_number"] == table.table_number
+
+
+def test_takeaway_order_response_has_null_table_number(cashier_client, menu_item, branch):
+    cashier_user, client = cashier_client
+    cashier_user.branch = branch
+    cashier_user.save(update_fields=["branch"])
+
+    response = client.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["table"] is None
+    assert response.data["table_number"] is None
+
+
 def test_placing_order_does_not_affect_untracked_items(api_client, table):
     from apps.menu.models import Category, MenuItem
 

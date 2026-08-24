@@ -245,7 +245,7 @@ class OrdersBySessionView(APIView):
         # access token — no further tenant scoping needed to address it.
         orders = (
             Order.objects.filter(session_id=session_id)
-            .select_related("session", "session__bill")
+            .select_related("table", "session", "session__bill")
             .order_by("round_number")
             .prefetch_related("items")
         )
@@ -261,7 +261,7 @@ class OrdersByTableView(APIView):
         today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
         orders = Order.objects.filter(
             table_id=table_id, table__restaurant=request.tenant, placed_at__gte=today_start
-        ).prefetch_related("items")
+        ).select_related("table").prefetch_related("items")
         return Response(OrderSerializer(orders, many=True).data)
 
 

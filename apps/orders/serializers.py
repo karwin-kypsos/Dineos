@@ -25,9 +25,18 @@ class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     total_amount = serializers.SerializerMethodField()
     payment_status = serializers.SerializerMethodField()
+    table_number = serializers.SerializerMethodField()
 
     def get_total_amount(self, obj):
         return sum((item.line_total for item in obj.items.all()), Decimal("0"))
+
+    def get_table_number(self, obj):
+        # Raw table_number (e.g. "5"), not a display string — takeaway
+        # orders have no table at all (see the dine_in_has_table_takeaway_
+        # does_not constraint), so this is null for them. Shereena
+        # (2026-08-23): GET /v1/orders/mine/ only had the table's raw id,
+        # not a human-readable number.
+        return obj.table.table_number if obj.table_id else None
 
     def get_payment_status(self, obj):
         # PAID/PENDING/BILL_REQUESTED (2026-08-23, per Shereena) — dine-in
@@ -51,6 +60,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "order_type",
             "session",
             "table",
+            "table_number",
             "branch",
             "parent_order",
             "customer_name",
@@ -146,7 +156,10 @@ class KDSOrderSerializer(OrderSerializer):
 
     class Meta(OrderSerializer.Meta):
         fields = OrderSerializer.Meta.fields + [
-            "table_number",
+            # table_number itself is already in OrderSerializer.Meta.fields —
+            # this subclass's own get_table_number() (the "Table N"/
+            # "Takeaway" display string) still overrides the base raw-number
+            # version by field name, no need to re-list it here.
             "elapsed_seconds",
             "elapsed_formatted",
             "is_urgent",
