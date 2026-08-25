@@ -9,5 +9,14 @@ scripts:
       const dailyData = pm.response.json();
       pm.test('tables_served is at least 1', () => pm.expect(dailyData.tables_served).to.be.at.least(1));
       pm.test('tables_count is at least tables_served', () => pm.expect(dailyData.tables_count).to.be.at.least(dailyData.tables_served));
+      pm.test('payment_breakdown has percentages', () => {
+        pm.expect(dailyData.payment_breakdown.cash_percentage).to.be.a('number');
+        pm.expect(dailyData.payment_breakdown.card_percentage).to.be.a('number');
+        pm.expect(dailyData.payment_breakdown.upi_percentage).to.be.a('number');
+      });
+      pm.test('each bill has item_count', () => {
+        dailyData.bills.forEach(b => pm.expect(b.item_count).to.be.a('number'));
+      });
+      pm.test('has peak_hour', () => pm.expect(dailyData).to.have.property('peak_hour'));
     language: text/javascript
 order: 9000
