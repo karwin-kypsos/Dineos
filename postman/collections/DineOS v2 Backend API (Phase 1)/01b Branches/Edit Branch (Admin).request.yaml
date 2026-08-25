@@ -14,5 +14,11 @@ scripts:
       pm.test('status is 200', () => pm.response.to.have.status(200));
       pm.test('phone updated', () => pm.expect(editBranchData.phone).to.eql('022-4455-6677'));
       pm.test('table_count updated', () => pm.expect(editBranchData.table_count).to.eql(8));
+      pm.test('tables now have qr_url on the deployed Customer Web App domain with /table/ path', () => {
+        pm.expect(editBranchData.tables.length).to.be.above(0);
+        editBranchData.tables.forEach(t => {
+          pm.expect(t.qr_url).to.match(/^https:\/\/dineos-customer\.onrender\.com\/.+\/.+\/table\/.+$/);
+        });
+      });
     language: text/javascript
 order: 2500

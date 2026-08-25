@@ -1,0 +1,20 @@
+$kind: http-request
+url: "{{base_url}}/cashier/collections/my-sales/"
+method: GET
+headers:
+  Authorization: Bearer {{cashier_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      const mySalesData = pm.response.json();
+      pm.test('status is 200', () => pm.response.to.have.status(200));
+      pm.test('includes the bill this cashier just paid', () => {
+        pm.expect(mySalesData.tables_served).to.be.at.least(1);
+        pm.expect(mySalesData.bills.length).to.be.at.least(1);
+      });
+      pm.test('payment_breakdown has percentages', () => {
+        pm.expect(mySalesData.payment_breakdown.cash_percentage).to.be.a('number');
+      });
+      pm.test('has peak_hour', () => pm.expect(mySalesData).to.have.property('peak_hour'));
+    language: text/javascript
+order: 9100

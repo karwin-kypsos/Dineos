@@ -16,6 +16,9 @@ scripts:
           pm.expect(t.qr_url).to.be.a('string');
           pm.expect(t.qr_code).to.match(/^data:image\/png;base64,/);
         });
+        pm.test('qr_url uses the deployed Customer Web App domain with the /table/ path segment', () => {
+          pm.expect(t.qr_url).to.match(/^https:\/\/dineos-customer\.onrender\.com\/.+\/.+\/table\/.+$/);
+        });
       }
     language: text/javascript
 order: 2100
