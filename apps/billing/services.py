@@ -449,15 +449,33 @@ def _peak_hour_window(bills):
     return f"{start_label} - {end_label}"
 
 
-def daily_collections(restaurant, date, search=None, payment_method=None, cashier=None):
+def daily_collections(
+    restaurant, date=None, search=None, payment_method=None, cashier=None, window_start=None, window_end=None
+):
     """cashier (2026-08-25, per Shereena's My Sales page) scopes EVERY figure
     here — totals, payment breakdown, peak hour, bill list — to just that
     one cashier's own processed bills, not the whole restaurant's. Omit it
     for the restaurant-wide oversight view (DailyCollectionsView's default).
+
+    window_start/window_end (2026-08-25, per Shereena's follow-up correction:
+    My Sales should reflect the cashier's current SHIFT, not the calendar
+    day — a shift can start mid-afternoon and run past midnight, so the two
+    aren't the same thing) override the calendar-day window entirely — pass
+    the shift's own opened_at/now instead of date. See MySalesView.
     """
-    day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
-    day_end = day_start + timezone.timedelta(days=1)
-    previous_day_start = day_start - timezone.timedelta(days=1)
+    if window_start is not None and window_end is not None:
+        day_start, day_end = window_start, window_end
+        # A shift has no natural "previous day" — compare against the
+        # equivalent-length window immediately before this one instead.
+        previous_day_start = day_start - (day_end - day_start)
+        previous_day_end = day_start
+    else:
+        if date is None:
+            date = timezone.localdate()
+        day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
+        day_end = day_start + timezone.timedelta(days=1)
+        previous_day_start = day_start - timezone.timedelta(days=1)
+        previous_day_end = day_start
 
     scoped_bills_qs = restaurant_bills_qs(restaurant)
     if cashier is not None:
@@ -469,7 +487,7 @@ def daily_collections(restaurant, date, search=None, payment_method=None, cashie
         ).prefetch_related("session__orders__items", "order__items")
     )
     previous_day_total = scoped_bills_qs.filter(
-        paid_at__gte=previous_day_start, paid_at__lt=day_start
+        paid_at__gte=previous_day_start, paid_at__lt=previous_day_end
     ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
 
     totals = {"cash": Decimal("0"), "card": Decimal("0"), "upi": Decimal("0")}
@@ -520,7 +538,7 @@ def daily_collections(restaurant, date, search=None, payment_method=None, cashie
         ]
 
     return {
-        "date": date,
+        "date": date or timezone.localtime(day_start).date(),
         "total_collected": grand_total,
         "vs_yesterday": grand_total - previous_day_total,
         "tables_served": bills_count,

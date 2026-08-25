@@ -302,6 +302,33 @@ def test_daily_collections_search_filters_bills_not_totals(manager_client, cashi
     assert response.data["tables_served"] == 2
 
 
+def test_my_sales_scopes_to_current_shift_not_calendar_day(cashier_client, table, menu_item):
+    """Regression (2026-08-25, Shereena): a bill paid earlier TODAY but
+    BEFORE the current shift opened must not count towards My Sales — the
+    screen is meant to mirror Cash Reconciliation's own shift window, not
+    the calendar day."""
+    from django.utils import timezone
+
+    from apps.billing.models import Bill
+    from apps.tables.models import Table
+
+    cashier_user, client = cashier_client
+
+    before_shift_table = Table.objects.create(restaurant=table.restaurant, branch=table.branch, table_number="BeforeShift1")
+    before_bill = _pay(cashier_user, before_shift_table, menu_item, quantity=1, method="CASH")
+    Bill.objects.filter(id=before_bill.id).update(paid_at=timezone.now() - timezone.timedelta(hours=2))
+
+    client.post("/v1/cashier/shifts/open/")
+    _pay(cashier_user, table, menu_item, quantity=1, method="CARD")
+
+    response = client.get("/v1/cashier/collections/my-sales/")
+
+    assert response.status_code == 200
+    assert len(response.data["bills"]) == 1
+    assert response.data["bills"][0]["payment_method"] == "CARD"
+    assert Decimal(response.data["payment_breakdown"]["cash"]) == 0
+
+
 def test_my_sales_scopes_to_calling_cashier_only(cashier_client, table, menu_item, restaurant):
     from apps.authentication.models import User
     from apps.tables.models import Table

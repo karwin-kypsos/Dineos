@@ -115,18 +115,30 @@ class MySalesView(APIView):
     above has (payment breakdown w/ percentages, peak hour, avg/largest/
     smallest bill, searchable+payment-method-filterable bill list with
     item_count per bill), scoped to just the calling cashier's own
-    processed bills today instead of the whole restaurant's. One endpoint
-    covers what would otherwise be 3 (summary, list+filter, search).
+    processed bills instead of the whole restaurant's. One endpoint covers
+    what would otherwise be 3 (summary, list+filter, search).
+
+    Scoped to the cashier's current OPEN SHIFT (opened_at -> now), not the
+    calendar day (2026-08-25 correction, per Shereena — a shift can start
+    mid-afternoon and run past midnight, so "today" and "this shift" aren't
+    the same window; Cash Reconciliation already uses the shift window the
+    same way, see shift_totals_by_method). Falls back to the calendar day
+    only if the cashier has no shift open right now.
     """
 
     permission_classes = [IsCashierOrManager, IsBillingEnabled]
 
     def get(self, request):
-        date_param = request.query_params.get("date")
-        date = timezone.datetime.strptime(date_param, "%Y-%m-%d").date() if date_param else timezone.localdate()
         search = request.query_params.get("search", "").strip() or None
         payment_method = request.query_params.get("payment_method", "").strip().upper() or None
-        report = services.daily_collections(
-            request.tenant, date, search=search, payment_method=payment_method, cashier=request.user
-        )
+        shift = services.get_current_shift(request.user)
+        if shift is not None:
+            report = services.daily_collections(
+                request.tenant, window_start=shift.opened_at, window_end=timezone.now(),
+                search=search, payment_method=payment_method, cashier=request.user,
+            )
+        else:
+            report = services.daily_collections(
+                request.tenant, search=search, payment_method=payment_method, cashier=request.user,
+            )
         return Response(DailyCollectionsSerializer(report).data)
