@@ -16,25 +16,78 @@ class BillSerializer(serializers.ModelSerializer):
     gst_percentage = serializers.SerializerMethodField()
     service_charge_percentage = serializers.SerializerMethodField()
     payment_status = serializers.SerializerMethodField()
+    rounds = serializers.SerializerMethodField()
+    rounds_count = serializers.SerializerMethodField()
+    items_count = serializers.SerializerMethodField()
+    timeline = serializers.SerializerMethodField()
 
     def get_table_number(self, obj):
         return obj.session.table.table_number if obj.session_id else None
 
-    def get_items(self, obj):
-        from apps.orders.services import takeaway_group
+    def _orders(self, obj):
+        # A takeaway bill's order is always the root of its group (see
+        # services.pay_takeaway_bill) — pull every round's orders in, not
+        # just the root's, so a multi-round takeaway receipt isn't missing
+        # whatever was added in round 2/3/etc. Cached per-instance since
+        # get_items/get_rounds/get_rounds_count/get_items_count/get_timeline
+        # all need the same list.
+        if not hasattr(obj, "_bill_orders_cache"):
+            from apps.orders.services import takeaway_group
 
+            obj._bill_orders_cache = list(
+                takeaway_group(obj.order)
+                if obj.order_id
+                else obj.session.orders.exclude(status="CANCELLED").prefetch_related("items").order_by("round_number")
+            )
+        return obj._bill_orders_cache
+
+    def get_items(self, obj):
         from . import services
 
-        # A takeaway bill's order is always the root of its group (see
-        # services.pay_takeaway_bill) — pull every round's items in, not
-        # just the root's, so a multi-round takeaway receipt isn't missing
-        # whatever was added in round 2/3/etc.
-        orders = (
-            takeaway_group(obj.order)
-            if obj.order_id
-            else obj.session.orders.exclude(status="CANCELLED").prefetch_related("items")
-        )
-        return services.line_items(orders)
+        return services.line_items(self._orders(obj))
+
+    def get_rounds(self, obj):
+        from . import services
+
+        return [
+            {
+                "round_number": order.round_number,
+                "placed_at": order.placed_at,
+                "items": services.line_items([order]),
+            }
+            for order in self._orders(obj)
+        ]
+
+    def get_rounds_count(self, obj):
+        return len(self._orders(obj))
+
+    def get_items_count(self, obj):
+        return sum(item.quantity for order in self._orders(obj) for item in order.items.all())
+
+    def get_timeline(self, obj):
+        # "Transaction Timeline" (2026-08-25, per Shereena's Bill Detail
+        # mockup) — reconstructed from timestamps every order/session/bill
+        # already tracks (accepted_at/preparing_at/ready_at/collected_at/
+        # served_at per round, session.opened_at/bill_requested_at, and
+        # Bill.paid_at itself), not a separate event log.
+        events = []
+        if obj.session_id:
+            events.append({"label": f"Customer seated at Table {obj.session.table.table_number}", "timestamp": obj.session.opened_at})
+        for order in self._orders(obj):
+            events.append({"label": f"Round {order.round_number} placed — KOT sent to kitchen", "timestamp": order.placed_at})
+            if order.accepted_at:
+                events.append({"label": f"Round {order.round_number}: kitchen accepted order", "timestamp": order.accepted_at})
+            if order.ready_at:
+                events.append({"label": f"Round {order.round_number} food ready", "timestamp": order.ready_at})
+            if order.collected_at:
+                events.append({"label": f"Round {order.round_number} collected by server", "timestamp": order.collected_at})
+            if order.served_at:
+                events.append({"label": f"Round {order.round_number} served to table", "timestamp": order.served_at})
+        if obj.session_id and obj.session.bill_requested_at:
+            events.append({"label": "Bill requested by customer", "timestamp": obj.session.bill_requested_at})
+        events.append({"label": "Bill paid", "timestamp": obj.paid_at})
+        events.sort(key=lambda e: e["timestamp"])
+        return events
 
     def _restaurant(self, obj):
         return obj.session.table.restaurant if obj.session_id else obj.order.branch.restaurant
@@ -87,6 +140,10 @@ class BillSerializer(serializers.ModelSerializer):
             "gst_percentage",
             "service_charge_percentage",
             "items",
+            "rounds",
+            "rounds_count",
+            "items_count",
+            "timeline",
             "subtotal",
             "tax_amount",
             "service_charge",
@@ -172,10 +229,20 @@ class CloseShiftRequestSerializer(serializers.Serializer):
 
 class DailyBillSerializer(serializers.ModelSerializer):
     table_number = serializers.CharField(source="session.table.table_number", read_only=True)
+    item_count = serializers.SerializerMethodField()
+
+    def get_item_count(self, obj):
+        # "4 items" / "5 items" per row on My Sales' Today's Bills list
+        # (2026-08-25, per Shereena) — total quantity, every round included
+        # for dine-in (session.orders), just the one order for takeaway.
+        from apps.orders.services import takeaway_group
+
+        orders = takeaway_group(obj.order) if obj.order_id else obj.session.orders.exclude(status="CANCELLED")
+        return sum(item.quantity for order in orders for item in order.items.all())
 
     class Meta:
         model = Bill
-        fields = ["id", "table_number", "paid_at", "payment_method", "total_amount"]
+        fields = ["id", "table_number", "paid_at", "payment_method", "total_amount", "item_count"]
         read_only_fields = fields
 
 
@@ -183,6 +250,9 @@ class PaymentBreakdownSerializer(serializers.Serializer):
     cash = serializers.DecimalField(max_digits=10, decimal_places=2)
     card = serializers.DecimalField(max_digits=10, decimal_places=2)
     upi = serializers.DecimalField(max_digits=10, decimal_places=2)
+    cash_percentage = serializers.FloatField()
+    card_percentage = serializers.FloatField()
+    upi_percentage = serializers.FloatField()
 
 
 class DailyCollectionsSerializer(serializers.Serializer):
@@ -194,5 +264,6 @@ class DailyCollectionsSerializer(serializers.Serializer):
     avg_bill_value = serializers.DecimalField(max_digits=10, decimal_places=2)
     largest_bill = serializers.DecimalField(max_digits=10, decimal_places=2)
     smallest_bill = serializers.DecimalField(max_digits=10, decimal_places=2)
+    peak_hour = serializers.CharField(allow_null=True)
     payment_breakdown = PaymentBreakdownSerializer()
     bills = DailyBillSerializer(many=True)

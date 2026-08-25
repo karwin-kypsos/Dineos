@@ -104,5 +104,6 @@ class DailyCollectionsView(APIView):
     def get(self, request):
         date_param = request.query_params.get("date")
         date = timezone.datetime.strptime(date_param, "%Y-%m-%d").date() if date_param else timezone.localdate()
-        report = services.daily_collections(request.tenant, date)
+        search = request.query_params.get("search", "").strip() or None
+        report = services.daily_collections(request.tenant, date, search=search)
         return Response(DailyCollectionsSerializer(report).data)

@@ -128,6 +128,36 @@ def test_receipt_includes_items_branch_info_and_cashier_name(cashier_client, res
     assert response.data["items"][0]["menu_item_name"] == menu_item.name
 
 
+def test_receipt_includes_rounds_timeline_and_counts(cashier_client, table, menu_item):
+    from apps.tables.services import request_bill
+
+    cashier_user, client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_1 = order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 2}])
+    order_2 = order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    order_services.advance_kitchen_status(order_1.id, "ACCEPTED")
+    request_bill(session.id)
+
+    response = client.post(
+        "/v1/bills/payment/", {"session_id": str(session.id), "payment_method": "CASH"}, format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["rounds_count"] == 2
+    assert response.data["items_count"] == 3
+    assert [r["round_number"] for r in response.data["rounds"]] == [1, 2]
+    assert response.data["rounds"][0]["items"][0]["quantity"] == 2
+    assert response.data["rounds"][1]["items"][0]["quantity"] == 1
+
+    labels = [e["label"] for e in response.data["timeline"]]
+    assert any("Customer seated" in label for label in labels)
+    assert any("Round 1 placed" in label for label in labels)
+    assert any("Round 2 placed" in label for label in labels)
+    assert any("kitchen accepted order" in label for label in labels)
+    assert any("Bill requested by customer" in label for label in labels)
+    assert labels[-1] == "Bill paid"
+
+
 def test_pay_bill_records_amount_received_and_change(cashier_client, table, menu_item):
     _, client = cashier_client
     session, _ = table_services.get_or_create_active_session(table.id)

@@ -432,13 +432,32 @@ def list_bills(restaurant, *, date=None, payment_method=None, cashier_id=None, b
     return bills.order_by("-paid_at")
 
 
-def daily_collections(restaurant, date):
+def _peak_hour_window(bills):
+    """'Busiest window' (2026-08-25, per Shereena's My Sales mockup): the
+    single clock hour with the highest total collected today, formatted
+    like "1:00 PM - 2:00 PM". None on a day with no bills."""
+    totals_by_hour = {}
+    for bill in bills:
+        local_paid_at = timezone.localtime(bill.paid_at)
+        totals_by_hour[local_paid_at.hour] = totals_by_hour.get(local_paid_at.hour, Decimal("0")) + bill.total_amount
+    if not totals_by_hour:
+        return None
+    peak_hour = max(totals_by_hour, key=totals_by_hour.get)
+    end_hour = (peak_hour + 1) % 24
+    start_label = timezone.datetime(2000, 1, 1, peak_hour).strftime("%I:%M %p").lstrip("0")
+    end_label = timezone.datetime(2000, 1, 1, end_hour).strftime("%I:%M %p").lstrip("0")
+    return f"{start_label} - {end_label}"
+
+
+def daily_collections(restaurant, date, search=None):
     day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
     day_end = day_start + timezone.timedelta(days=1)
     previous_day_start = day_start - timezone.timedelta(days=1)
 
-    bills = restaurant_bills_qs(restaurant).filter(paid_at__gte=day_start, paid_at__lt=day_end).select_related(
-        "session__table", "order"
+    bills = list(
+        restaurant_bills_qs(restaurant).filter(paid_at__gte=day_start, paid_at__lt=day_end).select_related(
+            "session__table", "order", "processed_by"
+        ).prefetch_related("session__orders__items", "order__items")
     )
     previous_day_total = restaurant_bills_qs(restaurant).filter(
         paid_at__gte=previous_day_start, paid_at__lt=day_start
@@ -453,7 +472,17 @@ def daily_collections(restaurant, date):
         bill_amounts.append(bill.total_amount)
     grand_total = totals["cash"] + totals["card"] + totals["upi"]
 
-    bills_count = bills.count()
+    def _pct(amount):
+        return float((amount / grand_total * 100).quantize(Decimal("0.1"))) if grand_total > 0 else 0.0
+
+    payment_breakdown = {
+        "cash": totals["cash"], "card": totals["card"], "upi": totals["upi"],
+        "cash_percentage": _pct(totals["cash"]),
+        "card_percentage": _pct(totals["card"]),
+        "upi_percentage": _pct(totals["upi"]),
+    }
+
+    bills_count = len(bills)
     # "Tables" on the My Sales screen = billed tables today + tables still
     # actively being served (not yet billed) — a still-open dine-in session
     # right now, restaurant-wide (this view is oversight, not per-cashier —
@@ -461,6 +490,21 @@ def daily_collections(restaurant, date):
     active_tables_count = TableSession.objects.filter(
         table__restaurant=restaurant, status__in=[TableSession.Status.ACTIVE, TableSession.Status.BILL_REQUESTED]
     ).count()
+
+    # search (2026-08-25, per Shereena's "Today's Bills" search box) only
+    # narrows the returned bill list, never the totals/breakdown/peak-hour
+    # tiles above it — those always reflect the FULL day regardless of search.
+    result_bills = bills
+    if search:
+        search_lower = search.lower()
+        result_bills = [
+            bill for bill in bills
+            if (bill.session_id and bill.session.table and search_lower in bill.session.table.table_number.lower())
+            or (bill.order_id and bill.order.customer_name and search_lower in bill.order.customer_name.lower())
+            or (bill.order_id and bill.order.customer_phone and search_lower in bill.order.customer_phone.lower())
+            or (bill.processed_by and search_lower in bill.processed_by.name.lower())
+            or search_lower in bill.payment_method.lower()
+        ]
 
     return {
         "date": date,
@@ -471,6 +515,7 @@ def daily_collections(restaurant, date):
         "avg_bill_value": (grand_total / len(bill_amounts)) if bill_amounts else Decimal("0"),
         "largest_bill": max(bill_amounts) if bill_amounts else Decimal("0"),
         "smallest_bill": min(bill_amounts) if bill_amounts else Decimal("0"),
-        "payment_breakdown": totals,
-        "bills": list(bills.order_by("-paid_at")),
+        "peak_hour": _peak_hour_window(bills),
+        "payment_breakdown": payment_breakdown,
+        "bills": sorted(result_bills, key=lambda b: b.paid_at, reverse=True),
     }

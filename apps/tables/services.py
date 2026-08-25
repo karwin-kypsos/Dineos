@@ -65,7 +65,8 @@ def assign_next_server(session):
 def request_bill(session_id):
     session = TableSession.objects.select_for_update().get(id=session_id)
     session.status = TableSession.Status.BILL_REQUESTED
-    session.save(update_fields=["status"])
+    session.bill_requested_at = timezone.now()
+    session.save(update_fields=["status", "bill_requested_at"])
     restaurant = session.table.restaurant
 
     transaction.on_commit(

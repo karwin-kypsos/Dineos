@@ -60,6 +60,10 @@ class TableSession(models.Model):
     table = models.ForeignKey(Table, on_delete=models.CASCADE, related_name="sessions")
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.ACTIVE)
     opened_at = models.DateTimeField(auto_now_add=True)
+    # Set once, in services.request_bill (2026-08-25) — the "Bill requested
+    # by customer" entry on the Bill Detail Transaction Timeline needs its
+    # own timestamp; status alone only says BILL_REQUESTED, not when.
+    bill_requested_at = models.DateTimeField(null=True, blank=True)
     closed_at = models.DateTimeField(null=True, blank=True)
     closed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="closed_sessions"
