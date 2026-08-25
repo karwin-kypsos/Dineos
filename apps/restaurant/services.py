@@ -10,7 +10,10 @@ def build_table_qr(restaurant_slug, branch_slug, table_number):
     """Returns (qr_url, qr_code_data_uri) for a table's printed QR code —
     qr_url is what the code encodes (opens the customer ordering app),
     qr_code_data_uri is a ready-to-render base64 PNG for <img src=...>."""
-    qr_url = f"{settings.CUSTOMER_APP_BASE_URL}/{restaurant_slug}/{branch_slug}/{table_number}"
+    # Path is {org_slug}/{branch_slug}/table/{table_number} (2026-08-25, per
+    # Shereena, once the Customer Web App was deployed) — the "table/"
+    # segment before the number, not just the bare number.
+    qr_url = f"{settings.CUSTOMER_APP_BASE_URL}/{restaurant_slug}/{branch_slug}/table/{table_number}"
 
     img = qrcode.make(qr_url)
     buffer = io.BytesIO()

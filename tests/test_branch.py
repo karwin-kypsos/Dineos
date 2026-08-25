@@ -47,6 +47,34 @@ def test_deleting_branch_soft_deactivates(admin_client, branch):
     assert branch.is_active is False
 
 
+def test_build_table_qr_uses_table_path_segment(settings):
+    """Regression (2026-08-25, Shereena): the Customer Web App's real URL
+    structure is {base}/{org_slug}/{branch_slug}/table/{table_number} — a
+    bare .../{table_number} (missing "table/") 404s against the real app."""
+    from apps.restaurant.services import build_table_qr
+
+    settings.CUSTOMER_APP_BASE_URL = "https://dineos-customer.onrender.com"
+
+    qr_url, qr_code = build_table_qr("altaza", "kochi", "5")
+
+    assert qr_url == "https://dineos-customer.onrender.com/altaza/kochi/table/5"
+    assert qr_code.startswith("data:image/png;base64,")
+
+
+def test_branch_detail_includes_qr_url_with_table_path(admin_client, branch, restaurant, settings):
+    from apps.tables.models import Table
+
+    settings.CUSTOMER_APP_BASE_URL = "https://dineos-customer.onrender.com"
+    Table.objects.create(restaurant=restaurant, branch=branch, table_number="7")
+    _, client = admin_client
+
+    response = client.get(f"/v1/branches/{branch.id}/")
+
+    assert response.status_code == 200
+    table_entry = next(t for t in response.data["tables"] if t["table_number"] == "7")
+    assert table_entry["qr_url"] == f"https://dineos-customer.onrender.com/{restaurant.slug}/{branch.slug}/table/7"
+
+
 def test_permanent_delete_without_confirm_deletes_nothing(admin_client, branch, restaurant):
     from apps.tables.models import Table
 

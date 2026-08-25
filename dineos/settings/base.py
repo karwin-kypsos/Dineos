@@ -233,11 +233,12 @@ DEFAULT_SERVICE_CHARGE_PERCENTAGE = env.float("DEFAULT_SERVICE_CHARGE_PERCENTAGE
 
 # ---------------------------------------------------------------------------
 # Base URL of the customer-facing ordering web app that a table's printed QR
-# code opens (restaurant_slug/branch_slug/table_number is appended to this).
-# No such app is deployed yet, so this is a placeholder — update the env var
-# once a real domain exists; no code change needed.
+# code opens (org_slug/branch_slug/table/table_number is appended to this —
+# see apps.restaurant.services.build_table_qr). Deployed 2026-08-25 (per
+# Shereena) to https://dineos-customer.onrender.com — override with the
+# CUSTOMER_APP_BASE_URL env var if that ever changes again.
 # ---------------------------------------------------------------------------
-CUSTOMER_APP_BASE_URL = env("CUSTOMER_APP_BASE_URL", default="https://order.dineos.app").rstrip("/")
+CUSTOMER_APP_BASE_URL = env("CUSTOMER_APP_BASE_URL", default="https://dineos-customer.onrender.com").rstrip("/")
 
 # ---------------------------------------------------------------------------
 # Until EMAIL_DELIVERY_ENABLED is True, every "sent" secret (2FA code,
