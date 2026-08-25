@@ -4,6 +4,7 @@ from .cashier_views import (
     CloseShiftView,
     CurrentShiftView,
     DailyCollectionsView,
+    MySalesView,
     OpenShiftView,
     ShiftReconciliationView,
 )
@@ -24,4 +25,5 @@ cashier_urlpatterns = [
     path("shifts/<uuid:shift_id>/reconciliation/", ShiftReconciliationView.as_view(), name="cashier-shift-reconciliation"),
     path("shifts/<uuid:shift_id>/close/", CloseShiftView.as_view(), name="cashier-shift-close"),
     path("collections/daily/", DailyCollectionsView.as_view(), name="cashier-collections-daily"),
+    path("collections/my-sales/", MySalesView.as_view(), name="cashier-collections-my-sales"),
 ]

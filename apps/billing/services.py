@@ -449,17 +449,26 @@ def _peak_hour_window(bills):
     return f"{start_label} - {end_label}"
 
 
-def daily_collections(restaurant, date, search=None):
+def daily_collections(restaurant, date, search=None, payment_method=None, cashier=None):
+    """cashier (2026-08-25, per Shereena's My Sales page) scopes EVERY figure
+    here — totals, payment breakdown, peak hour, bill list — to just that
+    one cashier's own processed bills, not the whole restaurant's. Omit it
+    for the restaurant-wide oversight view (DailyCollectionsView's default).
+    """
     day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
     day_end = day_start + timezone.timedelta(days=1)
     previous_day_start = day_start - timezone.timedelta(days=1)
 
+    scoped_bills_qs = restaurant_bills_qs(restaurant)
+    if cashier is not None:
+        scoped_bills_qs = scoped_bills_qs.filter(processed_by=cashier)
+
     bills = list(
-        restaurant_bills_qs(restaurant).filter(paid_at__gte=day_start, paid_at__lt=day_end).select_related(
+        scoped_bills_qs.filter(paid_at__gte=day_start, paid_at__lt=day_end).select_related(
             "session__table", "order", "processed_by"
         ).prefetch_related("session__orders__items", "order__items")
     )
-    previous_day_total = restaurant_bills_qs(restaurant).filter(
+    previous_day_total = scoped_bills_qs.filter(
         paid_at__gte=previous_day_start, paid_at__lt=day_start
     ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
 
@@ -483,22 +492,26 @@ def daily_collections(restaurant, date, search=None):
     }
 
     bills_count = len(bills)
-    # "Tables" on the My Sales screen = billed tables today + tables still
-    # actively being served (not yet billed) — a still-open dine-in session
-    # right now, restaurant-wide (this view is oversight, not per-cashier —
-    # see DailyCollectionsView). Takeaway has no table to count here.
+    # "Tables" on the My Sales screen = billed tables today (bills_count —
+    # already cashier-scoped above when cashier is passed) + tables still
+    # actively being served (not yet billed). The still-active count itself
+    # stays restaurant-wide even in cashier-scoped mode — an un-billed table
+    # isn't "owned" by any cashier yet, there's nothing to scope it to.
     active_tables_count = TableSession.objects.filter(
         table__restaurant=restaurant, status__in=[TableSession.Status.ACTIVE, TableSession.Status.BILL_REQUESTED]
     ).count()
 
-    # search (2026-08-25, per Shereena's "Today's Bills" search box) only
-    # narrows the returned bill list, never the totals/breakdown/peak-hour
-    # tiles above it — those always reflect the FULL day regardless of search.
+    # search/payment_method (2026-08-25, per Shereena's "Today's Bills"
+    # search box + payment-method filter chips) only narrow the returned
+    # bill list, never the totals/breakdown/peak-hour tiles above it — those
+    # always reflect the FULL (cashier-scoped, if applicable) day regardless.
     result_bills = bills
+    if payment_method:
+        result_bills = [bill for bill in result_bills if bill.payment_method == payment_method]
     if search:
         search_lower = search.lower()
         result_bills = [
-            bill for bill in bills
+            bill for bill in result_bills
             if (bill.session_id and bill.session.table and search_lower in bill.session.table.table_number.lower())
             or (bill.order_id and bill.order.customer_name and search_lower in bill.order.customer_name.lower())
             or (bill.order_id and bill.order.customer_phone and search_lower in bill.order.customer_phone.lower())

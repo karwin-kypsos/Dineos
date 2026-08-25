@@ -105,5 +105,28 @@ class DailyCollectionsView(APIView):
         date_param = request.query_params.get("date")
         date = timezone.datetime.strptime(date_param, "%Y-%m-%d").date() if date_param else timezone.localdate()
         search = request.query_params.get("search", "").strip() or None
-        report = services.daily_collections(request.tenant, date, search=search)
+        payment_method = request.query_params.get("payment_method", "").strip().upper() or None
+        report = services.daily_collections(request.tenant, date, search=search, payment_method=payment_method)
+        return Response(DailyCollectionsSerializer(report).data)
+
+
+class MySalesView(APIView):
+    """'My Sales' (Shereena, 2026-08-25) — everything Daily Collections
+    above has (payment breakdown w/ percentages, peak hour, avg/largest/
+    smallest bill, searchable+payment-method-filterable bill list with
+    item_count per bill), scoped to just the calling cashier's own
+    processed bills today instead of the whole restaurant's. One endpoint
+    covers what would otherwise be 3 (summary, list+filter, search).
+    """
+
+    permission_classes = [IsCashierOrManager, IsBillingEnabled]
+
+    def get(self, request):
+        date_param = request.query_params.get("date")
+        date = timezone.datetime.strptime(date_param, "%Y-%m-%d").date() if date_param else timezone.localdate()
+        search = request.query_params.get("search", "").strip() or None
+        payment_method = request.query_params.get("payment_method", "").strip().upper() or None
+        report = services.daily_collections(
+            request.tenant, date, search=search, payment_method=payment_method, cashier=request.user
+        )
         return Response(DailyCollectionsSerializer(report).data)
