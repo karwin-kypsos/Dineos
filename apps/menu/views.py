@@ -20,6 +20,7 @@ from . import services
 from .models import Category, MenuItem, PreparedPortion
 from .serializers import (
     AddPortionsSerializer,
+    CategoryCustomerSerializer,
     CategorySerializer,
     MenuItemCustomerSerializer,
     MenuItemSerializer,
@@ -90,6 +91,27 @@ class CustomerMenuView(APIView):
         branch = get_branch_from_table(table_id)
         items = _apply_category_and_search(_available_today_queryset(restaurant, branch), request).select_related("category")
         return Response(MenuItemCustomerSerializer(items, many=True).data)
+
+
+class CustomerCategoriesView(APIView):
+    """GET /v1/menu/categories/customer/{table_id}/ (2026-08-25, per
+    Shereena) — the public category-tab list for the Customer Web App.
+    CategoryViewSet (list/retrieve) requires staff auth, which a customer
+    scanning a QR code doesn't have, so this is a dedicated no-auth
+    equivalent — same branch-scoping rule as the staff one (this branch's
+    own categories, plus any legacy branch-less ones)."""
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, table_id):
+        restaurant = get_tenant_from_table(table_id)
+        if restaurant is None:
+            return Response({"detail": "Table not found."}, status=status.HTTP_404_NOT_FOUND)
+        branch = get_branch_from_table(table_id)
+        categories = Category.objects.filter(restaurant=restaurant, is_active=True)
+        if branch is not None:
+            categories = categories.filter(dj_models.Q(branch=branch) | dj_models.Q(branch__isnull=True))
+        return Response(CategoryCustomerSerializer(categories, many=True).data)
 
 
 class OrderTakingMenuView(ImageUploadErrorHandlingMixin, APIView):

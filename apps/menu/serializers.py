@@ -164,6 +164,18 @@ class MenuItemCustomerSerializer(serializers.ModelSerializer):
         return portion.portions_remaining if portion else None
 
 
+class CategoryCustomerSerializer(serializers.ModelSerializer):
+    """GET /v1/menu/categories/customer/{table_id}/ (2026-08-25, per
+    Shereena) — the public-facing category-tab list for the Customer Web
+    App, parallel to MenuItemCustomerSerializer. Deliberately its own
+    serializer rather than reusing the staff CategorySerializer, which
+    exposes branch/is_active/item_count and needs auth to reach at all."""
+
+    class Meta:
+        model = Category
+        fields = ["id", "name", "emoji", "image_url", "sort_order"]
+
+
 class ToggleAvailabilitySerializer(serializers.Serializer):
     pass
 

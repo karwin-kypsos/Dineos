@@ -27,6 +27,67 @@ def test_untracked_item_always_shows(api_client, table, menu_item):
     assert untracked.id in ids
 
 
+def test_customer_categories_lists_active_categories_no_auth(api_client, table, menu_item):
+    response = api_client.get(f"/v1/menu/categories/customer/{table.id}/")
+
+    assert response.status_code == 200
+    names = {c["name"] for c in response.data}
+    assert menu_item.category.name in names
+    entry = next(c for c in response.data if c["name"] == menu_item.category.name)
+    assert set(entry.keys()) == {"id", "name", "emoji", "image_url", "sort_order"}
+
+
+def test_customer_categories_excludes_inactive(api_client, table, restaurant):
+    from apps.menu.models import Category
+
+    Category.objects.create(restaurant=restaurant, name="Retired Section", sort_order=9, is_active=False)
+
+    response = api_client.get(f"/v1/menu/categories/customer/{table.id}/")
+
+    assert response.status_code == 200
+    names = {c["name"] for c in response.data}
+    assert "Retired Section" not in names
+
+
+def test_customer_categories_branch_scoping(api_client, restaurant, branch, menu_item):
+    from apps.menu.models import Category
+    from apps.restaurant.models import Branch
+    from apps.tables.models import Table
+
+    other_branch = Branch.objects.create(restaurant=restaurant, name="Other Branch")
+    Category.objects.create(restaurant=restaurant, branch=other_branch, name="Other Branch Only", sort_order=1)
+
+    branch_table = Table.objects.create(restaurant=restaurant, branch=branch, table_number="B1")
+    response = api_client.get(f"/v1/menu/categories/customer/{branch_table.id}/")
+
+    assert response.status_code == 200
+    names = {c["name"] for c in response.data}
+    assert "Other Branch Only" not in names
+    assert menu_item.category.name in names  # branch-less legacy category still shows everywhere
+
+
+def test_customer_categories_table_not_found(api_client):
+    import uuid
+
+    response = api_client.get(f"/v1/menu/categories/customer/{uuid.uuid4()}/")
+
+    assert response.status_code == 404
+
+
+def test_customer_menu_filters_by_category(api_client, table, menu_item, restaurant):
+    from apps.menu.models import Category, MenuItem
+
+    other_category = Category.objects.create(restaurant=restaurant, name="Drinks", sort_order=2)
+    other_item = MenuItem.objects.create(category=other_category, name="Lemonade", price=60)
+
+    response = api_client.get(f"/v1/menu/customer/{table.id}/?category={menu_item.category.id}")
+
+    assert response.status_code == 200
+    ids = {item["id"] for item in response.data}
+    assert menu_item.id in ids
+    assert other_item.id not in ids
+
+
 def test_add_portions_increments_existing_row(manager_client, menu_item):
     _, client = manager_client
     portion = menu_item.prepared_portions.get()

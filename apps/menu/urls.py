@@ -2,6 +2,7 @@ from django.urls import path
 
 from .views import (
     CategoryViewSet,
+    CustomerCategoriesView,
     CustomerMenuView,
     MenuItemViewSet,
     OrderTakingMenuView,
@@ -18,6 +19,7 @@ urlpatterns = [
     path("customer/<uuid:table_id>/", CustomerMenuView.as_view(), name="menu-customer"),
     path("all/", menu_all, name="menu-all"),
     path("categories/", category_list, name="menu-categories"),
+    path("categories/customer/<uuid:table_id>/", CustomerCategoriesView.as_view(), name="menu-categories-customer"),
     path("categories/<int:pk>/", category_detail, name="menu-category-detail"),
     path("<int:pk>/availability/", menu_availability, name="menu-item-availability"),
     path("<int:pk>/", menu_detail, name="menu-item-detail"),
