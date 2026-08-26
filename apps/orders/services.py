@@ -344,8 +344,15 @@ def _notify_order_ready(order, restaurant):
 
     from apps.notifications.services import notify_role
 
+    # Takeaway has no table/assigned server (round-robin assignment is
+    # dine-in only — see assign_next_server), so "notify SERVER" for a
+    # takeaway order used to ping every server restaurant-wide about
+    # something none of them could act on, while the Cashier — who's the
+    # one actually handing it over / collecting payment — got nothing
+    # (2026-08-26, per Shereena). Dine-in keeps notifying the Server.
+    roles = ["CASHIER"] if order.order_type == Order.OrderType.TAKEAWAY else ["SERVER"]
     notify_role(
-        ["SERVER"],
+        roles,
         tenant=restaurant,
         type="ORDER_READY",
         title=f"Order ready — {_order_label(order)}",

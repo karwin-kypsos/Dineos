@@ -63,3 +63,51 @@ def test_add_portions_notifies_admins_and_managers(manager_client, admin_client,
 
     assert response.status_code == 200, response.data
     assert Notification.objects.filter(recipient=admin_user, type="PREP_LOGGED").exists()
+
+
+def test_dine_in_order_ready_notifies_server_not_cashier(
+    django_capture_on_commit_callbacks, cashier_client, server_client, table, menu_item
+):
+    from apps.orders import services as order_services
+    from apps.tables import services as table_services
+
+    cashier_user, _ = cashier_client
+    server_user, _ = server_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order = order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+
+    order_services.advance_kitchen_status(order.id, "ACCEPTED")
+    order_services.advance_kitchen_status(order.id, "PREPARING")
+    with django_capture_on_commit_callbacks(execute=True):
+        order_services.advance_kitchen_status(order.id, "READY")
+
+    assert Notification.objects.filter(recipient=server_user, type="ORDER_READY").exists()
+    assert not Notification.objects.filter(recipient=cashier_user, type="ORDER_READY").exists()
+
+
+def test_takeaway_order_ready_notifies_cashier_not_server(
+    django_capture_on_commit_callbacks, cashier_client, server_client, menu_item, branch
+):
+    """Regression (2026-08-26, Shereena): takeaway has no table/assigned
+    server, so "ORDER_READY -> SERVER" used to ping every server about
+    something none of them could act on, while the Cashier — who actually
+    hands it over / collects payment — got nothing."""
+    from apps.orders import services as order_services
+
+    cashier_user, cashier = cashier_client
+    server_user, _ = server_client
+    cashier_user.branch = branch
+    cashier_user.save(update_fields=["branch"])
+
+    create = cashier.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    )
+    order_id = create.data["id"]
+
+    order_services.advance_kitchen_status(order_id, "ACCEPTED")
+    order_services.advance_kitchen_status(order_id, "PREPARING")
+    with django_capture_on_commit_callbacks(execute=True):
+        order_services.advance_kitchen_status(order_id, "READY")
+
+    assert Notification.objects.filter(recipient=cashier_user, type="ORDER_READY").exists()
+    assert not Notification.objects.filter(recipient=server_user, type="ORDER_READY").exists()
