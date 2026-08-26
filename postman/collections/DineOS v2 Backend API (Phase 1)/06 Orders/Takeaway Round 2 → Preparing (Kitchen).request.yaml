@@ -1,0 +1,10 @@
+$kind: http-request
+url: "{{base_url}}/orders/{{takeaway_round_2_id}}/status/"
+method: PATCH
+headers:
+  X-KDS-API-Key: "{{kds_api_key}}"
+  Content-Type: application/json
+body:
+  type: text
+  content: '{"status": "preparing"}'
+order: 20130

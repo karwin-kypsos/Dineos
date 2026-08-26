@@ -1,0 +1,24 @@
+$kind: http-request
+url: "{{base_url}}/tables/?page_size=100&page=2"
+method: GET
+headers:
+  Authorization: Bearer {{server_token}}
+scripts:
+  - type: afterResponse
+    code: |-
+      // Companion to "Stuck Empty-Session Table Visible to Server" (page 1)
+      // — see that request's comment for why this exists. A 404 here just
+      // means there IS no page 2 (fewer than 101 tables today), which is
+      // fine; page 1 alone already covered everything in that case.
+      const stuckTableData = pm.response.code === 200 ? pm.response.json() : null;
+      const stuckTableList = stuckTableData ? (stuckTableData.results || stuckTableData) : [];
+      const foundOnPage1 = pm.collectionVariables.get('stuck_table_found_page_1') === 'true';
+      const foundOnPage2 = stuckTableList.some(t => t.id === pm.collectionVariables.get('table_id'));
+      pm.test(
+        'table with an active but empty (no orders yet) session is visible to a Server, not stuck',
+        () => {
+          pm.expect(foundOnPage1 || foundOnPage2, 'table should be in the Server table list (page 1 or 2) even before any order is placed').to.be.true;
+        }
+      );
+    language: text/javascript
+order: 3550

@@ -6,15 +6,18 @@ headers:
 scripts:
   - type: afterResponse
     code: |-
+      // This test's server_token account has no branch assigned (a
+      // long-standing demo fixture, unrelated to this test), so its table
+      // list is restaurant-wide rather than branch-scoped — and 100 is a
+      // hard server-side max_page_size (core.pagination), so a single page
+      // can miss the target row once the shared demo restaurant's table
+      // count grows past it. Page 1 is checked here; the companion request
+      // right after checks page 2 — between them that covers up to 200
+      // tables, comfortably above where this restaurant sits today.
       const stuckTableData = pm.response.json();
       const stuckTableList = stuckTableData.results || stuckTableData;
       pm.test('status is 200', () => pm.response.to.have.status(200));
-      pm.test(
-        'table with an active but empty (no orders yet) session is visible to a Server, not stuck',
-        () => {
-          const match = stuckTableList.find(t => t.id === pm.collectionVariables.get('table_id'));
-          pm.expect(match, 'table should be in the Server table list even before any order is placed').to.exist;
-        }
-      );
+      const match = stuckTableList.find(t => t.id === pm.collectionVariables.get('table_id'));
+      pm.collectionVariables.set('stuck_table_found_page_1', !!match);
     language: text/javascript
 order: 3500
