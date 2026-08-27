@@ -255,6 +255,17 @@ class PaymentBreakdownSerializer(serializers.Serializer):
     upi_percentage = serializers.FloatField()
 
 
+class CashierCollectionSerializer(serializers.Serializer):
+    shift_id = serializers.UUIDField()
+    cashier_id = serializers.UUIDField()
+    cashier_name = serializers.CharField()
+    tables_served = serializers.IntegerField()
+    total_collected = serializers.DecimalField(max_digits=10, decimal_places=2)
+    status = serializers.ChoiceField(choices=["NOT_SUBMITTED", "MATCHED", "DISCREPANCY"])
+    opened_at = serializers.DateTimeField()
+    closed_at = serializers.DateTimeField(allow_null=True)
+
+
 class DailyCollectionsSerializer(serializers.Serializer):
     date = serializers.DateField()
     total_collected = serializers.DecimalField(max_digits=10, decimal_places=2)

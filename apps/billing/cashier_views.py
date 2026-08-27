@@ -5,11 +5,12 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.permissions import FeatureEnabledPermission, IsAnyStaff, IsCashierOrManager
+from core.permissions import FeatureEnabledPermission, IsAdminOrManager, IsAnyStaff, IsCashierOrManager
 
 from . import services
 from .models import CashierShift
 from .serializers import (
+    CashierCollectionSerializer,
     CashierDashboardSerializer,
     CashierShiftSerializer,
     CloseShiftRequestSerializer,
@@ -126,6 +127,30 @@ class DailyCollectionsView(APIView):
             date = timezone.datetime.strptime(date_param, "%Y-%m-%d").date() if date_param else timezone.localdate()
             report = services.daily_collections(request.tenant, date, search=search, payment_method=payment_method)
         return Response(DailyCollectionsSerializer(report).data)
+
+
+class CashierCollectionsView(APIView):
+    """'Cashier Collections' panel on the Billing dashboard (2026-08-27,
+    per Shereena's mockup) — one row per cashier shift, each with that
+    shift's own tables/total and NOT_SUBMITTED/MATCHED/DISCREPANCY status.
+    Admin/Manager only — this is oversight of every cashier, not a
+    cashier's own view of themselves.
+    """
+
+    permission_classes = [IsAdminOrManager, IsBillingEnabled]
+
+    def get(self, request):
+        date_from_param = request.query_params.get("date_from")
+        date_to_param = request.query_params.get("date_to")
+        if date_from_param and date_to_param:
+            date_from = timezone.datetime.strptime(date_from_param, "%Y-%m-%d").date()
+            date_to = timezone.datetime.strptime(date_to_param, "%Y-%m-%d").date()
+            collections = services.cashier_collections(request.tenant, date_from=date_from, date_to=date_to)
+        else:
+            date_param = request.query_params.get("date")
+            date = timezone.datetime.strptime(date_param, "%Y-%m-%d").date() if date_param else timezone.localdate()
+            collections = services.cashier_collections(request.tenant, date=date)
+        return Response(CashierCollectionSerializer(collections, many=True).data)
 
 
 class MySalesView(APIView):

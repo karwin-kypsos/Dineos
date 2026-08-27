@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .cashier_views import (
+    CashierCollectionsView,
     CloseShiftView,
     CurrentShiftView,
     DailyCollectionsView,
@@ -26,4 +27,5 @@ cashier_urlpatterns = [
     path("shifts/<uuid:shift_id>/close/", CloseShiftView.as_view(), name="cashier-shift-close"),
     path("collections/daily/", DailyCollectionsView.as_view(), name="cashier-collections-daily"),
     path("collections/my-sales/", MySalesView.as_view(), name="cashier-collections-my-sales"),
+    path("collections/by-cashier/", CashierCollectionsView.as_view(), name="cashier-collections-by-cashier"),
 ]

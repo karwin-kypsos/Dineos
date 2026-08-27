@@ -315,6 +315,91 @@ def test_daily_collections_date_range_filters_inclusive(manager_client, cashier_
     assert Decimal(response.data["total_collected"]) == _with_tax(menu_item.price)
 
 
+def test_cashier_collections_shows_not_submitted_for_open_shift(manager_client, cashier_client, table, menu_item):
+    """New: GET /v1/cashier/collections/by-cashier/ (2026-08-27, per
+    Shereena's Billing screen 'Cashier Collections' panel)."""
+    cashier_user, _ = cashier_client
+    billing_services.open_shift(cashier_user)
+    _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+
+    _, manager = manager_client
+    response = manager.get("/v1/cashier/collections/by-cashier/")
+
+    assert response.status_code == 200
+    assert len(response.data) == 1
+    row = response.data[0]
+    assert row["cashier_id"] == str(cashier_user.id)
+    assert row["status"] == "NOT_SUBMITTED"
+    assert row["tables_served"] == 1
+    assert Decimal(row["total_collected"]) == _with_tax(menu_item.price)
+
+
+def test_cashier_collections_shows_matched_for_closed_shift(manager_client, cashier_client, table, menu_item):
+    cashier_user, client = cashier_client
+    shift = billing_services.open_shift(cashier_user)
+    _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+    client.post(
+        f"/v1/cashier/shifts/{shift.id}/close/", {"counted_cash": str(_with_tax(menu_item.price))}, format="json"
+    )
+
+    _, manager = manager_client
+    response = manager.get("/v1/cashier/collections/by-cashier/")
+
+    assert response.status_code == 200
+    assert response.data[0]["status"] == "MATCHED"
+
+
+def test_cashier_collections_shows_discrepancy_for_mismatched_shift(manager_client, cashier_client, table, menu_item):
+    cashier_user, client = cashier_client
+    shift = billing_services.open_shift(cashier_user)
+    _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+    client.post(
+        f"/v1/cashier/shifts/{shift.id}/close/",
+        {"counted_cash": "1.00", "acknowledge_discrepancy": True, "discrepancy_reason": "Miscounted"},
+        format="json",
+    )
+
+    _, manager = manager_client
+    response = manager.get("/v1/cashier/collections/by-cashier/")
+
+    assert response.status_code == 200
+    assert response.data[0]["status"] == "DISCREPANCY"
+
+
+def test_cashier_collections_date_range_filters_inclusive(manager_client, cashier_client, table, menu_item):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    cashier_user, _ = cashier_client
+    shift_in_range = billing_services.open_shift(cashier_user)
+    shift_in_range.opened_at = shift_in_range.opened_at - timedelta(days=3)
+    shift_in_range.save(update_fields=["opened_at"])
+
+    _, manager = manager_client
+    today = timezone.localdate()
+    date_from = (today - timedelta(days=5)).isoformat()
+    date_to = today.isoformat()
+
+    response = manager.get(f"/v1/cashier/collections/by-cashier/?date_from={date_from}&date_to={date_to}")
+
+    assert response.status_code == 200
+    assert len(response.data) == 1
+    assert response.data[0]["shift_id"] == str(shift_in_range.id)
+
+    outside_range_response = manager.get(
+        f"/v1/cashier/collections/by-cashier/?date_from={today.isoformat()}&date_to={today.isoformat()}"
+    )
+    assert outside_range_response.status_code == 200
+    assert len(outside_range_response.data) == 0
+
+
+def test_cashier_collections_requires_admin_or_manager(cashier_client):
+    _, cashier = cashier_client
+    response = cashier.get("/v1/cashier/collections/by-cashier/")
+    assert response.status_code == 403
+
+
 def test_daily_collections_search_filters_bills_not_totals(manager_client, cashier_client, table, menu_item):
     from apps.tables.models import Table
 

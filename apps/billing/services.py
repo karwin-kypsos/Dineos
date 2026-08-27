@@ -440,6 +440,62 @@ def list_bills(restaurant, *, date=None, date_from=None, date_to=None, payment_m
     return bills.order_by("-paid_at")
 
 
+def cashier_collections(restaurant, *, date=None, date_from=None, date_to=None):
+    """'Cashier Collections' panel on the Billing dashboard (2026-08-27, per
+    Shereena's mockup) — one row per cashier SHIFT that opened in the given
+    window, each with the tables/total that specific shift collected and
+    whether it's been submitted/matched yet. Shift-scoped (not just
+    cashier-scoped) since the same cashier can have multiple shifts, and
+    "Not submitted" only makes sense per-shift.
+    """
+    if date_from is not None or date_to is not None:
+        window_start = (
+            timezone.make_aware(timezone.datetime.combine(date_from, timezone.datetime.min.time()))
+            if date_from is not None else None
+        )
+        window_end = (
+            timezone.make_aware(timezone.datetime.combine(date_to, timezone.datetime.min.time())) + timezone.timedelta(days=1)
+            if date_to is not None else None
+        )
+        shifts = CashierShift.objects.filter(restaurant=restaurant)
+        if window_start is not None:
+            shifts = shifts.filter(opened_at__gte=window_start)
+        if window_end is not None:
+            shifts = shifts.filter(opened_at__lt=window_end)
+    else:
+        if date is None:
+            date = timezone.localdate()
+        day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
+        day_end = day_start + timezone.timedelta(days=1)
+        shifts = CashierShift.objects.filter(restaurant=restaurant, opened_at__gte=day_start, opened_at__lt=day_end)
+
+    results = []
+    for shift in shifts.select_related("cashier").order_by("-opened_at"):
+        shift_end = shift.closed_at or timezone.now()
+        bills = Bill.objects.filter(processed_by=shift.cashier, paid_at__gte=shift.opened_at, paid_at__lt=shift_end)
+        tables_served = bills.count()
+        total_collected = bills.aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
+
+        if shift.status == CashierShift.Status.OPEN:
+            collection_status = "NOT_SUBMITTED"
+        elif shift.discrepancy_amount == 0:
+            collection_status = "MATCHED"
+        else:
+            collection_status = "DISCREPANCY"
+
+        results.append({
+            "shift_id": shift.id,
+            "cashier_id": shift.cashier_id,
+            "cashier_name": shift.cashier.name,
+            "tables_served": tables_served,
+            "total_collected": total_collected,
+            "status": collection_status,
+            "opened_at": shift.opened_at,
+            "closed_at": shift.closed_at,
+        })
+    return results
+
+
 def _peak_hour_window(bills):
     """'Busiest window' (2026-08-25, per Shereena's My Sales mockup): the
     single clock hour with the highest total collected today, formatted
