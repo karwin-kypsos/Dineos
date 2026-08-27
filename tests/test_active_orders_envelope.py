@@ -34,6 +34,32 @@ def _place_dine_in_order(table, menu_item, quantity=1):
     return order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": quantity}])
 
 
+def test_branch_less_order_does_not_leak_into_a_branch_scoped_kds(kds_device, restaurant, branch, menu_item):
+    """Regression (2026-08-27, Shereena): a new branch was showing orders
+    from a table that never had a branch assigned — the KDS query fell
+    back to branch__isnull=True (correct for a genuinely-shared MenuItem/
+    Category, wrong for an Order, which always belongs to exactly one
+    table/branch). A branch-less order should now be invisible to every
+    branch-scoped KDS, not visible to all of them."""
+    from rest_framework.test import APIClient
+
+    from apps.tables.models import Table
+
+    branchless_table = Table.objects.create(restaurant=restaurant, table_number="NoBranch1", capacity=4)
+    _place_dine_in_order(branchless_table, menu_item)
+
+    kds_device.branch = branch
+    kds_device.save(update_fields=["branch"])
+    scoped_client = APIClient()
+    scoped_client.credentials(HTTP_X_KDS_API_KEY=kds_device.api_key)
+
+    response = scoped_client.get("/v1/orders/active/")
+
+    assert response.status_code == 200
+    assert response.data["summary"]["total_orders_count"] == 0
+    assert response.data["orders"] == []
+
+
 def test_active_orders_envelope_shape(kds_client, table, menu_item):
     _, client = kds_client
     _place_dine_in_order(table, menu_item)

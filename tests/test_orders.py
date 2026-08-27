@@ -17,6 +17,28 @@ def test_insufficient_portions_returns_400(api_client, table, menu_item):
     assert response.status_code == 400
 
 
+def test_ordering_when_portions_remaining_is_exactly_zero_returns_400(api_client, table, menu_item):
+    """Confirms a sold-out item (portions_remaining=0, tracked via today's
+    PreparedPortion) is correctly blocked — checked 2026-08-27 after
+    Shereena reported sold-out items still being orderable. Verified this
+    exact tracked-to-zero case already works; the untracked case (no
+    PreparedPortion logged for today at all, which decrement_portions
+    treats as unlimited by design) is a separate, deliberate behavior."""
+    from apps.menu.models import PreparedPortion
+
+    portion = PreparedPortion.objects.get(menu_item=menu_item)
+    portion.portions_remaining = 0
+    portion.save(update_fields=["portions_remaining"])
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    response = api_client.post(
+        "/v1/orders/",
+        {"session_id": str(session.id), "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+    assert response.status_code == 400
+
+
 def test_kitchen_cannot_skip_status(kds_client, table, menu_item):
     _, kitchen_client = kds_client
     session, _ = table_services.get_or_create_active_session(table.id)
@@ -160,6 +182,40 @@ def test_order_source_server_for_staff_placed_order(server_client, table, menu_i
     assert response.status_code == 201
     assert response.data["order_source"] == "SERVER"
     assert response.data["placed_by"] is not None
+
+
+def test_server_sees_customer_placed_order_in_my_orders(api_client, server_client, branch, restaurant, menu_item):
+    """Confirms a customer's own QR-scan order (no auth) still reaches the
+    assigned server's My Orders list — checked 2026-08-27 after Shereena
+    asked whether this flow needed new logic. Round-robin auto-assignment
+    (assign_next_server) doesn't look at who placed the order, only the
+    table's branch, so this already worked as long as the table itself has
+    a branch and there's an active server for it — see the branch-less-
+    table KDS leak fix in test_active_orders_envelope.py for the case
+    where it silently doesn't (no branch means no matching server)."""
+    from apps.tables.models import Table
+
+    server_user, server = server_client
+    server_user.branch = branch
+    server_user.save(update_fields=["branch"])
+
+    table = Table.objects.create(restaurant=restaurant, branch=branch, table_number="CustVis1", capacity=4)
+
+    start = api_client.post(f"/v1/tables/{table.id}/session/")
+    assert start.status_code == 201
+    session_id = start.data["id"]
+
+    order = api_client.post(
+        "/v1/orders/",
+        {"session_id": session_id, "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+    assert order.status_code == 201
+    assert order.data["order_source"] == "CUSTOMER"
+
+    response = server.get("/v1/orders/mine/")
+    order_ids = {o["id"] for o in response.data}
+    assert order.data["id"] in order_ids
 
 
 def test_order_source_cashier_for_takeaway_order(cashier_client, branch, menu_item):

@@ -66,6 +66,12 @@ class TakeawayOrderView(APIView):
 
     permission_classes = [IsAnyStaff]
 
+    # Once collected/served (or cancelled), a takeaway order is done — the
+    # active queue a cashier watches for payment/collection shouldn't keep
+    # showing it forever. Only applies when ?status= is omitted entirely;
+    # ?status=all still means literally every status, unchanged.
+    _ACTIVE_STATUSES = ["NEW", "ACCEPTED", "PREPARING", "READY"]
+
     def get(self, request):
         orders = (
             Order.objects.filter(order_type=Order.OrderType.TAKEAWAY, branch__restaurant=request.tenant)
@@ -77,9 +83,35 @@ class TakeawayOrderView(APIView):
         if branch is not None:
             orders = orders.filter(branch=branch)
 
-        status_filter = request.query_params.get("status", "").strip().upper()
+        # date_from/date_to (2026-08-27, per Shereena's bug report — this
+        # returned every takeaway order ever placed, not just the ones
+        # relevant to today/the cashier's current shift). Defaults to
+        # TODAY when neither bound is given, same convention as Bills/
+        # Daily Collections/Purchase Orders elsewhere in this API.
+        date_from_param = request.query_params.get("date_from")
+        date_to_param = request.query_params.get("date_to")
+        if date_from_param or date_to_param:
+            if date_from_param:
+                date_from = timezone.datetime.strptime(date_from_param, "%Y-%m-%d").date()
+                range_start = timezone.make_aware(timezone.datetime.combine(date_from, timezone.datetime.min.time()))
+                orders = orders.filter(placed_at__gte=range_start)
+            if date_to_param:
+                date_to = timezone.datetime.strptime(date_to_param, "%Y-%m-%d").date()
+                range_end = timezone.make_aware(timezone.datetime.combine(date_to, timezone.datetime.min.time())) + timezone.timedelta(days=1)
+                orders = orders.filter(placed_at__lt=range_end)
+        else:
+            today = timezone.localdate()
+            day_start = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.min.time()))
+            day_end = day_start + timezone.timedelta(days=1)
+            orders = orders.filter(placed_at__gte=day_start, placed_at__lt=day_end)
+
+        status_param = request.query_params.get("status", "").strip()
+        status_filter = status_param.upper()
         if status_filter and status_filter != "ALL" and status_filter in Order.Status.values:
             orders = orders.filter(status=status_filter)
+        elif not status_param:
+            orders = orders.filter(status__in=self._ACTIVE_STATUSES)
+        # status=all (explicit): no status filter, but date scoping above still applies.
 
         return Response(OrderSerializer(orders, many=True).data)
 
@@ -163,7 +195,15 @@ class ActiveOrdersView(APIView):
         )
         branch = _request_branch(request)
         if branch is not None:
-            orders = orders.filter(models.Q(branch=branch) | models.Q(branch__isnull=True))
+            # Strict match only (2026-08-27, per Shereena's cross-branch KOT
+            # leak report) — unlike a shared MenuItem/Category/Ingredient, a
+            # null-branch Order isn't a legitimate "applies to every branch"
+            # resource, it's just a table that was never assigned a branch.
+            # Falling back to branch__isnull=True here (copied from that
+            # shared-resource pattern) was leaking those orders into every
+            # branch's KDS at once, including one that had nothing to do
+            # with them.
+            orders = orders.filter(branch=branch)
 
         orders = list(orders)
         status_counts = Counter(order.status for order in orders)
@@ -195,7 +235,9 @@ class ReadyOrdersView(APIView):
         )
         branch = _request_branch(request)
         if branch is not None:
-            orders = orders.filter(models.Q(branch=branch) | models.Q(branch__isnull=True))
+            # See ActiveOrdersView above for why this is a strict match,
+            # not the shared-resource branch__isnull=True fallback.
+            orders = orders.filter(branch=branch)
         return Response(OrderSerializer(orders, many=True).data)
 
 

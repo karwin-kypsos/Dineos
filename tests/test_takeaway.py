@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 import pytest
+from django.utils import timezone
 
 from apps.orders.models import Order
 
@@ -175,6 +176,62 @@ def test_list_takeaway_orders_scoped_to_own_branch(cashier_with_branch, menu_ite
     assert response.status_code == 200
     assert len(response.data) == 1
     assert response.data[0]["branch"] is not None
+
+
+def test_list_takeaway_orders_defaults_to_today_not_all_time(cashier_with_branch, menu_item):
+    """New: date scoping (2026-08-27, per Shereena's bug report — this
+    endpoint returned every takeaway order ever placed, not just the ones
+    relevant to today/the cashier's current shift)."""
+    from datetime import timedelta
+
+    _, client = cashier_with_branch
+
+    old_order = client.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    ).data
+    Order.objects.filter(id=old_order["id"]).update(placed_at=timezone.now() - timedelta(days=3))
+
+    today_order = client.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    ).data
+
+    default_response = client.get("/v1/orders/takeaway/?status=all")
+    ids = {o["id"] for o in default_response.data}
+    assert today_order["id"] in ids
+    assert old_order["id"] not in ids
+
+    today = timezone.localdate()
+    ranged_response = client.get(
+        f"/v1/orders/takeaway/?status=all&date_from={(today - timedelta(days=5)).isoformat()}&date_to={today.isoformat()}"
+    )
+    ranged_ids = {o["id"] for o in ranged_response.data}
+    assert old_order["id"] in ranged_ids
+    assert today_order["id"] in ranged_ids
+
+
+def test_list_takeaway_orders_excludes_collected_and_served_by_default(cashier_with_branch, menu_item):
+    """New: once collected/served, a takeaway order drops out of the
+    default active queue (2026-08-27, per Shereena) — ?status=all still
+    shows it explicitly."""
+    _, client = cashier_with_branch
+
+    active_order = client.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    ).data
+    served_order = client.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    ).data
+    Order.objects.filter(id=served_order["id"]).update(status="SERVED")
+
+    default_response = client.get("/v1/orders/takeaway/")
+    default_ids = {o["id"] for o in default_response.data}
+    assert active_order["id"] in default_ids
+    assert served_order["id"] not in default_ids
+
+    all_response = client.get("/v1/orders/takeaway/?status=all")
+    all_ids = {o["id"] for o in all_response.data}
+    assert active_order["id"] in all_ids
+    assert served_order["id"] in all_ids
 
 
 def test_list_takeaway_orders_filters_by_status(cashier_with_branch, menu_item):
