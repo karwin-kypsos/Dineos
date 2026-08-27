@@ -124,6 +124,81 @@ def test_reconciliation_breaks_totals_down_by_payment_method(cashier_client, tab
     assert Decimal(response.data["total"]) == _with_tax(menu_item.price)
 
 
+def test_reconciliation_includes_percentages_and_shift_detail_for_open_shift(cashier_client, table, menu_item):
+    """New: cash_percentage/card_percentage/upi_percentage, tables_served,
+    cashier_name, status, and null counted_cash/discrepancy_amount/
+    is_matched/closed_at while still open (2026-08-27, per Shereena's
+    per-cashier shift detail screen mockup — Payment Split + Cash
+    Reconciliation combined in one screen)."""
+    cashier_user, client = cashier_client
+    shift = billing_services.open_shift(cashier_user)
+
+    from apps.tables.models import Table
+
+    other_table = Table.objects.create(restaurant=table.restaurant, branch=table.branch, table_number="Recon1")
+    _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+    _pay(cashier_user, other_table, menu_item, quantity=1, method="CARD")
+
+    response = client.get(f"/v1/cashier/shifts/{shift.id}/reconciliation/")
+
+    assert response.status_code == 200
+    assert response.data["cash_percentage"] == 50.0
+    assert response.data["card_percentage"] == 50.0
+    assert response.data["upi_percentage"] == 0.0
+    assert response.data["tables_served"] == 2
+    assert response.data["cashier_name"] == cashier_user.name
+    assert response.data["status"] == "OPEN"
+    assert response.data["counted_cash"] is None
+    assert response.data["discrepancy_amount"] is None
+    assert response.data["is_matched"] is None
+    assert response.data["closed_at"] is None
+
+
+def test_reconciliation_shows_matched_after_closing(cashier_client, table, menu_item):
+    cashier_user, client = cashier_client
+    shift = billing_services.open_shift(cashier_user)
+    _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+    expected_cash = _with_tax(menu_item.price)
+    client.post(f"/v1/cashier/shifts/{shift.id}/close/", {"counted_cash": str(expected_cash)}, format="json")
+
+    response = client.get(f"/v1/cashier/shifts/{shift.id}/reconciliation/")
+
+    assert response.status_code == 200
+    assert response.data["status"] == "CLOSED"
+    assert Decimal(response.data["counted_cash"]) == expected_cash
+    assert Decimal(response.data["discrepancy_amount"]) == 0
+    assert response.data["is_matched"] is True
+    assert response.data["closed_at"] is not None
+
+
+def test_reconciliation_shows_discrepancy_after_mismatched_close(cashier_client, table, menu_item):
+    cashier_user, client = cashier_client
+    shift = billing_services.open_shift(cashier_user)
+    _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+    client.post(
+        f"/v1/cashier/shifts/{shift.id}/close/",
+        {"counted_cash": "1.00", "acknowledge_discrepancy": True, "discrepancy_reason": "Miscounted"},
+        format="json",
+    )
+
+    response = client.get(f"/v1/cashier/shifts/{shift.id}/reconciliation/")
+
+    assert response.status_code == 200
+    assert response.data["is_matched"] is False
+
+
+def test_manager_can_view_any_cashiers_reconciliation(manager_client, cashier_client, table, menu_item):
+    cashier_user, cashier = cashier_client
+    shift = billing_services.open_shift(cashier_user)
+    _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+
+    _, manager = manager_client
+    response = manager.get(f"/v1/cashier/shifts/{shift.id}/reconciliation/")
+
+    assert response.status_code == 200
+    assert response.data["cashier_name"] == cashier_user.name
+
+
 def test_close_shift_without_discrepancy_succeeds_directly(cashier_client, table, menu_item):
     cashier_user, client = cashier_client
     shift = billing_services.open_shift(cashier_user)

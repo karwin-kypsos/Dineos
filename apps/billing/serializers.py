@@ -219,6 +219,16 @@ class ShiftReconciliationSerializer(serializers.Serializer):
     card = serializers.DecimalField(max_digits=10, decimal_places=2)
     upi = serializers.DecimalField(max_digits=10, decimal_places=2)
     total = serializers.DecimalField(max_digits=10, decimal_places=2)
+    cash_percentage = serializers.FloatField()
+    card_percentage = serializers.FloatField()
+    upi_percentage = serializers.FloatField()
+    tables_served = serializers.IntegerField()
+    cashier_name = serializers.CharField()
+    status = serializers.ChoiceField(choices=["OPEN", "CLOSED"])
+    counted_cash = serializers.DecimalField(max_digits=10, decimal_places=2, allow_null=True)
+    discrepancy_amount = serializers.DecimalField(max_digits=10, decimal_places=2, allow_null=True)
+    is_matched = serializers.BooleanField(allow_null=True)
+    closed_at = serializers.DateTimeField(allow_null=True)
 
 
 class CloseShiftRequestSerializer(serializers.Serializer):

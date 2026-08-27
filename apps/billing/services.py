@@ -308,13 +308,37 @@ def shift_totals_by_method(shift):
     subtotals plus the grand total, computed straight from `Bill` records
     rather than a stored snapshot (`Bill.processed_by` + `Bill.paid_at` are
     the single source of truth — see `CashierShift`'s docstring).
+
+    Also returns everything needed for the per-cashier shift detail screen
+    (2026-08-27, per Shereena's "Anu" mockup — tables handled, collected
+    total, payment-split percentages, and the submitted-vs-expected cash
+    reconciliation): cash_percentage/card_percentage/upi_percentage,
+    tables_served, cashier_name, status, counted_cash, discrepancy_amount,
+    is_matched, and closed_at. The last four are None while the shift is
+    still OPEN — there's nothing submitted yet to compare against.
     """
+    bills = list(_shift_bills(shift))
     totals = {"cash": Decimal("0"), "card": Decimal("0"), "upi": Decimal("0")}
-    for bill in _shift_bills(shift):
+    for bill in bills:
         key = _PAYMENT_METHOD_KEYS.get(bill.payment_method)
         if key:
             totals[key] += bill.total_amount
     totals["total"] = totals["cash"] + totals["card"] + totals["upi"]
+
+    def _pct(amount):
+        return float((amount / totals["total"] * 100).quantize(Decimal("0.1"))) if totals["total"] > 0 else 0.0
+
+    totals["cash_percentage"] = _pct(totals["cash"])
+    totals["card_percentage"] = _pct(totals["card"])
+    totals["upi_percentage"] = _pct(totals["upi"])
+    totals["tables_served"] = len(bills)
+    totals["cashier_name"] = shift.cashier.name
+    totals["status"] = shift.status
+    is_closed = shift.status == CashierShift.Status.CLOSED
+    totals["counted_cash"] = shift.counted_cash if is_closed else None
+    totals["discrepancy_amount"] = shift.discrepancy_amount if is_closed else None
+    totals["is_matched"] = (shift.discrepancy_amount == 0) if is_closed else None
+    totals["closed_at"] = shift.closed_at
     return totals
 
 
