@@ -78,3 +78,33 @@ def test_full_customer_journey(api_client, kds_client, server_client, cashier_cl
     assert pay_again.status_code == 201
     assert pay_again.data["id"] == bill_id
     assert pay_again.data["total_amount"] == total
+
+
+def test_customer_session_bill_preview_includes_tax_inclusive_total(api_client, table, menu_item):
+    """New: subtotal/tax_amount/service_charge/total_amount on the customer
+    session endpoint (2026-08-27, per Shereena — the customer app's bill
+    preview only had running_total, a raw item-price sum with no GST/
+    service charge, so it never matched what the customer would actually
+    pay). Must match the staff-side bill preview exactly, since both reuse
+    apps.billing.services._compute_totals."""
+    start = api_client.post(f"/v1/tables/{table.id}/session/")
+    session_id = start.data["id"]
+
+    api_client.post(
+        "/v1/orders/",
+        {"session_id": session_id, "items": [{"menu_item": menu_item.id, "quantity": 2}]},
+        format="json",
+    )
+
+    customer_view = api_client.get(f"/v1/tables/{table.id}/session/")
+    assert customer_view.status_code == 200
+
+    from apps.billing.services import get_bill_preview
+
+    staff_preview = get_bill_preview(session_id)
+
+    assert float(customer_view.data["subtotal"]) == float(staff_preview["subtotal"])
+    assert float(customer_view.data["tax_amount"]) == float(staff_preview["tax_amount"])
+    assert float(customer_view.data["service_charge"]) == float(staff_preview["service_charge"])
+    assert float(customer_view.data["total_amount"]) == float(staff_preview["total_amount"])
+    assert float(customer_view.data["total_amount"]) > float(customer_view.data["running_total"])

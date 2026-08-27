@@ -55,10 +55,17 @@ class TableSessionDetailSerializer(serializers.ModelSerializer):
     table_number = serializers.CharField(source="table.table_number", read_only=True)
     orders = serializers.SerializerMethodField()
     running_total = serializers.SerializerMethodField()
+    subtotal = serializers.SerializerMethodField()
+    tax_amount = serializers.SerializerMethodField()
+    service_charge = serializers.SerializerMethodField()
+    total_amount = serializers.SerializerMethodField()
 
     class Meta:
         model = TableSession
-        fields = ["id", "table", "table_number", "status", "opened_at", "orders", "running_total"]
+        fields = [
+            "id", "table", "table_number", "status", "opened_at", "orders", "running_total",
+            "subtotal", "tax_amount", "service_charge", "total_amount",
+        ]
 
     def get_orders(self, obj):
         from apps.orders.serializers import OrderSerializer
@@ -71,6 +78,35 @@ class TableSessionDetailSerializer(serializers.ModelSerializer):
             for item in order.items.all():
                 total += item.unit_price * item.quantity
         return total
+
+    def _totals(self, obj):
+        # subtotal/tax_amount/service_charge/total_amount (2026-08-27, per
+        # Shereena — the customer app's bill preview only had running_total,
+        # a raw item-price sum with no GST/service charge, so what the
+        # customer saw never matched what they'd actually be asked to pay.
+        # Reuses the exact same calculation the staff-side bill preview and
+        # the final paid Bill use (apps.billing.services._compute_totals),
+        # so the customer sees the true final amount, not an approximation.
+        # Cached per-instance since 3 separate SerializerMethodFields all
+        # need it.
+        if not hasattr(obj, "_tax_totals_cache"):
+            from apps.billing.services import _compute_totals
+
+            subtotal, tax_amount, service_charge, total_amount, _orders = _compute_totals(obj)
+            obj._tax_totals_cache = (subtotal, tax_amount, service_charge, total_amount)
+        return obj._tax_totals_cache
+
+    def get_subtotal(self, obj):
+        return self._totals(obj)[0]
+
+    def get_tax_amount(self, obj):
+        return self._totals(obj)[1]
+
+    def get_service_charge(self, obj):
+        return self._totals(obj)[2]
+
+    def get_total_amount(self, obj):
+        return self._totals(obj)[3]
 
 
 class QRLandingSerializer(serializers.Serializer):

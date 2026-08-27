@@ -203,6 +203,42 @@ def test_purchase_order_filter_by_status(manager_client, ingredient):
     assert all(po["status"] == "RECEIVED" for po in results)
 
 
+def test_purchase_order_date_range_filters_inclusive(manager_client, ingredient):
+    """New: date_from/date_to (2026-08-27, per Shereena's Purchase Order
+    History screen needing a from/to range, same as Billing/bill history)."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    _, client = manager_client
+    in_range = client.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00"}]}, format="json",
+    ).data
+    po_in_range = PurchaseOrder.objects.get(id=in_range["id"])
+    po_in_range.created_at = po_in_range.created_at - timedelta(days=3)
+    po_in_range.save(update_fields=["created_at"])
+
+    outside_range = client.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00"}]}, format="json",
+    ).data
+    po_outside_range = PurchaseOrder.objects.get(id=outside_range["id"])
+    po_outside_range.created_at = po_outside_range.created_at - timedelta(days=10)
+    po_outside_range.save(update_fields=["created_at"])
+
+    today = timezone.localdate()
+    date_from = (today - timedelta(days=5)).isoformat()
+    date_to = today.isoformat()
+
+    response = client.get(f"/v1/inventory/purchase-orders/?date_from={date_from}&date_to={date_to}")
+
+    assert response.status_code == 200
+    ids = {po["id"] for po in response.data["results"]}
+    assert str(po_in_range.id) in ids
+    assert str(po_outside_range.id) not in ids
+
+
 def test_purchase_order_needs_action_filter_and_branch_scoping(admin_client, ingredient, restaurant):
     from apps.authentication.serializers import DineOSTokenObtainPairSerializer
     from apps.authentication.models import User

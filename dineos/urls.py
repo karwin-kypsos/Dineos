@@ -27,5 +27,6 @@ urlpatterns = [
     path("v1/bills/", include("apps.billing.urls")),
     path("v1/cashier/", include(cashier_urlpatterns)),
     path("v1/notifications/", include("apps.notifications.urls")),
+    path("v1/feedback/", include("apps.feedback.urls")),
     path("platform/", include("apps.platform.urls")),
 ]

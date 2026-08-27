@@ -189,6 +189,25 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         if status_filter in PurchaseOrder.Status.values:
             qs = qs.filter(status=status_filter)
 
+        # date_from/date_to (2026-08-27, per Shereena's Purchase Order History
+        # screen needing a from/to range, same as the Billing dashboard and
+        # bill history list). Both bounds are inclusive calendar dates,
+        # filtered on created_at (when the PO was raised).
+        date_from_param = self.request.query_params.get("date_from")
+        date_to_param = self.request.query_params.get("date_to")
+        if date_from_param:
+            try:
+                date_from = timezone.datetime.strptime(date_from_param, "%Y-%m-%d").date()
+                qs = qs.filter(created_at__date__gte=date_from)
+            except ValueError:
+                pass  # malformed date — no filter applied, same convention as branch_id above
+        if date_to_param:
+            try:
+                date_to = timezone.datetime.strptime(date_to_param, "%Y-%m-%d").date()
+                qs = qs.filter(created_at__date__lte=date_to)
+            except ValueError:
+                pass
+
         search = self.request.query_params.get("search", "").strip()
         if search:
             qs = qs.filter(
