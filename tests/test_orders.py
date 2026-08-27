@@ -129,6 +129,52 @@ def test_order_response_includes_raw_table_number(api_client, table, menu_item):
     assert response.data[0]["table_number"] == table.table_number
 
 
+def test_order_source_customer_for_anonymous_qr_order(api_client, table, menu_item):
+    """New: order_source (2026-08-27, per Shereena — servers couldn't tell
+    a customer's own QR-scan order apart from one a server phoned in).
+    POST /v1/orders/ is AllowAny, so an unauthenticated call is exactly the
+    customer QR-scan path."""
+    session, _ = table_services.get_or_create_active_session(table.id)
+
+    response = api_client.post(
+        "/v1/orders/",
+        {"session_id": str(session.id), "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+
+    assert response.status_code == 201
+    assert response.data["order_source"] == "CUSTOMER"
+    assert response.data["placed_by"] is None
+
+
+def test_order_source_server_for_staff_placed_order(server_client, table, menu_item):
+    _, server = server_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+
+    response = server.post(
+        "/v1/orders/",
+        {"session_id": str(session.id), "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+
+    assert response.status_code == 201
+    assert response.data["order_source"] == "SERVER"
+    assert response.data["placed_by"] is not None
+
+
+def test_order_source_cashier_for_takeaway_order(cashier_client, branch, menu_item):
+    user, cashier = cashier_client
+    user.branch = branch
+    user.save(update_fields=["branch"])
+
+    response = cashier.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    )
+
+    assert response.status_code == 201
+    assert response.data["order_source"] == "CASHIER"
+
+
 def test_takeaway_order_response_has_null_table_number(cashier_client, menu_item, branch):
     cashier_user, client = cashier_client
     cashier_user.branch = branch

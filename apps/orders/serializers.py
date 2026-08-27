@@ -26,6 +26,7 @@ class OrderSerializer(serializers.ModelSerializer):
     total_amount = serializers.SerializerMethodField()
     payment_status = serializers.SerializerMethodField()
     table_number = serializers.SerializerMethodField()
+    order_source = serializers.SerializerMethodField()
 
     def get_total_amount(self, obj):
         return sum((item.line_total for item in obj.items.all()), Decimal("0"))
@@ -53,6 +54,19 @@ class OrderSerializer(serializers.ModelSerializer):
             return "PAID"
         return "BILL_REQUESTED" if obj.session.status == "BILL_REQUESTED" else "PENDING"
 
+    def get_order_source(self, obj):
+        # CUSTOMER / SERVER / CASHIER (2026-08-27, per Shereena — servers
+        # couldn't tell whether an order came from a customer's own QR scan
+        # or was phoned in by a server/cashier). Derived from data already
+        # on the order, no new field needed: TakeawayOrderView only accepts
+        # staff callers (IsAnyStaff), so every takeaway order is Cashier-
+        # placed; for dine-in, CreateOrderView is AllowAny but only sets
+        # placed_by when the caller is an authenticated staff member — a
+        # customer's own QR-scan order has placed_by null.
+        if obj.order_type == Order.OrderType.TAKEAWAY:
+            return "CASHIER"
+        return "SERVER" if obj.placed_by_id else "CUSTOMER"
+
     class Meta:
         model = Order
         fields = [
@@ -68,6 +82,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "round_number",
             "status",
             "payment_status",
+            "order_source",
             "placed_by",
             "notes",
             "items",

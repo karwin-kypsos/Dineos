@@ -97,16 +97,34 @@ class DailyCollectionsView(APIView):
     """'Daily Collections' — restaurant-wide, not scoped to one cashier's
     shift, so Admin/Manager/Cashier can all view it (matches the design's
     'Head Cashier' framing — this is oversight, not a personal shift view).
+
+    Pass ?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD for a multi-day range
+    instead of a single ?date= day (2026-08-27, per Shereena's Billing
+    screen date picker needing a from/to range, same as the Bill History
+    list). Both bounds are inclusive calendar dates.
     """
 
     permission_classes = [IsAnyStaff, IsBillingEnabled]
 
     def get(self, request):
-        date_param = request.query_params.get("date")
-        date = timezone.datetime.strptime(date_param, "%Y-%m-%d").date() if date_param else timezone.localdate()
         search = request.query_params.get("search", "").strip() or None
         payment_method = request.query_params.get("payment_method", "").strip().upper() or None
-        report = services.daily_collections(request.tenant, date, search=search, payment_method=payment_method)
+
+        date_from_param = request.query_params.get("date_from")
+        date_to_param = request.query_params.get("date_to")
+        if date_from_param and date_to_param:
+            date_from = timezone.datetime.strptime(date_from_param, "%Y-%m-%d").date()
+            date_to = timezone.datetime.strptime(date_to_param, "%Y-%m-%d").date()
+            window_start = timezone.make_aware(timezone.datetime.combine(date_from, timezone.datetime.min.time()))
+            window_end = timezone.make_aware(timezone.datetime.combine(date_to, timezone.datetime.min.time())) + timezone.timedelta(days=1)
+            report = services.daily_collections(
+                request.tenant, window_start=window_start, window_end=window_end,
+                search=search, payment_method=payment_method,
+            )
+        else:
+            date_param = request.query_params.get("date")
+            date = timezone.datetime.strptime(date_param, "%Y-%m-%d").date() if date_param else timezone.localdate()
+            report = services.daily_collections(request.tenant, date, search=search, payment_method=payment_method)
         return Response(DailyCollectionsSerializer(report).data)
 
 

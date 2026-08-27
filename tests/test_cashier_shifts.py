@@ -284,6 +284,37 @@ def test_daily_collections_bills_include_item_count_and_peak_hour(manager_client
     assert " - " in response.data["peak_hour"]
 
 
+def test_daily_collections_date_range_filters_inclusive(manager_client, cashier_client, table, menu_item):
+    """New: date_from/date_to (2026-08-27, per Shereena's Billing screen
+    date picker needing a from/to range, same as the Bill History list)."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    cashier_user, _ = cashier_client
+    bill_in_range = _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+    bill_in_range.paid_at = bill_in_range.paid_at - timedelta(days=3)
+    bill_in_range.save(update_fields=["paid_at"])
+
+    from apps.tables.models import Table
+
+    other_table = Table.objects.create(restaurant=table.restaurant, branch=table.branch, table_number="Range1")
+    bill_outside_range = _pay(cashier_user, other_table, menu_item, quantity=1, method="CASH")
+    bill_outside_range.paid_at = bill_outside_range.paid_at - timedelta(days=10)
+    bill_outside_range.save(update_fields=["paid_at"])
+
+    today = timezone.localdate()
+    date_from = (today - timedelta(days=5)).isoformat()
+    date_to = today.isoformat()
+
+    _, manager = manager_client
+    response = manager.get(f"/v1/cashier/collections/daily/?date_from={date_from}&date_to={date_to}")
+
+    assert response.status_code == 200
+    assert response.data["tables_served"] == 1
+    assert Decimal(response.data["total_collected"]) == _with_tax(menu_item.price)
+
+
 def test_daily_collections_search_filters_bills_not_totals(manager_client, cashier_client, table, menu_item):
     from apps.tables.models import Table
 
