@@ -315,6 +315,72 @@ def test_daily_collections_date_range_filters_inclusive(manager_client, cashier_
     assert Decimal(response.data["total_collected"]) == _with_tax(menu_item.price)
 
 
+def test_daily_collections_vs_yesterday_and_vs_last_week_percentages(manager_client, cashier_client, table, menu_item):
+    """New: vs_yesterday_percentage, vs_last_week, vs_last_week_percentage
+    (2026-08-27, per Shereena's Billing dashboard mockup showing both a
+    vs-yesterday AND a vs-last-week percentage badge — the API previously
+    only had vs_yesterday as a raw currency amount, no percentages and no
+    last-week comparison at all)."""
+    from datetime import timedelta
+
+    cashier_user, _ = cashier_client
+
+    yesterday_bill = _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+    yesterday_bill.paid_at = yesterday_bill.paid_at - timedelta(days=1)
+    yesterday_bill.save(update_fields=["paid_at"])
+
+    from apps.tables.models import Table
+
+    last_week_table = Table.objects.create(restaurant=table.restaurant, branch=table.branch, table_number="LW1")
+    last_week_bill = _pay(cashier_user, last_week_table, menu_item, quantity=1, method="CASH")
+    last_week_bill.paid_at = last_week_bill.paid_at - timedelta(days=7)
+    last_week_bill.save(update_fields=["paid_at"])
+
+    today_table = Table.objects.create(restaurant=table.restaurant, branch=table.branch, table_number="Today1")
+    _pay(cashier_user, today_table, menu_item, quantity=2, method="CASH")  # today's total = 2x yesterday's/last week's
+
+    _, manager = manager_client
+    response = manager.get("/v1/cashier/collections/daily/")
+
+    assert response.status_code == 200
+    yesterday_total = _with_tax(menu_item.price)
+    today_total = _with_tax(menu_item.price * 2)
+    expected_pct = float(((today_total - yesterday_total) / yesterday_total * 100).quantize(Decimal("0.1")))
+    assert response.data["vs_yesterday_percentage"] == expected_pct
+    assert Decimal(response.data["vs_last_week"]) == today_total - yesterday_total
+    assert response.data["vs_last_week_percentage"] == expected_pct
+
+
+def test_daily_collections_percentage_is_null_with_no_prior_baseline(manager_client, cashier_client, table, menu_item):
+    cashier_user, _ = cashier_client
+    _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+
+    _, manager = manager_client
+    response = manager.get("/v1/cashier/collections/daily/")
+
+    assert response.status_code == 200
+    assert response.data["vs_yesterday_percentage"] is None
+    assert response.data["vs_last_week_percentage"] is None
+
+
+def test_find_a_bill_search_matches_amount(manager_client, cashier_client, table, menu_item):
+    """New: search now also matches total_amount (2026-08-27, per
+    Shereena's Find a Bill search box — typing an amount had no way to
+    match before)."""
+    cashier_user, _ = cashier_client
+    bill = _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+
+    _, manager = manager_client
+    # Search on the integer part only (e.g. "231" from 231.00) — SQLite and
+    # Postgres format a cast-to-text DECIMAL differently (trailing zeros),
+    # so this is the substring guaranteed to appear in both.
+    response = manager.get(f"/v1/bills/?search={int(bill.total_amount)}")
+
+    assert response.status_code == 200
+    ids = {b["id"] for b in response.data}
+    assert str(bill.id) in ids
+
+
 def test_cashier_collections_shows_not_submitted_for_open_shift(manager_client, cashier_client, table, menu_item):
     """New: GET /v1/cashier/collections/by-cashier/ (2026-08-27, per
     Shereena's Billing screen 'Cashier Collections' panel)."""

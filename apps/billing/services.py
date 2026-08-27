@@ -3,7 +3,8 @@ from decimal import Decimal
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.db import transaction
-from django.db.models import Q, Sum
+from django.db.models import CharField, Q, Sum
+from django.db.models.functions import Cast
 from django.utils import timezone
 
 from apps.orders.models import Order
@@ -431,11 +432,15 @@ def list_bills(restaurant, *, date=None, date_from=None, date_to=None, payment_m
     if branch is not None:
         bills = bills.filter(branch=branch)
     if search:
-        bills = bills.filter(
+        # total_amount_str (2026-08-27, per Shereena's "Find a Bill" search
+        # box) — typing an amount like "238" or "238.70" previously had no
+        # way to match, only names/phone/table/cashier did.
+        bills = bills.annotate(total_amount_str=Cast("total_amount", CharField())).filter(
             Q(order__customer_name__icontains=search)
             | Q(order__customer_phone__icontains=search)
             | Q(session__table__table_number__icontains=search)
             | Q(processed_by__name__icontains=search)
+            | Q(total_amount_str__icontains=search)
         )
     return bills.order_by("-paid_at")
 
@@ -541,6 +546,13 @@ def daily_collections(
         previous_day_start = day_start - timezone.timedelta(days=1)
         previous_day_end = day_start
 
+    # "vs last week" (2026-08-27, per Shereena's Billing dashboard mockup
+    # showing both a vs-yesterday AND a vs-last-week percentage badge) —
+    # same window, shifted back exactly 7 days. Works the same way whether
+    # this is a calendar day or a shift-length window.
+    previous_week_start = day_start - timezone.timedelta(days=7)
+    previous_week_end = day_end - timezone.timedelta(days=7)
+
     scoped_bills_qs = restaurant_bills_qs(restaurant)
     if cashier is not None:
         scoped_bills_qs = scoped_bills_qs.filter(processed_by=cashier)
@@ -552,6 +564,9 @@ def daily_collections(
     )
     previous_day_total = scoped_bills_qs.filter(
         paid_at__gte=previous_day_start, paid_at__lt=previous_day_end
+    ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
+    previous_week_total = scoped_bills_qs.filter(
+        paid_at__gte=previous_week_start, paid_at__lt=previous_week_end
     ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
 
     totals = {"cash": Decimal("0"), "card": Decimal("0"), "upi": Decimal("0")}
@@ -599,12 +614,26 @@ def daily_collections(
             or (bill.order_id and bill.order.customer_phone and search_lower in bill.order.customer_phone.lower())
             or (bill.processed_by and search_lower in bill.processed_by.name.lower())
             or search_lower in bill.payment_method.lower()
+            # 2026-08-27, per Shereena's "Find a Bill" search box — typing an
+            # amount (e.g. "238" or "238.70") had no way to match, only
+            # names/phone/table/cashier/payment method did.
+            or search_lower in str(bill.total_amount)
         ]
+
+    def _pct_change(current, previous):
+        # None (not 0) when there's no prior-period baseline — a percentage
+        # against zero is undefined, not "infinite" or "0%".
+        if previous == 0:
+            return None
+        return float(((current - previous) / previous * 100).quantize(Decimal("0.1")))
 
     return {
         "date": date or timezone.localtime(day_start).date(),
         "total_collected": grand_total,
         "vs_yesterday": grand_total - previous_day_total,
+        "vs_yesterday_percentage": _pct_change(grand_total, previous_day_total),
+        "vs_last_week": grand_total - previous_week_total,
+        "vs_last_week_percentage": _pct_change(grand_total, previous_week_total),
         "tables_served": bills_count,
         "tables_count": bills_count + active_tables_count,
         "avg_bill_value": (grand_total / len(bill_amounts)) if bill_amounts else Decimal("0"),
