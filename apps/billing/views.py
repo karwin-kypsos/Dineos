@@ -21,7 +21,9 @@ class BillListView(APIView):
     every cashier, both dine-in and takeaway, searchable and filterable.
     No date filter by default (so ?cashier=<id> alone returns that
     cashier's full history); pass ?date=today or ?date=YYYY-MM-DD to scope
-    to one day for the Cashier Home 'today's bills' list.
+    to one day for the Cashier Home 'today's bills' list, or
+    ?date_from=YYYY-MM-DD&date_to=YYYY-MM-DD for an inclusive date range
+    (2026-08-26, per Hari's request for a from/to bill history filter).
     """
 
     permission_classes = [IsAnyStaff, IsBillingEnabled]
@@ -33,6 +35,11 @@ class BillListView(APIView):
             date = timezone.localdate()
         elif date_param:
             date = parse_date(date_param)
+
+        date_from_param = request.query_params.get("date_from", "").strip()
+        date_to_param = request.query_params.get("date_to", "").strip()
+        date_from = parse_date(date_from_param) if date_from_param else None
+        date_to = parse_date(date_to_param) if date_to_param else None
 
         payment_method = request.query_params.get("payment_method", "").strip().upper()
         if payment_method not in Bill.PaymentMethod.values:
@@ -48,6 +55,8 @@ class BillListView(APIView):
         bills = services.list_bills(
             request.tenant,
             date=date,
+            date_from=date_from,
+            date_to=date_to,
             payment_method=payment_method,
             cashier_id=request.query_params.get("cashier") or None,
             branch=branch_id,

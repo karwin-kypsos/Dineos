@@ -2,6 +2,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from django.utils import timezone
 
 from apps.billing import services as billing_services
 from apps.billing.models import Bill
@@ -344,3 +345,36 @@ def test_list_bills_date_today_excludes_other_days(admin_client, cashier_client,
 
     assert response.status_code == 200
     assert bill.id not in {b["id"] for b in response.data}
+
+
+def test_list_bills_date_range_filters_inclusive(admin_client, cashier_client, table, menu_item):
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    _, cashier = cashier_client
+    pay = cashier.post(
+        "/v1/bills/payment/", {"session_id": str(session.id), "payment_method": "CASH"}, format="json",
+    )
+    bill_in_range = Bill.objects.get(id=pay.data["id"])
+    bill_in_range.paid_at = bill_in_range.paid_at - timedelta(days=3)
+    bill_in_range.save(update_fields=["paid_at"])
+
+    session2, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session2.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    pay2 = cashier.post(
+        "/v1/bills/payment/", {"session_id": str(session2.id), "payment_method": "CASH"}, format="json",
+    )
+    bill_outside_range = Bill.objects.get(id=pay2.data["id"])
+    bill_outside_range.paid_at = bill_outside_range.paid_at - timedelta(days=10)
+    bill_outside_range.save(update_fields=["paid_at"])
+
+    today = timezone.localdate()
+    date_from = (today - timedelta(days=5)).isoformat()
+    date_to = today.isoformat()
+
+    _, admin = admin_client
+    response = admin.get(f"/v1/bills/?date_from={date_from}&date_to={date_to}")
+
+    assert response.status_code == 200
+    ids = {b["id"] for b in response.data}
+    assert str(bill_in_range.id) in ids
+    assert str(bill_outside_range.id) not in ids

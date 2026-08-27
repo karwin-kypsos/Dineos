@@ -402,12 +402,13 @@ def restaurant_bills_qs(restaurant):
     )
 
 
-def list_bills(restaurant, *, date=None, payment_method=None, cashier_id=None, branch=None, search=None):
+def list_bills(restaurant, *, date=None, date_from=None, date_to=None, payment_method=None, cashier_id=None, branch=None, search=None):
     """Cashier's bill history/reconciliation screen — every bill across
     every cashier and both order types (dine-in + takeaway), by default
     with no date restriction so 'all bills under a specific cashier' just
     means cashier_id with date left unset. Pass date to scope to one day
-    (e.g. 'today's bills' on the Cashier Home screen).
+    (e.g. 'today's bills' on the Cashier Home screen), or date_from/date_to
+    for an inclusive multi-day range (both are local calendar dates).
     """
     bills = restaurant_bills_qs(restaurant).select_related(
         "session__table", "order", "processed_by", "branch"
@@ -416,6 +417,13 @@ def list_bills(restaurant, *, date=None, payment_method=None, cashier_id=None, b
         day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
         day_end = day_start + timezone.timedelta(days=1)
         bills = bills.filter(paid_at__gte=day_start, paid_at__lt=day_end)
+    elif date_from is not None or date_to is not None:
+        if date_from is not None:
+            range_start = timezone.make_aware(timezone.datetime.combine(date_from, timezone.datetime.min.time()))
+            bills = bills.filter(paid_at__gte=range_start)
+        if date_to is not None:
+            range_end = timezone.make_aware(timezone.datetime.combine(date_to, timezone.datetime.min.time())) + timezone.timedelta(days=1)
+            bills = bills.filter(paid_at__lt=range_end)
     if payment_method:
         bills = bills.filter(payment_method=payment_method)
     if cashier_id:
