@@ -22,21 +22,40 @@ def get_or_create_active_session(table_id):
     return session, True
 
 
-def assign_next_server(session):
+def assign_next_server(session, preferred_server=None):
     """Round-robin auto-assignment on a session's first order (called from
     apps.orders.services.place_order) — no-op if already assigned, or if
     there are no active Servers to assign to. Rotation state is derived from
     the most recently assigned session rather than a separate counter: find
     where the last-assigned server sits in the ordered Server list for this
     branch, and hand the table to whoever's next, wrapping around.
+
+    preferred_server (2026-08-28, per Shereena's report — a Server placing
+    an order themselves saw it land on a teammate's My Orders instead of
+    their own): when the order was placed by an active Server already
+    assigned to this table's branch, the table goes straight to them
+    instead of rotating away — they're already standing there. Round-robin
+    only kicks in when there's no such signal, i.e. placed_by is None
+    (a customer's own QR order).
     """
     if session.assigned_server_id is not None:
+        return session
+
+    table = session.table
+
+    if (
+        preferred_server is not None
+        and preferred_server.role == "SERVER"
+        and preferred_server.is_active
+        and preferred_server.branch_id == table.branch_id
+    ):
+        session.assigned_server = preferred_server
+        session.save(update_fields=["assigned_server"])
         return session
 
     from django.contrib.auth import get_user_model
 
     User = get_user_model()
-    table = session.table
     servers = list(
         User.objects.filter(
             restaurant=table.restaurant, branch=table.branch, role="SERVER", is_active=True,

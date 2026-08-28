@@ -203,3 +203,58 @@ def test_table_list_still_includes_branch_less_tables_for_manager(restaurant, br
     results = response.data["results"] if isinstance(response.data, dict) else response.data
     ids = {t["id"] for t in results}
     assert str(legacy_table.id) in ids
+
+
+def test_assign_next_server_prefers_the_server_who_placed_the_order(restaurant, branch):
+    """Regression (2026-08-28, Shereena): a Server placed orders for two
+    different tables themselves, but one of them landed on a teammate's My
+    Orders instead of their own — round-robin was reassigning the table
+    away from whoever actually placed the order. A Server placing their own
+    order should keep that table, not get rotated past."""
+    server_a = _make_server(restaurant, branch, "srv-j@demo-bistro.demo", "Server J")
+    _make_server(restaurant, branch, "srv-k@demo-bistro.demo", "Server K")  # next in rotation order
+
+    table_a = Table.objects.create(restaurant=restaurant, branch=branch, table_number="RR1", capacity=4)
+    session_a, _ = services.get_or_create_active_session(table_a.id)
+
+    result = services.assign_next_server(session_a, preferred_server=server_a)
+
+    assert result.assigned_server_id == server_a.id
+
+
+def test_assign_next_server_still_round_robins_with_no_preferred_server(restaurant, branch):
+    """The customer-QR-order case (placed_by=None) must keep rotating exactly
+    as before — only an explicit preferred_server short-circuits it."""
+    server_a = _make_server(restaurant, branch, "srv-l@demo-bistro.demo", "Server L")
+    server_b = _make_server(restaurant, branch, "srv-m@demo-bistro.demo", "Server M")
+
+    table_a = Table.objects.create(restaurant=restaurant, branch=branch, table_number="RR2", capacity=4)
+    session_a, _ = services.get_or_create_active_session(table_a.id)
+    services.assign_next_server(session_a)
+    assert session_a.assigned_server_id in (server_a.id, server_b.id)
+
+    table_b = Table.objects.create(restaurant=restaurant, branch=branch, table_number="RR3", capacity=4)
+    session_b, _ = services.get_or_create_active_session(table_b.id)
+    services.assign_next_server(session_b)
+
+    assert session_b.assigned_server_id != session_a.assigned_server_id
+
+
+def test_assign_next_server_ignores_preferred_server_from_a_different_branch(restaurant, branch):
+    """Safety net: a preferred_server assigned to another branch must not be
+    handed this table just because they happen to be the one who placed it
+    (shouldn't be reachable via the real staff-scoped API, but the service
+    function itself must not trust it blindly)."""
+    from apps.restaurant.models import Branch
+
+    other_branch = Branch.objects.create(restaurant=restaurant, name="Other Branch")
+    other_branch_server = _make_server(restaurant, other_branch, "srv-n@demo-bistro.demo", "Server N")
+    home_server = _make_server(restaurant, branch, "srv-o@demo-bistro.demo", "Server O")
+
+    table_a = Table.objects.create(restaurant=restaurant, branch=branch, table_number="RR4", capacity=4)
+    session_a, _ = services.get_or_create_active_session(table_a.id)
+
+    result = services.assign_next_server(session_a, preferred_server=other_branch_server)
+
+    assert result.assigned_server_id != other_branch_server.id
+    assert result.assigned_server_id == home_server.id

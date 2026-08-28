@@ -98,7 +98,7 @@ def place_order(session_id, items, placed_by=None, notes=""):
     if round_number == 1:
         from apps.tables.services import assign_next_server
 
-        session = assign_next_server(session)
+        session = assign_next_server(session, preferred_server=placed_by)
 
     order = Order.objects.create(
         order_type=Order.OrderType.DINE_IN, session=session, table=session.table, branch=session.table.branch,
