@@ -5,8 +5,56 @@ import pytest
 from apps.inventory import services as inventory_services
 from apps.inventory.models import Ingredient
 from apps.notifications.models import Notification
+from apps.tables.models import Table
 
 pytestmark = pytest.mark.django_db
+
+
+def test_notification_list_includes_table_number(admin_client, restaurant):
+    admin_user, client = admin_client
+    table = Table.objects.create(restaurant=restaurant, table_number="7", capacity=4)
+    Notification.objects.create(
+        recipient=admin_user, type="BILL_REQUESTED", title="Bill requested", table=table,
+    )
+    Notification.objects.create(recipient=admin_user, type="STAFF_ADDED", title="No table on this one")
+
+    response = client.get("/v1/notifications/")
+
+    assert response.status_code == 200
+    by_title = {n["title"]: n for n in response.data}
+    assert by_title["Bill requested"]["table_number"] == "7"
+    assert by_title["No table on this one"]["table_number"] is None
+
+
+def test_mark_all_notifications_read(admin_client, restaurant):
+    admin_user, client = admin_client
+    Notification.objects.create(recipient=admin_user, type="STAFF_ADDED", title="One")
+    Notification.objects.create(recipient=admin_user, type="STAFF_ADDED", title="Two")
+    already_read = Notification.objects.create(
+        recipient=admin_user, type="STAFF_ADDED", title="Already read", is_read=True,
+    )
+
+    response = client.patch("/v1/notifications/read-all/")
+
+    assert response.status_code == 200
+    assert response.data["marked_read"] == 2
+    assert not Notification.objects.filter(recipient=admin_user, is_read=False).exists()
+    already_read.refresh_from_db()
+    assert already_read.is_read is True
+
+
+def test_mark_all_notifications_read_only_touches_own_notifications(admin_client, manager_client, restaurant):
+    admin_user, admin = admin_client
+    manager_user, _ = manager_client
+    Notification.objects.create(recipient=admin_user, type="STAFF_ADDED", title="Admin's")
+    manager_notification = Notification.objects.create(recipient=manager_user, type="STAFF_ADDED", title="Manager's")
+
+    response = admin.patch("/v1/notifications/read-all/")
+
+    assert response.status_code == 200
+    assert response.data["marked_read"] == 1
+    manager_notification.refresh_from_db()
+    assert manager_notification.is_read is False
 
 
 def test_record_wastage_notifies_on_newly_low_stock(manager_client, admin_client, restaurant):

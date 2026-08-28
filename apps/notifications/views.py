@@ -30,3 +30,15 @@ class MarkNotificationReadView(APIView):
         notification.is_read = True
         notification.save(update_fields=["is_read"])
         return Response(NotificationSerializer(notification).data)
+
+
+class MarkAllNotificationsReadView(APIView):
+    """'Mark all as read' — Karwin (2026-08-28). Only ever touches the
+    calling user's own still-unread notifications, so it's safe to call
+    repeatedly (a second call is just a no-op update)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request):
+        updated = Notification.objects.filter(recipient=request.user, is_read=False).update(is_read=True)
+        return Response({"marked_read": updated})
