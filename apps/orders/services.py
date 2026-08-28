@@ -236,6 +236,12 @@ def _maybe_auto_advance_order(order, restaurant, item_target_status):
     cascade_items=False so a lone item's progress never forces its
     siblings to jump ahead of their own individual state.
 
+    - item → ACCEPTED: the moment the first item is acknowledged, the order
+      itself auto-advances NEW → ACCEPTED (2026-08-28, per Shereena — a
+      kitchen that only ever drives items, never the whole-order endpoint,
+      left the order's own status frozen at NEW until every item reached
+      READY, so the Server app's realtime feed never saw an in-between
+      update; only from NEW, since anything past that already happened).
     - item → PREPARING: the moment the first item starts cooking, the
       order itself auto-advances ACCEPTED → PREPARING (only from ACCEPTED —
       if the order is still NEW, e.g. a stray item update the kitchen
@@ -246,7 +252,10 @@ def _maybe_auto_advance_order(order, restaurant, item_target_status):
     """
     if order.status in ORDER_STATUSES_AT_OR_PAST_READY:
         return
-    if item_target_status == Order.Status.PREPARING:
+    if item_target_status == Order.Status.ACCEPTED:
+        if order.status == Order.Status.NEW:
+            _apply_order_status(order, restaurant, Order.Status.ACCEPTED, cascade_items=False)
+    elif item_target_status == Order.Status.PREPARING:
         if order.status == Order.Status.ACCEPTED:
             _apply_order_status(order, restaurant, Order.Status.PREPARING, cascade_items=False)
     elif item_target_status == Order.Status.READY:
@@ -277,7 +286,7 @@ def advance_item_kitchen_status(order, item_id, target_status):
 
     transaction.on_commit(lambda: _broadcast_item_status_changed(item, order, restaurant))
 
-    if target_status in (Order.Status.PREPARING, Order.Status.READY):
+    if target_status in (Order.Status.ACCEPTED, Order.Status.PREPARING, Order.Status.READY):
         _maybe_auto_advance_order(order, restaurant, target_status)
 
     return order, item
