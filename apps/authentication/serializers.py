@@ -25,12 +25,17 @@ class TenantSummarySerializer(serializers.ModelSerializer):
     (see apps.platform.serializers.RestaurantSerializer for that).
     """
 
+    plan_tier_display = serializers.CharField(source="get_plan_tier_display", read_only=True)
+
     class Meta:
         model = Restaurant
         fields = [
             "id",
             "name",
             "slug",
+            "plan_tier",
+            "plan_tier_display",
+            "max_branches",
             "notifications_enabled",
             "kitchen_enabled",
             "billing_enabled",

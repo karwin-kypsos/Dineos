@@ -39,6 +39,22 @@ def test_me_does_not_expose_billing_rates(admin_client):
     assert "service_charge_percentage" not in response.data["restaurant"]
 
 
+def test_me_includes_plan_tier_for_profile_screen(admin_client, restaurant):
+    """Requested by Shereena via Telegram (2026-08-28): a single Profile API
+    shared by every role needs the org's plan tier alongside its name and
+    branch, which /v1/auth/me/ already provided."""
+    _, client = admin_client
+    restaurant.plan_tier = "ENTERPRISE"
+    restaurant.max_branches = None
+    restaurant.save(update_fields=["plan_tier", "max_branches"])
+
+    response = client.get("/v1/auth/me/")
+
+    assert response.data["restaurant"]["plan_tier"] == "ENTERPRISE"
+    assert response.data["restaurant"]["plan_tier_display"] == "Enterprise"
+    assert response.data["restaurant"]["max_branches"] is None
+
+
 @pytest.mark.parametrize("role, expected_id, expected_name", [
     ("ADMIN",   1, "org_admin"),
     ("MANAGER", 2, "manager"),
