@@ -9,3 +9,11 @@ class DineOSPageNumberPagination(PageNumberPagination):
 
     page_size_query_param = "page_size"
     max_page_size = 100
+
+
+class SmallPageNumberPagination(DineOSPageNumberPagination):
+    """Same as DineOSPageNumberPagination but defaults to 10 per page
+    instead of the global 20 (2026-08-27, per the Billing API spec's
+    cashier-bills endpoint, which wants only 10 bills initially)."""
+
+    page_size = 10

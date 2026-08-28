@@ -289,5 +289,6 @@ class DailyCollectionsSerializer(serializers.Serializer):
     largest_bill = serializers.DecimalField(max_digits=10, decimal_places=2)
     smallest_bill = serializers.DecimalField(max_digits=10, decimal_places=2)
     peak_hour = serializers.CharField(allow_null=True)
+    revenue_by_hour = serializers.ListField(child=serializers.DictField())
     payment_breakdown = PaymentBreakdownSerializer()
     bills = DailyBillSerializer(many=True)

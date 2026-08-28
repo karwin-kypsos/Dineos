@@ -8,7 +8,7 @@ from django.db.models.functions import Cast
 from django.utils import timezone
 
 from apps.orders.models import Order
-from apps.tables.models import TableSession
+from apps.tables.models import Table, TableSession
 from apps.tables.services import close_session
 
 from .models import Bill, CashierShift
@@ -469,7 +469,7 @@ def list_bills(restaurant, *, date=None, date_from=None, date_to=None, payment_m
     return bills.order_by("-paid_at")
 
 
-def cashier_collections(restaurant, *, date=None, date_from=None, date_to=None):
+def cashier_collections(restaurant, *, date=None, date_from=None, date_to=None, branch=None):
     """'Cashier Collections' panel on the Billing dashboard (2026-08-27, per
     Shereena's mockup) — one row per cashier SHIFT that opened in the given
     window, each with the tables/total that specific shift collected and
@@ -497,6 +497,9 @@ def cashier_collections(restaurant, *, date=None, date_from=None, date_to=None):
         day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
         day_end = day_start + timezone.timedelta(days=1)
         shifts = CashierShift.objects.filter(restaurant=restaurant, opened_at__gte=day_start, opened_at__lt=day_end)
+
+    if branch is not None:
+        shifts = shifts.filter(branch=branch)
 
     results = []
     for shift in shifts.select_related("cashier").order_by("-opened_at"):
@@ -542,8 +545,21 @@ def _peak_hour_window(bills):
     return f"{start_label} - {end_label}"
 
 
+def _revenue_by_hour(bills):
+    """Full 24-hour revenue breakdown for the Billing dashboard's bar chart
+    (2026-08-27, per the Billing API spec) — every hour 0-23 included (0
+    for hours with no bills) so the frontend can render a complete day's
+    bars without gap-filling itself."""
+    totals_by_hour = {hour: Decimal("0") for hour in range(24)}
+    for bill in bills:
+        local_paid_at = timezone.localtime(bill.paid_at)
+        totals_by_hour[local_paid_at.hour] += bill.total_amount
+    return [{"hour": hour, "amount": totals_by_hour[hour]} for hour in range(24)]
+
+
 def daily_collections(
-    restaurant, date=None, search=None, payment_method=None, cashier=None, window_start=None, window_end=None
+    restaurant, date=None, search=None, payment_method=None, cashier=None, window_start=None, window_end=None,
+    branch=None,
 ):
     """cashier (2026-08-25, per Shereena's My Sales page) scopes EVERY figure
     here — totals, payment breakdown, peak hour, bill list — to just that
@@ -555,6 +571,9 @@ def daily_collections(
     day — a shift can start mid-afternoon and run past midnight, so the two
     aren't the same thing) override the calendar-day window entirely — pass
     the shift's own opened_at/now instead of date. See MySalesView.
+
+    branch (2026-08-27, per the Billing dashboard branch-scoped API spec)
+    restricts every figure to just that branch's bills.
     """
     if window_start is not None and window_end is not None:
         day_start, day_end = window_start, window_end
@@ -580,6 +599,8 @@ def daily_collections(
     scoped_bills_qs = restaurant_bills_qs(restaurant)
     if cashier is not None:
         scoped_bills_qs = scoped_bills_qs.filter(processed_by=cashier)
+    if branch is not None:
+        scoped_bills_qs = scoped_bills_qs.filter(branch=branch)
 
     bills = list(
         scoped_bills_qs.filter(paid_at__gte=day_start, paid_at__lt=day_end).select_related(
@@ -618,9 +639,12 @@ def daily_collections(
     # actively being served (not yet billed). The still-active count itself
     # stays restaurant-wide even in cashier-scoped mode — an un-billed table
     # isn't "owned" by any cashier yet, there's nothing to scope it to.
-    active_tables_count = TableSession.objects.filter(
+    active_tables_qs = TableSession.objects.filter(
         table__restaurant=restaurant, status__in=[TableSession.Status.ACTIVE, TableSession.Status.BILL_REQUESTED]
-    ).count()
+    )
+    if branch is not None:
+        active_tables_qs = active_tables_qs.filter(table__branch=branch)
+    active_tables_count = active_tables_qs.count()
 
     # search/payment_method (2026-08-25, per Shereena's "Today's Bills"
     # search box + payment-method filter chips) only narrow the returned
@@ -664,6 +688,179 @@ def daily_collections(
         "largest_bill": max(bill_amounts) if bill_amounts else Decimal("0"),
         "smallest_bill": min(bill_amounts) if bill_amounts else Decimal("0"),
         "peak_hour": _peak_hour_window(bills),
+        "revenue_by_hour": _revenue_by_hour(bills),
         "payment_breakdown": payment_breakdown,
         "bills": sorted(result_bills, key=lambda b: b.paid_at, reverse=True),
     }
+
+
+def floor_status(restaurant, *, branch=None, date=None, date_from=None, date_to=None):
+    """'Floor Status' panel on the Billing dashboard (2026-08-27, per the
+    Billing API spec) — one row per active table, each with its current
+    live state (Active/Bill Requested) or, if not currently occupied,
+    whether it was paid within the given date/range window.
+
+    Table occupancy itself has no historical event log (see the Bill
+    Detail Transaction Timeline note for the same limitation elsewhere) —
+    "floor status for a past date" isn't a stored concept, so a table
+    that's free right now but was paid within the requested window still
+    shows as PAID (with that bill's amount/time), and everything else
+    free-right-now shows as FREE regardless of which date was asked for.
+    A currently ACTIVE/BILL_REQUESTED table always shows its live state
+    first, since that's unambiguous and more useful than any past date.
+    """
+    tables_qs = Table.objects.filter(restaurant=restaurant, is_active=True)
+    if branch is not None:
+        tables_qs = tables_qs.filter(branch=branch)
+
+    if date_from is not None or date_to is not None:
+        window_start = (
+            timezone.make_aware(timezone.datetime.combine(date_from, timezone.datetime.min.time()))
+            if date_from is not None else None
+        )
+        window_end = (
+            timezone.make_aware(timezone.datetime.combine(date_to, timezone.datetime.min.time())) + timezone.timedelta(days=1)
+            if date_to is not None else None
+        )
+    else:
+        if date is None:
+            date = timezone.localdate()
+        window_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
+        window_end = window_start + timezone.timedelta(days=1)
+
+    results = []
+    for table in tables_qs.order_by("table_number"):
+        active_session = table.sessions.filter(
+            status__in=[TableSession.Status.ACTIVE, TableSession.Status.BILL_REQUESTED]
+        ).first()
+        if active_session is not None:
+            results.append({
+                "table_id": table.id,
+                "table_name": table.table_number,
+                "status": active_session.status,
+                "status_time": active_session.opened_at,
+                "amount": None,
+                "payment_status": None,
+            })
+            continue
+
+        bill_qs = Bill.objects.filter(session__table=table)
+        if window_start is not None:
+            bill_qs = bill_qs.filter(paid_at__gte=window_start)
+        if window_end is not None:
+            bill_qs = bill_qs.filter(paid_at__lt=window_end)
+        latest_bill = bill_qs.order_by("-paid_at").first()
+
+        if latest_bill is not None:
+            results.append({
+                "table_id": table.id,
+                "table_name": table.table_number,
+                "status": "PAID",
+                "status_time": latest_bill.paid_at,
+                "amount": latest_bill.total_amount,
+                "payment_status": latest_bill.payment_method,
+            })
+        else:
+            results.append({
+                "table_id": table.id,
+                "table_name": table.table_number,
+                "status": "FREE",
+                "status_time": None,
+                "amount": None,
+                "payment_status": None,
+            })
+    return results
+
+
+def cashier_billing_detail(restaurant, cashier, *, branch=None, date=None, date_from=None, date_to=None):
+    """Cashier detail view (2026-08-27, per the Billing API spec) —
+    aggregates payment split + cash reconciliation across every shift
+    this cashier had opening in the given window (not just one shift,
+    unlike GET /v1/cashier/shifts/{id}/reconciliation/), since a cashier
+    can have multiple shifts within a date range.
+    """
+    if date_from is not None or date_to is not None:
+        window_start = (
+            timezone.make_aware(timezone.datetime.combine(date_from, timezone.datetime.min.time()))
+            if date_from is not None else None
+        )
+        window_end = (
+            timezone.make_aware(timezone.datetime.combine(date_to, timezone.datetime.min.time())) + timezone.timedelta(days=1)
+            if date_to is not None else None
+        )
+        shifts = CashierShift.objects.filter(restaurant=restaurant, cashier=cashier)
+        if window_start is not None:
+            shifts = shifts.filter(opened_at__gte=window_start)
+        if window_end is not None:
+            shifts = shifts.filter(opened_at__lt=window_end)
+    else:
+        if date is None:
+            date = timezone.localdate()
+        day_start = timezone.make_aware(timezone.datetime.combine(date, timezone.datetime.min.time()))
+        day_end = day_start + timezone.timedelta(days=1)
+        shifts = CashierShift.objects.filter(
+            restaurant=restaurant, cashier=cashier, opened_at__gte=day_start, opened_at__lt=day_end
+        )
+
+    if branch is not None:
+        shifts = shifts.filter(branch=branch)
+
+    totals = {"cash": Decimal("0"), "card": Decimal("0"), "upi": Decimal("0")}
+    expected_cash = Decimal("0")
+    actual_cash = Decimal("0")
+    any_closed = False
+    any_open = False
+    all_matched = True
+
+    for shift in shifts:
+        shift_totals = shift_totals_by_method(shift)
+        totals["cash"] += shift_totals["cash"]
+        totals["card"] += shift_totals["card"]
+        totals["upi"] += shift_totals["upi"]
+
+        if shift.status == CashierShift.Status.CLOSED:
+            any_closed = True
+            expected_cash += shift_totals["cash"]
+            actual_cash += shift.counted_cash or Decimal("0")
+            if shift.discrepancy_amount != 0:
+                all_matched = False
+        else:
+            any_open = True
+
+    grand_total = totals["cash"] + totals["card"] + totals["upi"]
+
+    def _pct(amount):
+        return float((amount / grand_total * 100).quantize(Decimal("0.1"))) if grand_total > 0 else 0.0
+
+    if not any_closed:
+        recon_status = "Not submitted"
+    elif all_matched and not any_open:
+        recon_status = "Cash matched"
+    elif all_matched and any_open:
+        recon_status = "Pending"  # some shifts submitted clean, one still open
+    else:
+        recon_status = "Difference"
+
+    tables_served = sum(1 for _ in _shift_bills_for_cashier(shifts))
+
+    return {
+        "cashier": {"id": cashier.id, "name": cashier.name, "role": cashier.role},
+        "payment_split": {
+            "cash": {"amount": totals["cash"], "percentage": _pct(totals["cash"])},
+            "card": {"amount": totals["card"], "percentage": _pct(totals["card"])},
+            "upi": {"amount": totals["upi"], "percentage": _pct(totals["upi"])},
+        },
+        "cash_reconciliation": {
+            "expected_cash": expected_cash,
+            "actual_cash": actual_cash,
+            "difference": actual_cash - expected_cash,
+            "status": recon_status,
+        },
+        "tables_served": tables_served,
+        "total_collected": grand_total,
+    }
+
+
+def _shift_bills_for_cashier(shifts):
+    for shift in shifts:
+        yield from _shift_bills(shift)

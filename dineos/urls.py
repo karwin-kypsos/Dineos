@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import include, path
 
+from apps.billing.billing_dashboard_urls import billing_dashboard_urlpatterns
 from apps.billing.urls import cashier_urlpatterns
 from apps.restaurant.views import RestaurantSettingsView
 
@@ -26,6 +27,7 @@ urlpatterns = [
     path("v1/orders/", include("apps.orders.urls")),
     path("v1/bills/", include("apps.billing.urls")),
     path("v1/cashier/", include(cashier_urlpatterns)),
+    path("v1/billing/", include(billing_dashboard_urlpatterns)),
     path("v1/notifications/", include("apps.notifications.urls")),
     path("v1/feedback/", include("apps.feedback.urls")),
     path("platform/", include("apps.platform.urls")),
