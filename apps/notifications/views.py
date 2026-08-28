@@ -1,3 +1,6 @@
+from datetime import datetime
+
+from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -7,10 +10,29 @@ from .serializers import NotificationSerializer
 
 
 class NotificationListView(APIView):
+    """Per Shereena's spec (2026-08-28): the notification screen shows
+    today's notifications by default — older ones stay in the database
+    (see the cleanup_notifications management command for the eventual
+    7-30 day purge) rather than being deleted the moment they scroll out
+    of view, so ?all=true or an explicit ?date= can still reach them.
+    """
+
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         notifications = Notification.objects.filter(recipient=request.user)
+
+        if request.query_params.get("all") != "true":
+            date_param = request.query_params.get("date")
+            if date_param:
+                try:
+                    target_date = datetime.strptime(date_param, "%Y-%m-%d").date()
+                except ValueError:
+                    target_date = timezone.localdate()
+            else:
+                target_date = timezone.localdate()
+            notifications = notifications.filter(created_at__date=target_date)
+
         return Response(NotificationSerializer(notifications, many=True).data)
 
 

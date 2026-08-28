@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 import pytest
+from django.utils import timezone
 
 from apps.inventory import services as inventory_services
 from apps.inventory.models import Ingredient
@@ -8,6 +9,34 @@ from apps.notifications.models import Notification
 from apps.tables.models import Table
 
 pytestmark = pytest.mark.django_db
+
+
+def test_notification_list_defaults_to_today_only(admin_client, restaurant):
+    admin_user, client = admin_client
+    today = Notification.objects.create(recipient=admin_user, type="STAFF_ADDED", title="Today's")
+    old = Notification.objects.create(recipient=admin_user, type="STAFF_ADDED", title="Old one")
+    old.created_at = timezone.now() - timezone.timedelta(days=5)
+    old.save(update_fields=["created_at"])
+
+    response = client.get("/v1/notifications/")
+
+    assert response.status_code == 200
+    titles = [n["title"] for n in response.data]
+    assert titles == ["Today's"]
+
+
+def test_notification_list_all_true_returns_everything(admin_client, restaurant):
+    admin_user, client = admin_client
+    Notification.objects.create(recipient=admin_user, type="STAFF_ADDED", title="Today's")
+    old = Notification.objects.create(recipient=admin_user, type="STAFF_ADDED", title="Old one")
+    old.created_at = timezone.now() - timezone.timedelta(days=5)
+    old.save(update_fields=["created_at"])
+
+    response = client.get("/v1/notifications/?all=true")
+
+    assert response.status_code == 200
+    titles = {n["title"] for n in response.data}
+    assert titles == {"Today's", "Old one"}
 
 
 def test_notification_list_includes_table_number(admin_client, restaurant):
@@ -159,3 +188,22 @@ def test_takeaway_order_ready_notifies_cashier_not_server(
 
     assert Notification.objects.filter(recipient=cashier_user, type="ORDER_READY").exists()
     assert not Notification.objects.filter(recipient=server_user, type="ORDER_READY").exists()
+
+
+def test_cleanup_notifications_command_purges_only_past_the_cutoff(admin_client):
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    admin_user, _ = admin_client
+    recent = Notification.objects.create(recipient=admin_user, type="STAFF_ADDED", title="Recent")
+    old = Notification.objects.create(recipient=admin_user, type="STAFF_ADDED", title="Ancient")
+    old.created_at = timezone.now() - timezone.timedelta(days=45)
+    old.save(update_fields=["created_at"])
+
+    out = StringIO()
+    call_command("cleanup_notifications", "--days=30", stdout=out)
+
+    assert not Notification.objects.filter(id=old.id).exists()
+    assert Notification.objects.filter(id=recent.id).exists()
+    assert "Deleted 1 notification" in out.getvalue()
