@@ -403,9 +403,16 @@ def _broadcast_status_changed(order, restaurant):
 
 
 def _item_payload(item, order):
+    # session_id added + item_id kept as a plain int, not a string (2026-08-28,
+    # per Shereena's exact payload spec via Telegram) — item_id is a plain
+    # AutoField, not a UUID like order_id/table_id, so it doesn't need
+    # stringifying, and the Staff feed needs session_id here the same way
+    # order_status_changed already carries it, to resolve which table/session
+    # an item update belongs to without a second lookup.
     return {
         "order_id": str(order.id),
-        "item_id": str(item.id),
+        "session_id": str(order.session_id) if order.session_id else None,
+        "item_id": item.id,
         "status": item.status,
         "menu_item_id": item.menu_item_id,
         "quantity": item.quantity,

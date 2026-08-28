@@ -29,14 +29,22 @@ class AdminDashboardView(APIView):
     """Restaurant-level landing dashboard for Admin/Manager — the tenant's
     own view, distinct from the Super Admin's cross-tenant platform
     dashboard (apps.platform.views.DashboardView). Optionally narrowed to
-    one branch via ?branch=<id>; defaults to the whole restaurant.
+    one branch via ?branch=<id>.
+
+    Defaults to the caller's own branch when they have a fixed one (Manager
+    is always pinned to exactly one branch, same as Server/Cashier
+    elsewhere in the app) — 2026-08-28, per Hari's question about which API
+    backs the Manager Dashboard: without this, a Manager who forgot to pass
+    ?branch= would see the whole restaurant's numbers instead of just their
+    own branch. Admin has no fixed branch, so this still defaults to the
+    whole restaurant for them, unchanged.
     """
 
     permission_classes = [IsAdminOrManager]
 
     def get(self, request):
         restaurant = request.tenant
-        branch_id = request.query_params.get("branch")
+        branch_id = request.query_params.get("branch") or request.user.branch_id
 
         today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
 

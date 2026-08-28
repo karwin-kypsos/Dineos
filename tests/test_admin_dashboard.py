@@ -86,6 +86,30 @@ def test_dashboard_branch_filter_excludes_other_branches(admin_client, restauran
     assert response.data["low_stock_count"] == 1
 
 
+def test_dashboard_defaults_to_managers_own_branch(restaurant, manager_client):
+    """Requested by Hari via Telegram (2026-08-28): which API backs the
+    Manager Dashboard. A Manager is always pinned to one branch, so calling
+    /v1/admin/dashboard/ with no ?branch= must scope to their own branch,
+    not the whole restaurant — otherwise the frontend has to remember to
+    pass it every time."""
+    from apps.restaurant.models import Branch
+
+    manager_user, client = manager_client
+    branch_a = Branch.objects.create(restaurant=restaurant, name="Branch A")
+    branch_b = Branch.objects.create(restaurant=restaurant, name="Branch B")
+    manager_user.branch = branch_a
+    manager_user.save(update_fields=["branch"])
+    Ingredient.objects.create(restaurant=restaurant, branch=branch_a, name="A-only", unit="KG",
+                               current_stock=Decimal("0"), minimum_stock_level=Decimal("5"))
+    Ingredient.objects.create(restaurant=restaurant, branch=branch_b, name="B-only", unit="KG",
+                               current_stock=Decimal("0"), minimum_stock_level=Decimal("5"))
+
+    response = client.get("/v1/admin/dashboard/")
+
+    assert response.status_code == 200
+    assert response.data["low_stock_count"] == 1  # only branch_a's, not both
+
+
 def test_dashboard_branches_breakdown_and_staff_count(admin_client, restaurant):
     _, client = admin_client
 
