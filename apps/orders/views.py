@@ -83,6 +83,13 @@ class TakeawayOrderView(APIView):
         if branch is not None:
             orders = orders.filter(branch=branch)
 
+        # Cashier-owned queue (2026-08-28, per Shereena): a Cashier only
+        # ever sees the takeaway orders they themselves created, never a
+        # branch-mate's. Admin/Manager are unaffected — they still see
+        # every cashier's orders at the branch, for oversight.
+        if request.user.role == "CASHIER":
+            orders = orders.filter(placed_by=request.user)
+
         # date_from/date_to (2026-08-27, per Shereena's bug report — this
         # returned every takeaway order ever placed, not just the ones
         # relevant to today/the cashier's current shift). Defaults to
@@ -99,6 +106,27 @@ class TakeawayOrderView(APIView):
                 date_to = timezone.datetime.strptime(date_to_param, "%Y-%m-%d").date()
                 range_end = timezone.make_aware(timezone.datetime.combine(date_to, timezone.datetime.min.time())) + timezone.timedelta(days=1)
                 orders = orders.filter(placed_at__lt=range_end)
+        elif request.user.role == "CASHIER":
+            # Shift-scoped, not just day-scoped (2026-08-28, per Shereena):
+            # the active queue should start fresh with each new shift and
+            # stop showing a shift's orders the moment it's closed — closing
+            # then reopening must not resurrect the previous shift's queue.
+            # No date_from/date_to given means "the active queue", so a
+            # Cashier with no shift currently open sees nothing here at all,
+            # rather than falling back to today's date. Explicit date params
+            # above still reach full history for reporting, unrestricted by
+            # shift boundaries.
+            from apps.billing.models import CashierShift
+
+            open_shift = (
+                CashierShift.objects.filter(cashier=request.user, status=CashierShift.Status.OPEN)
+                .order_by("-opened_at")
+                .first()
+            )
+            if open_shift is not None:
+                orders = orders.filter(placed_at__gte=open_shift.opened_at)
+            else:
+                orders = orders.none()
         else:
             today = timezone.localdate()
             day_start = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.min.time()))

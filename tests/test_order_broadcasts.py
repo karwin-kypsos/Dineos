@@ -65,3 +65,36 @@ def test_item_status_changed_payload_includes_session_id_and_plain_int_item_id(
     assert payload["session_id"] == str(session.id)
     assert payload["item_id"] == item.id
     assert isinstance(payload["item_id"], int)
+
+
+def test_takeaway_status_changed_reaches_cashiers_group(
+    django_capture_on_commit_callbacks, restaurant, branch, cashier_client, menu_item, monkeypatch,
+):
+    """Regression (2026-08-28, Shereena — "this also face in cashier", same
+    gap as the Server realtime feed): a takeaway order has no table/session,
+    so it never reached any staff group when its status changed — dine-in
+    orders get table_session_{session_id}, but takeaway got nothing
+    equivalent. The Cashier's own Take Away queue needs cashiers_{id}."""
+    cashier_user, _ = cashier_client
+    cashier_user.branch = branch
+    cashier_user.save(update_fields=["branch"])
+
+    calls = []
+    original_broadcast = order_services._broadcast
+
+    def _spy(restaurant_arg, groups, event_type, payload):
+        if event_type == "order_status_changed":
+            calls.append(groups)
+        return original_broadcast(restaurant_arg, groups, event_type, payload)
+
+    monkeypatch.setattr(order_services, "_broadcast", _spy)
+
+    order = order_services.place_takeaway_order(
+        restaurant, branch, [{"menu_item_id": menu_item.id, "quantity": 1}], placed_by=cashier_user,
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        order_services.advance_kitchen_status(order.id, "ACCEPTED")
+
+    assert len(calls) == 1
+    assert f"cashiers_{restaurant.id}" in calls[0]
+    assert f"servers_{restaurant.id}" in calls[0]

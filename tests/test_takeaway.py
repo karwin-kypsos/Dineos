@@ -1,9 +1,12 @@
 from decimal import Decimal
 
 import pytest
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from apps.orders.models import Order
+
+User = get_user_model()
 
 pytestmark = pytest.mark.django_db
 
@@ -163,6 +166,7 @@ def test_order_response_includes_total_amount(cashier_with_branch, menu_item):
 
 def test_list_takeaway_orders_scoped_to_own_branch(cashier_with_branch, menu_item, restaurant):
     _, client = cashier_with_branch
+    client.post("/v1/cashier/shifts/open/")
 
     from apps.restaurant.models import Branch
 
@@ -185,6 +189,7 @@ def test_list_takeaway_orders_defaults_to_today_not_all_time(cashier_with_branch
     from datetime import timedelta
 
     _, client = cashier_with_branch
+    client.post("/v1/cashier/shifts/open/")
 
     old_order = client.post(
         "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
@@ -214,6 +219,7 @@ def test_list_takeaway_orders_excludes_collected_and_served_by_default(cashier_w
     default active queue (2026-08-27, per Shereena) — ?status=all still
     shows it explicitly."""
     _, client = cashier_with_branch
+    client.post("/v1/cashier/shifts/open/")
 
     active_order = client.post(
         "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
@@ -234,8 +240,88 @@ def test_list_takeaway_orders_excludes_collected_and_served_by_default(cashier_w
     assert served_order["id"] in all_ids
 
 
+def test_list_takeaway_orders_scoped_to_own_cashier(cashier_with_branch, restaurant, branch, menu_item):
+    """Requested by Shereena via Telegram (2026-08-28): a Cashier's Take
+    Away queue must only ever show orders they themselves placed, not a
+    branch-mate's."""
+    from apps.authentication.serializers import DineOSTokenObtainPairSerializer
+    from rest_framework.test import APIClient
+
+    cashier_a, client_a = cashier_with_branch
+    client_a.post("/v1/cashier/shifts/open/")
+
+    cashier_b = User.objects.create_user(
+        email="cashier-b@demo-bistro.demo", password="Test@1234", role="CASHIER", name="Cashier B",
+        restaurant=restaurant, branch=branch,
+    )
+    token_b = DineOSTokenObtainPairSerializer.get_token(cashier_b)
+    client_b = APIClient()
+    client_b.credentials(HTTP_AUTHORIZATION=f"Bearer {token_b.access_token}")
+    client_b.post("/v1/cashier/shifts/open/")
+
+    order_a = client_a.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    ).data
+    order_b = client_b.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    ).data
+
+    response_a = client_a.get("/v1/orders/takeaway/?status=all")
+    ids_a = {o["id"] for o in response_a.data}
+    assert order_a["id"] in ids_a
+    assert order_b["id"] not in ids_a
+
+
+def test_list_takeaway_orders_empty_with_no_open_shift(cashier_with_branch, menu_item):
+    """Requested by Shereena via Telegram (2026-08-28): with no shift
+    currently open, the active queue shows nothing at all, rather than
+    falling back to today's orders."""
+    _, client = cashier_with_branch
+
+    response = client.get("/v1/orders/takeaway/")
+
+    assert response.status_code == 200
+    assert response.data == []
+
+
+def test_list_takeaway_orders_resets_on_new_shift(cashier_with_branch, menu_item):
+    """Requested by Shereena via Telegram (2026-08-28): closing a shift
+    locks its orders out of the active queue; opening a new shift starts a
+    fresh one, not a resurrection of the previous shift's orders."""
+    _, client = cashier_with_branch
+
+    open_resp = client.post("/v1/cashier/shifts/open/")
+    shift_id = open_resp.data["id"]
+
+    first_shift_order = client.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    ).data
+
+    close_resp = client.post(
+        f"/v1/cashier/shifts/{shift_id}/close/",
+        {"counted_cash": "0.00", "acknowledge_discrepancy": True, "discrepancy_reason": "test"},
+        format="json",
+    )
+    assert close_resp.status_code == 200, close_resp.data
+
+    # Closed, no new shift open yet — active queue is empty again.
+    response = client.get("/v1/orders/takeaway/")
+    assert response.data == []
+
+    client.post("/v1/cashier/shifts/open/")
+    second_shift_order = client.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    ).data
+
+    response = client.get("/v1/orders/takeaway/")
+    ids = {o["id"] for o in response.data}
+    assert second_shift_order["id"] in ids
+    assert first_shift_order["id"] not in ids
+
+
 def test_list_takeaway_orders_filters_by_status(cashier_with_branch, menu_item):
     _, client = cashier_with_branch
+    client.post("/v1/cashier/shifts/open/")
 
     new_order = client.post(
         "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
