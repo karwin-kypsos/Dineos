@@ -110,6 +110,30 @@ def test_current_shift_dashboard_shows_collected_today_after_payment(cashier_cli
     assert Decimal(response.data["collected_today"]) == _with_tax(menu_item.price * 2)
 
 
+def test_paid_today_count_scoped_to_cashiers_own_branch(cashier_client, branch, restaurant, menu_item):
+    """Regression (2026-08-27, Manikandan): paid_today_count wasn't
+    branch-scoped like active_tables/awaiting_payment right next to it --
+    a cashier's Home screen showed every branch's paid-today count."""
+    from apps.restaurant.models import Branch
+    from apps.tables.models import Table
+
+    cashier_user, client = cashier_client
+    cashier_user.branch = branch
+    cashier_user.save(update_fields=["branch"])
+
+    own_branch_table = Table.objects.create(restaurant=restaurant, branch=branch, table_number="PTC-Own")
+    other_branch = Branch.objects.create(restaurant=restaurant, name="Other Branch")
+    other_branch_table = Table.objects.create(restaurant=restaurant, branch=other_branch, table_number="PTC-Other")
+
+    _pay(cashier_user, own_branch_table, menu_item, quantity=1)
+    _pay(cashier_user, other_branch_table, menu_item, quantity=1)
+
+    response = client.get("/v1/cashier/shifts/current/")
+
+    assert response.status_code == 200
+    assert response.data["paid_today_count"] == 1
+
+
 def test_reconciliation_breaks_totals_down_by_payment_method(cashier_client, table, menu_item):
     cashier_user, client = cashier_client
     shift = billing_services.open_shift(cashier_user)

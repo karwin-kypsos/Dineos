@@ -359,7 +359,15 @@ def cashier_dashboard(restaurant, cashier):
     if cashier.branch_id is not None:
         awaiting_sessions = awaiting_sessions.filter(table__branch_id=cashier.branch_id)
         active_sessions = active_sessions.filter(table__branch_id=cashier.branch_id)
-    paid_today_count = restaurant_bills_qs(restaurant).filter(paid_at__gte=today_start).count()
+
+    paid_today_qs = restaurant_bills_qs(restaurant).filter(paid_at__gte=today_start)
+    # Bug (2026-08-27, per Manikandan's testing): this count wasn't branch-
+    # scoped like awaiting_sessions/active_sessions right above it, so a
+    # cashier's Home screen showed every branch's paid-today count, not
+    # just their own.
+    if cashier.branch_id is not None:
+        paid_today_qs = paid_today_qs.filter(branch_id=cashier.branch_id)
+    paid_today_count = paid_today_qs.count()
 
     shift = get_current_shift(cashier)
     collected_today = shift_totals_by_method(shift)["total"] if shift else Decimal("0")

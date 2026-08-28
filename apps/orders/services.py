@@ -373,7 +373,17 @@ def _broadcast(restaurant, groups, event_type, payload):
 
 
 def _broadcast_order_placed(order, restaurant, portion_updates, zero_hits):
-    _broadcast(restaurant, [f"kitchen_{restaurant.id}"], "order_new", _order_payload(order))
+    # Bug (2026-08-27, per Manikandan's testing): this only ever notified
+    # the kitchen channel, never servers_{restaurant.id} — unlike every
+    # other broadcast in this file (_broadcast_status_changed,
+    # _broadcast_item_status_changed both include it. A brand-new order
+    # (status=NEW, before the kitchen ever touches it) never reached a
+    # server's live view in real time; they'd only find out once the
+    # kitchen advanced its status. Matches "Server can't see customer
+    # orders correctly" — this applies to every new order regardless of
+    # who placed it, not just customer ones, since the gap was in the
+    # broadcast itself, not in who triggered it.
+    _broadcast(restaurant, [f"kitchen_{restaurant.id}", f"servers_{restaurant.id}"], "order_new", _order_payload(order))
     for menu_item_id, remaining in portion_updates:
         _broadcast(
             restaurant,

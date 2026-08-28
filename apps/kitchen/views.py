@@ -1,3 +1,5 @@
+import uuid
+
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -23,7 +25,22 @@ class KDSDeviceViewSet(viewsets.ModelViewSet):
     http_method_names = ["get", "post", "patch", "head", "options"]
 
     def get_queryset(self):
-        return KDSDevice.objects.filter(restaurant=self.request.user.restaurant)
+        qs = KDSDevice.objects.filter(restaurant=self.request.user.restaurant)
+        # Bug (2026-08-27, per Manikandan's testing): this had NO branch
+        # filtering at all — every branch's Kitchen Devices screen showed
+        # every OTHER branch's devices too. A KDS tablet always sits in one
+        # specific kitchen/branch (unlike a shared MenuItem/Category, which
+        # can legitimately apply to every branch), so this is a strict
+        # match on ?branch=, not the Q(branch__isnull=True) fallback used
+        # for genuinely shared resources elsewhere.
+        branch_id = self.request.query_params.get("branch")
+        if branch_id:
+            try:
+                uuid.UUID(branch_id)
+                qs = qs.filter(branch_id=branch_id)
+            except ValueError:
+                pass  # malformed branch id — no filter applied, same convention as StaffViewSet/IngredientViewSet
+        return qs
 
     def perform_create(self, serializer):
         serializer.save(restaurant=self.request.user.restaurant)
