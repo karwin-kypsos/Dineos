@@ -9,12 +9,14 @@ from rest_framework.views import APIView
 
 from apps.billing.models import Bill
 from apps.inventory.models import AIInsight, Ingredient, PurchaseOrder
+from apps.inventory.serializers import IngredientSerializer, PurchaseOrderSerializer
+from apps.menu.models import PreparedPortion
 from apps.notifications.models import Notification
 from apps.orders.models import Order
 from apps.restaurant.models import Branch
 from apps.tables.models import Table
 from core.ai_client import AIUnavailableError
-from core.permissions import IsAdminOrManager
+from core.permissions import IsAdminOrManager, IsManager
 
 from . import services
 from .models import ChatMessage
@@ -135,6 +137,97 @@ class AdminDashboardView(APIView):
             "branches": branches,
             "ai_daily_insight": ai_daily_insight,
             "recent_notifications": recent_notifications,
+        })
+
+
+class ManagerDashboardView(APIView):
+    """Branch-scoped Manager Dashboard (2026-08-29, per Shereena's full
+    written spec via Telegram + mockup screenshot) — deliberately a
+    separate endpoint from AdminDashboardView, not a shared/parameterized
+    one: "The Manager Dashboard is entirely different from the Admin
+    Dashboard... please do not reuse the Admin Dashboard API." Always
+    scoped to request.user.branch (a Manager is always pinned to exactly
+    one) — there's no ?branch= override here on purpose, so a Manager can
+    never pull another branch's data by passing a different id, unlike
+    the Admin dashboard's optional param.
+    """
+
+    permission_classes = [IsManager]
+
+    # Prepared portions have no per-dish configurable threshold field yet
+    # (unlike Ingredient.minimum_stock_level) — flagged to Shereena as a
+    # business-rule call rather than invented silently: sold out, or at/under
+    # 25% of the day's initial batch, counts as "needs attention" here.
+    PREPARED_PORTION_LOW_RATIO = Decimal("0.25")
+
+    def get(self, request):
+        branch = request.user.branch
+        if branch is None:
+            return Response({"detail": "Your account isn't assigned to a branch."}, status=status.HTTP_400_BAD_REQUEST)
+
+        restaurant = request.tenant
+        today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        orders_today = Order.objects.filter(
+            Q(table__branch=branch) | Q(branch=branch), placed_at__gte=today_start,
+        ).exclude(status="CANCELLED")
+        bills_today = Bill.objects.filter(
+            Q(session__table__branch=branch) | Q(order__branch=branch), paid_at__gte=today_start,
+        )
+        today_revenue = bills_today.aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
+
+        ingredients = list(Ingredient.objects.filter(restaurant=restaurant, branch=branch, is_active=True))
+        stock_status_counts = {"critical": 0, "low": 0, "healthy": 0}
+        needs_restocking = []
+        for ingredient in ingredients:
+            stock_status_counts[ingredient.stock_status] += 1
+            if ingredient.stock_status in ("critical", "low"):
+                restock_qty = max(ingredient.minimum_stock_level - ingredient.current_stock, Decimal("0"))
+                needs_restocking.append({
+                    **IngredientSerializer(ingredient).data,
+                    "restock_quantity_needed": restock_qty,
+                })
+        # Critical first, then low, then by name (IngredientSerializer already sorted by name via Meta.ordering).
+        needs_restocking.sort(key=lambda row: 0 if row["stock_status"] == "critical" else 1)
+
+        today = timezone.localdate()
+        portions_today = PreparedPortion.objects.filter(
+            date=today, menu_item__category__restaurant=restaurant,
+        ).select_related("menu_item").filter(
+            Q(menu_item__category__branch=branch) | Q(menu_item__category__branch__isnull=True)
+        )
+        prepared_dishes_needing_attention = [
+            {
+                "menu_item_id": portion.menu_item_id,
+                "menu_item_name": portion.menu_item.name,
+                "portions_remaining": portion.portions_remaining,
+                "portions_initial": portion.portions_initial,
+            }
+            for portion in portions_today
+            if portion.portions_remaining == 0
+            or portion.portions_remaining <= portion.portions_initial * self.PREPARED_PORTION_LOW_RATIO
+        ]
+
+        approved_purchase_orders = PurchaseOrder.objects.filter(
+            restaurant=restaurant, branch=branch, status=PurchaseOrder.Status.APPROVED,
+        ).prefetch_related("lines__ingredient").order_by("-approved_at")
+
+        tables = Table.objects.filter(restaurant=restaurant, branch=branch, is_active=True)
+
+        return Response({
+            "branch_id": str(branch.id),
+            "branch_name": branch.name,
+            "today_orders_count": orders_today.count(),
+            "today_revenue": today_revenue,
+            "stock_status": stock_status_counts,
+            "needs_restocking": needs_restocking,
+            "prepared_dishes_needing_attention": prepared_dishes_needing_attention,
+            "purchase_orders_approved": PurchaseOrderSerializer(approved_purchase_orders, many=True).data,
+            "table_overview": {
+                "occupied": tables.exclude(status="AVAILABLE").count(),
+                "free": tables.filter(status="AVAILABLE").count(),
+                "total": tables.count(),
+            },
         })
 
 

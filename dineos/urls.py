@@ -4,6 +4,7 @@ from django.urls import include, path
 
 from apps.billing.billing_dashboard_urls import billing_dashboard_urlpatterns
 from apps.billing.urls import cashier_urlpatterns
+from apps.dashboard.views import ManagerDashboardView
 from apps.restaurant.views import RestaurantSettingsView
 
 
@@ -24,6 +25,7 @@ urlpatterns = [
     path("v1/inventory/", include("apps.inventory.urls")),
     path("v1/kitchen/", include("apps.kitchen.urls")),
     path("v1/admin/", include("apps.dashboard.urls")),
+    path("v1/manager/dashboard/", ManagerDashboardView.as_view(), name="manager-dashboard"),
     path("v1/orders/", include("apps.orders.urls")),
     path("v1/bills/", include("apps.billing.urls")),
     path("v1/cashier/", include(cashier_urlpatterns)),
