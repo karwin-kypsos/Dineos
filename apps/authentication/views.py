@@ -16,6 +16,8 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from core.permissions import IsAdmin
 
+from apps.restaurant.models import Branch
+
 from .models import PasswordResetToken
 from .serializers import (
     ROLE_METADATA,
@@ -241,6 +243,31 @@ class StaffViewSet(viewsets.ModelViewSet):
         user = self.get_object()
         user.is_active = False
         user.save(update_fields=["is_active"])
+        return Response(UserSerializer(user).data)
+
+    @action(detail=True, methods=["patch"], url_path="assign-branch")
+    def assign_branch(self, request, pk=None):
+        """Assign or change which branch this staff member belongs to (pass
+        branch: null to unassign). Added 2026-08-29 — branch is a create-only
+        field on UserSerializer (see its docstring), so there was previously
+        no way to fix an existing account created without a branch, or to
+        move one to a different branch, without going around the API.
+        """
+        if "branch" not in request.data:
+            return Response(
+                {"branch": "This field is required (pass null to unassign)."}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user = self.get_object()
+        branch_id = request.data["branch"]
+        if branch_id is None:
+            user.branch = None
+        else:
+            branch = Branch.objects.filter(id=branch_id, restaurant=self.request.user.restaurant).first()
+            if branch is None:
+                return Response({"branch": "Branch not found in your restaurant."}, status=status.HTTP_404_NOT_FOUND)
+            user.branch = branch
+        user.save(update_fields=["branch"])
         return Response(UserSerializer(user).data)
 
     def destroy(self, request, *args, **kwargs):
