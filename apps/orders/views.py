@@ -1,4 +1,5 @@
 from collections import Counter
+from decimal import Decimal
 
 from django.db import models
 from django.shortcuts import get_object_or_404
@@ -18,6 +19,7 @@ from .models import Order
 from .serializers import (
     KDSOrderSerializer,
     OrderCreateSerializer,
+    OrderItemSerializer,
     OrderSerializer,
     OrderStatusUpdateSerializer,
     TakeawayOrderCreateSerializer,
@@ -85,7 +87,7 @@ class TakeawayOrderView(APIView):
                 order_type=Order.OrderType.TAKEAWAY, branch__restaurant=request.tenant, parent_order__isnull=True,
             )
             .select_related("parent_order", "parent_order__takeaway_bill", "takeaway_bill")
-            .prefetch_related("items")
+            .prefetch_related("items", "rounds__items")
             .order_by("-placed_at")
         )
         branch = getattr(request.user, "branch", None)
@@ -150,7 +152,25 @@ class TakeawayOrderView(APIView):
             orders = orders.filter(status__in=self._ACTIVE_STATUSES)
         # status=all (explicit): no status filter, but date scoping above still applies.
 
-        return Response(OrderSerializer(orders, many=True).data)
+        data = OrderSerializer(orders, many=True).data
+
+        # Merge in later rounds' items (2026-08-29, per Shereena — right
+        # after the duplicate-card fix above, a next round's items became
+        # invisible: hiding the round's own card also hid the only place its
+        # items were shown, since OrderSerializer.items only ever reflects
+        # THIS row's own items, not the group's). Every round's items now
+        # show under the one card, and total_amount reflects the combined
+        # bill across every round — matching what Payment/Details already
+        # charge/display for the group as a whole.
+        for order, row in zip(orders, data):
+            rounds = list(order.rounds.all())
+            if not rounds:
+                continue
+            for round_order in rounds:
+                row["items"].extend(OrderItemSerializer(round_order.items.all(), many=True).data)
+            row["total_amount"] = sum((Decimal(str(item["line_total"])) for item in row["items"]), Decimal("0"))
+
+        return Response(data)
 
     def post(self, request):
         serializer = TakeawayOrderCreateSerializer(data=request.data)
