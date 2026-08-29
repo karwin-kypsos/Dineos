@@ -419,6 +419,35 @@ def test_adding_a_round_to_a_takeaway_order_links_it_and_increments_round_number
     assert str(third.data["parent_order"]) == root_id
 
 
+def test_list_takeaway_orders_shows_one_card_per_order_not_per_round(cashier_with_branch, menu_item):
+    """Regression (2026-08-29, live crash report from Shereena's team): a
+    later round showed up as its OWN separate card in the active list,
+    duplicating the same real-world order into two entries with two
+    payment buttons. Only the root order (parent_order=None) should
+    appear — GET .../details/ already returns every round together for
+    whoever opens that one card."""
+    _, client = cashier_with_branch
+    client.post("/v1/cashier/shifts/open/")
+
+    root = client.post(
+        "/v1/orders/takeaway/",
+        {"customer_name": "Anna", "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    ).data
+    second_round = client.post(
+        "/v1/orders/takeaway/",
+        {"existing_order_id": root["id"], "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    ).data
+
+    response = client.get("/v1/orders/takeaway/?status=all")
+
+    ids = [o["id"] for o in response.data]
+    assert root["id"] in ids
+    assert second_round["id"] not in ids
+    assert ids.count(root["id"]) == 1
+
+
 def test_cannot_add_takeaway_round_to_another_restaurants_order(cashier_with_branch, menu_item, restaurant):
     _, client = cashier_with_branch
 

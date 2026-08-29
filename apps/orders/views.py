@@ -74,7 +74,16 @@ class TakeawayOrderView(APIView):
 
     def get(self, request):
         orders = (
-            Order.objects.filter(order_type=Order.OrderType.TAKEAWAY, branch__restaurant=request.tenant)
+            # parent_order__isnull=True (2026-08-29, per a live crash report):
+            # a later round (added via existing_order_id) is still its own
+            # Order row for the kitchen's sake, but it bills as part of its
+            # root order (see takeaway_group/pay_takeaway_bill) — showing it
+            # as ALSO its own top-level card duplicated the same real-world
+            # order into two list entries. The root's own GET .../details/
+            # already returns every round together for whoever opens the card.
+            Order.objects.filter(
+                order_type=Order.OrderType.TAKEAWAY, branch__restaurant=request.tenant, parent_order__isnull=True,
+            )
             .select_related("parent_order", "parent_order__takeaway_bill", "takeaway_bill")
             .prefetch_related("items")
             .order_by("-placed_at")
