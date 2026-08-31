@@ -66,11 +66,20 @@ def deduct_for_usage(ingredient_id, quantity, recorded_by=None):
     this deliberately does NOT block on insufficient stock: the Manager has
     already physically prepared the dish by the time this runs, so refusing
     to log it wouldn't undo that — it would just leave the prep log out of
-    sync with reality. Going negative here is a legitimate signal ("stock
-    count needs a recount"), not an error state."""
+    sync with reality.
+
+    current_stock itself is floored at 0 rather than going negative (2026-08-31,
+    per Shereena's report — a negative balance was carrying over as a debt
+    onto the next restock, e.g. 25kg on hand minus a 30kg deduction left
+    -5kg, and adding 10kg back only brought it to 5kg instead of 10kg). The
+    StockMovement still records the full requested `quantity` as the usage
+    amount — that's what was actually consumed in reality — only the running
+    balance is clamped, so the audit trail stays accurate even when the
+    balance can't go any lower than zero.
+    """
     ingredient = Ingredient.objects.select_for_update().get(id=ingredient_id)
     was_low_stock = ingredient.is_low_stock
-    ingredient.current_stock -= quantity
+    ingredient.current_stock = max(ingredient.current_stock - quantity, Decimal("0"))
     ingredient.save(update_fields=["current_stock"])
     _notify_if_newly_low_stock(ingredient, was_low_stock)
     return StockMovement.objects.create(

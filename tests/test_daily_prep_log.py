@@ -42,6 +42,30 @@ def test_add_portions_deducts_recipe_ingredients(manager_client, menu_item, chic
     assert StockMovement.objects.filter(ingredient=chicken, movement_type="USAGE", quantity=Decimal("5.00")).exists()
 
 
+def test_add_portions_floors_stock_at_zero_instead_of_going_negative(manager_client, menu_item, chicken, recipe):
+    """2026-08-31, per Shereena's report: deducting more than what's on hand
+    used to leave current_stock negative, and a later restock added on top
+    of that negative number instead of starting clean from zero."""
+    _, client = manager_client
+    chicken.current_stock = Decimal("5.00")
+    chicken.save(update_fields=["current_stock"])
+
+    response = client.patch(
+        f"/v1/prepared-dishes/{menu_item.id}/add-portions/", {"additional_quantity": 100}, format="json",
+    )
+
+    assert response.status_code == 200, response.data
+    chicken.refresh_from_db()
+    assert chicken.current_stock == Decimal("0.00")  # would be -20.00 pre-fix (0.25 * 100 = 25)
+
+    # A later restock starts clean from zero, not from the old negative debt.
+    from apps.inventory.services import add_stock
+
+    add_stock(chicken.id, Decimal("10.00"))
+    chicken.refresh_from_db()
+    assert chicken.current_stock == Decimal("10.00")
+
+
 def test_add_portions_without_recipe_does_not_touch_stock(manager_client, menu_item, chicken):
     """No RecipeItem linked — behaves exactly like before this feature existed."""
     _, client = manager_client
@@ -117,9 +141,11 @@ def test_add_portions_override_rejects_foreign_ingredient(manager_client, menu_i
     assert response.status_code == 404
 
 
-def test_recipe_deduction_allows_negative_stock(manager_client, menu_item, chicken, recipe):
+def test_recipe_deduction_is_not_blocked_by_insufficient_stock(manager_client, menu_item, chicken, recipe):
     """Prep already happened physically — the log must not be blocked by
-    insufficient tracked stock, per the service's documented behavior."""
+    insufficient tracked stock, per the service's documented behavior. The
+    balance floors at zero rather than going negative (see
+    test_add_portions_floors_stock_at_zero_instead_of_going_negative)."""
     _, client = manager_client
     chicken.current_stock = Decimal("1.00")
     chicken.save(update_fields=["current_stock"])
@@ -130,4 +156,5 @@ def test_recipe_deduction_allows_negative_stock(manager_client, menu_item, chick
 
     assert response.status_code == 200
     chicken.refresh_from_db()
-    assert chicken.current_stock == Decimal("-4.00")  # 1 - (0.25 * 20), allowed to go negative
+    assert chicken.current_stock == Decimal("0.00")  # 1 - (0.25 * 20) = -4, floored to 0
+    assert StockMovement.objects.filter(ingredient=chicken, movement_type="USAGE", quantity=Decimal("5.00")).exists()

@@ -1,8 +1,39 @@
 import pytest
+from decimal import Decimal
 
+from apps.billing import services as billing_services
+from apps.orders import services as order_services
 from apps.restaurant.models import Branch
+from apps.tables import services as table_services
 
 pytestmark = pytest.mark.django_db
+
+
+def test_list_branches_includes_total_revenue_and_orders(admin_client, table, menu_item):
+    """2026-08-31: the Branches screen's "All Branches Overview" card was
+    showing a hardcoded 0 for these - GET /v1/branches/ had no such fields
+    at all before this fix."""
+    _, client = admin_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    billing_services.pay_bill(session.id, "CASH", None)
+
+    response = client.get("/v1/branches/")
+
+    assert response.status_code == 200
+    assert response.data["total_orders"] == 1
+    expected_total = (menu_item.price * Decimal("1.05")).quantize(Decimal("0.01"))
+    assert Decimal(str(response.data["total_revenue"])) == expected_total
+
+
+def test_branches_totals_exclude_other_restaurants(admin_client, restaurant):
+    _, client = admin_client
+
+    response = client.get("/v1/branches/")
+
+    assert response.status_code == 200
+    assert response.data["total_orders"] == 0
+    assert Decimal(str(response.data["total_revenue"])) == Decimal("0")
 
 
 def test_admin_can_create_branch(admin_client, restaurant):
