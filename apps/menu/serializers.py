@@ -157,7 +157,10 @@ class MenuItemCustomerSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MenuItem
-        fields = ["id", "category", "category_name", "name", "description", "price", "image_url", "is_veg", "portions_remaining"]
+        fields = [
+            "id", "category", "category_name", "name", "description", "price", "image_url", "is_veg",
+            "is_available", "portions_remaining",
+        ]
 
     def get_portions_remaining(self, obj):
         portion = get_today_portion(obj)

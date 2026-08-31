@@ -16,6 +16,18 @@ def test_customer_menu_hides_zero_portion_items(api_client, table, menu_item):
     assert menu_item.id not in ids
 
 
+def test_customer_menu_includes_is_available(api_client, table, menu_item):
+    """2026-08-31, per Shereena: the customer-facing menu response was
+    missing is_available entirely, so the frontend had no way to reflect
+    it. Note: an is_available=False item never reaches this response at
+    all (see _available_today_queryset's is_available=True filter) - this
+    just confirms the field is now present on the ones that do."""
+    response = api_client.get(f"/v1/menu/customer/{table.id}/")
+    assert response.status_code == 200
+    item = next(i for i in response.data if i["id"] == menu_item.id)
+    assert item["is_available"] is True
+
+
 def test_untracked_item_always_shows(api_client, table, menu_item):
     # A second item with no PreparedPortion row today is always available.
     from apps.menu.models import MenuItem
