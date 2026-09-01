@@ -274,6 +274,12 @@ class CashierCollectionSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=["NOT_SUBMITTED", "MATCHED", "DISCREPANCY"])
     opened_at = serializers.DateTimeField()
     closed_at = serializers.DateTimeField(allow_null=True)
+    # Discrepancy detail (2026-09-01) - all four null/blank while the shift
+    # is still OPEN, since there's nothing counted/compared yet.
+    expected_cash = serializers.DecimalField(max_digits=10, decimal_places=2, allow_null=True)
+    counted_cash = serializers.DecimalField(max_digits=10, decimal_places=2, allow_null=True)
+    discrepancy_amount = serializers.DecimalField(max_digits=10, decimal_places=2, allow_null=True)
+    discrepancy_reason = serializers.CharField(allow_blank=True)
 
 
 class DailyCollectionsSerializer(serializers.Serializer):

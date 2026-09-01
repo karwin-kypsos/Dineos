@@ -140,6 +140,47 @@ def test_billing_cashiers_list_reshapes_fields(manager_client, cashier_client, t
     assert row["tables_served"] == 1
 
 
+def test_billing_cashiers_list_shows_discrepancy_amount(manager_client, cashier_client, table, menu_item):
+    """2026-09-01, per Karwin's report - the list only ever showed the
+    DISCREPANCY flag, never how much cash was actually off by."""
+    cashier_user, client = cashier_client
+    shift = billing_services.open_shift(cashier_user)
+    _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+    expected = billing_services.shift_totals_by_method(shift)["cash"]
+    counted = expected - 10
+    close_response = client.post(
+        f"/v1/cashier/shifts/{shift.id}/close/",
+        {"counted_cash": str(counted), "acknowledge_discrepancy": True, "discrepancy_reason": "Short by 10"},
+        format="json",
+    )
+    assert close_response.status_code == 200, close_response.data
+
+    _, manager = manager_client
+    response = manager.get("/v1/billing/cashiers/")
+
+    assert response.status_code == 200
+    row = response.data[0]
+    assert row["status"] == "Difference"
+    assert row["expected_cash"] == expected
+    assert row["counted_cash"] == counted
+    assert row["discrepancy_amount"] == counted - expected
+
+
+def test_billing_cashiers_list_discrepancy_fields_null_while_open(manager_client, cashier_client):
+    cashier_user, _ = cashier_client
+    billing_services.open_shift(cashier_user)
+
+    _, manager = manager_client
+    response = manager.get("/v1/billing/cashiers/")
+
+    assert response.status_code == 200
+    row = response.data[0]
+    assert row["status"] == "Not submitted"
+    assert row["expected_cash"] is None
+    assert row["counted_cash"] is None
+    assert row["discrepancy_amount"] is None
+
+
 def test_billing_cashier_detail_aggregates_across_shifts(manager_client, cashier_client, table, menu_item):
     cashier_user, client = cashier_client
 

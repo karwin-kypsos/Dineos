@@ -523,6 +523,22 @@ def cashier_collections(restaurant, *, date=None, date_from=None, date_to=None, 
         else:
             collection_status = "DISCREPANCY"
 
+        # Discrepancy detail (2026-09-01, per Karwin's report - the list
+        # only ever showed the DISCREPANCY flag, never the actual amount, so
+        # a Manager had to open each cashier's detail page one by one just
+        # to see how far off the cash was). None while the shift is still
+        # OPEN - there's nothing counted/compared yet to show a number for.
+        if shift.status == CashierShift.Status.CLOSED:
+            expected_cash = shift_totals_by_method(shift)["cash"]
+            counted_cash = shift.counted_cash
+            discrepancy_amount = shift.discrepancy_amount
+            discrepancy_reason = shift.discrepancy_reason
+        else:
+            expected_cash = None
+            counted_cash = None
+            discrepancy_amount = None
+            discrepancy_reason = ""
+
         results.append({
             "shift_id": shift.id,
             "cashier_id": shift.cashier_id,
@@ -532,6 +548,10 @@ def cashier_collections(restaurant, *, date=None, date_from=None, date_to=None, 
             "status": collection_status,
             "opened_at": shift.opened_at,
             "closed_at": shift.closed_at,
+            "expected_cash": expected_cash,
+            "counted_cash": counted_cash,
+            "discrepancy_amount": discrepancy_amount,
+            "discrepancy_reason": discrepancy_reason,
         })
     return results
 

@@ -145,3 +145,44 @@ def test_manager_dashboard_only_shows_approved_purchase_orders(restaurant, manag
     ids = {po["id"] for po in response.data["purchase_orders_approved"]}
     assert str(approved_po.id) in ids
     assert str(pending_po.id) not in ids
+
+
+def _make_bill_with_feedback(restaurant, branch, rating, comment=""):
+    from apps.billing import services as billing_services
+    from apps.feedback.models import Feedback
+    from apps.menu.models import Category, MenuItem
+
+    category = Category.objects.create(restaurant=restaurant, branch=branch, name=f"Cat-{rating}-{comment}")
+    item = MenuItem.objects.create(category=category, name=f"Item-{rating}-{comment}", price=Decimal("100.00"))
+    table = Table.objects.create(restaurant=restaurant, branch=branch, table_number=f"FB-{rating}-{comment}")
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": item.id, "quantity": 1}])
+    bill = billing_services.pay_bill(session.id, "CASH", None)
+
+    return Feedback.objects.create(restaurant=restaurant, branch=branch, bill=bill, rating=rating, comment=comment)
+
+
+def test_manager_dashboard_shows_latest_3_feedback(restaurant, manager_client, branch):
+    _, client = _manager_on_branch(manager_client, branch)
+    for rating in [5, 4, 3, 2, 1]:
+        _make_bill_with_feedback(restaurant, branch, rating, comment=f"Rated {rating}")
+
+    response = client.get("/v1/manager/dashboard/")
+
+    assert response.status_code == 200
+    latest = response.data["latest_feedback"]
+    assert len(latest) == 3
+    # Newest first (Feedback.Meta.ordering = ["-created_at"]) - the 3 most
+    # recently created were ratings 3, 2, 1 in that order.
+    assert [row["rating"] for row in latest] == [1, 2, 3]
+
+
+def test_manager_dashboard_latest_feedback_excludes_other_branches(restaurant, manager_client, branch):
+    _, client = _manager_on_branch(manager_client, branch)
+    other_branch = Branch.objects.create(restaurant=restaurant, name="Other Branch")
+    _make_bill_with_feedback(restaurant, other_branch, rating=5, comment="Not this branch")
+
+    response = client.get("/v1/manager/dashboard/")
+
+    assert response.data["latest_feedback"] == []

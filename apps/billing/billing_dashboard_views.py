@@ -128,6 +128,10 @@ class BillingCashiersView(APIView):
                 "shift_id": row["shift_id"],
                 "opened_at": row["opened_at"],
                 "closed_at": row["closed_at"],
+                "expected_cash": row["expected_cash"],
+                "counted_cash": row["counted_cash"],
+                "discrepancy_amount": row["discrepancy_amount"],
+                "discrepancy_reason": row["discrepancy_reason"],
             }
             for row in rows
         ])

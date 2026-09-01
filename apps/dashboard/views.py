@@ -8,6 +8,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.billing.models import Bill
+from apps.feedback.models import Feedback
+from apps.feedback.serializers import FeedbackSerializer
 from apps.inventory.models import AIInsight, Ingredient, PurchaseOrder
 from apps.inventory.serializers import IngredientSerializer, PurchaseOrderSerializer
 from apps.menu.models import PreparedPortion
@@ -214,6 +216,12 @@ class ManagerDashboardView(APIView):
 
         tables = Table.objects.filter(restaurant=restaurant, branch=branch, is_active=True)
 
+        # Latest Feedback (2026-09-01, per Karwin's request) - the 3 most
+        # recent customer ratings for this branch, newest first (Feedback's
+        # own Meta.ordering), so a Manager can see how things are going
+        # without leaving the dashboard for the full Feedback list.
+        latest_feedback = Feedback.objects.filter(restaurant=restaurant, branch=branch)[:3]
+
         return Response({
             "branch_id": str(branch.id),
             "branch_name": branch.name,
@@ -228,6 +236,7 @@ class ManagerDashboardView(APIView):
                 "free": tables.filter(status="AVAILABLE").count(),
                 "total": tables.count(),
             },
+            "latest_feedback": FeedbackSerializer(latest_feedback, many=True).data,
         })
 
 
