@@ -36,7 +36,14 @@ def _parse_date_params(request):
 
 
 def _branch_param(request):
-    return request.query_params.get("branch") or None
+    """2026-09-01, per Karwin's report - a Manager is always pinned to
+    exactly one branch (unlike Admin), so requiring them to explicitly
+    pass ?branch= on every one of these endpoints made no sense - without
+    it, they'd silently get the cross-branch Admin view instead of just
+    their own branch's numbers. Falls back to the caller's own branch when
+    no explicit param is given; Admin has no fixed branch, so this stays a
+    no-op (still optional, still cross-branch by default) for them."""
+    return request.query_params.get("branch") or getattr(request.user, "branch_id", None)
 
 
 def _collections_report(request, date, date_from, date_to, branch):

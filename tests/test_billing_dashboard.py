@@ -60,6 +60,29 @@ def test_billing_summary_scoped_to_branch(manager_client, cashier_client, restau
     assert response_a.data["total_revenue"] == response_b.data["total_revenue"]
 
 
+def test_billing_summary_defaults_to_managers_own_branch(manager_client, cashier_client, restaurant, menu_item, branch_a, branch_b):
+    """2026-09-01, per Karwin's report - a Manager shouldn't have to pass
+    ?branch= at all, since they only ever have one branch; omitting it
+    used to silently fall through to the cross-branch Admin view instead
+    of their own branch's numbers."""
+    from apps.tables.models import Table
+
+    cashier_user, _ = cashier_client
+    table_a = Table.objects.create(restaurant=restaurant, branch=branch_a, table_number="MA1", capacity=4)
+    table_b = Table.objects.create(restaurant=restaurant, branch=branch_b, table_number="MB1", capacity=4)
+    _pay(cashier_user, table_a, menu_item, quantity=1, method="CASH")
+    _pay(cashier_user, table_b, menu_item, quantity=1, method="CASH")
+
+    manager_user, manager = manager_client
+    manager_user.branch = branch_a
+    manager_user.save(update_fields=["branch"])
+
+    response = manager.get("/v1/billing/summary/")
+
+    assert response.status_code == 200
+    assert response.data["total_orders"] == 1  # only branch_a's own bill, not both
+
+
 def test_billing_summary_date_range(manager_client, cashier_client, table, menu_item):
     from datetime import timedelta
 
