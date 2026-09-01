@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -63,6 +65,19 @@ class TableViewSet(viewsets.ReadOnlyModelViewSet):
                     | models.Q(sessions__status__in=["ACTIVE", "BILL_REQUESTED"], sessions__assigned_server=self.request.user)
                     | models.Q(sessions__status__in=["ACTIVE", "BILL_REQUESTED"], sessions__assigned_server__isnull=True)
                 ).distinct()
+
+        # Explicit ?branch= (2026-09-01 - found while adding test data:
+        # Admin has no fixed branch, so this query param was the only way
+        # for them to narrow to one branch, and it was silently ignored
+        # entirely). Applied on top of the role-based scoping above (never
+        # loosens it) - same convention as Ingredient/Staff/PurchaseOrder.
+        branch_id = self.request.query_params.get("branch")
+        if branch_id:
+            try:
+                uuid.UUID(branch_id)
+                qs = qs.filter(branch_id=branch_id)
+            except ValueError:
+                pass  # malformed branch id - no filter applied, same convention as elsewhere
         return qs
 
     def get_permissions(self):

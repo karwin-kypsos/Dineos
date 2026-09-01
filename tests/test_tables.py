@@ -258,3 +258,46 @@ def test_assign_next_server_ignores_preferred_server_from_a_different_branch(res
 
     assert result.assigned_server_id != other_branch_server.id
     assert result.assigned_server_id == home_server.id
+
+
+def test_admin_can_filter_table_list_by_branch(restaurant, branch, admin_client):
+    """2026-09-01 - found while adding test data: ?branch= was silently
+    ignored entirely, so Admin (who has no fixed branch of their own) had
+    no way to narrow the table list to just one branch."""
+    from apps.restaurant.models import Branch
+
+    other_branch = Branch.objects.create(restaurant=restaurant, name="Other Branch")
+    Table.objects.create(restaurant=restaurant, branch=branch, table_number="BF1", capacity=4)
+    Table.objects.create(restaurant=restaurant, branch=other_branch, table_number="BF2", capacity=4)
+
+    _, client = admin_client
+    response = client.get(f"/v1/tables/?branch={branch.id}")
+
+    assert response.status_code == 200
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    branches_seen = {str(t["branch"]) for t in results}
+    assert branches_seen == {str(branch.id)}
+
+
+def test_server_cannot_widen_branch_via_query_param(restaurant, branch):
+    """A Server passing ?branch=<another branch> must not see it - the
+    query param can only narrow within their own already-scoped branch,
+    never override it."""
+    from rest_framework.test import APIClient
+
+    from apps.authentication.serializers import DineOSTokenObtainPairSerializer
+    from apps.restaurant.models import Branch
+
+    other_branch = Branch.objects.create(restaurant=restaurant, name="Other Branch")
+    Table.objects.create(restaurant=restaurant, branch=other_branch, table_number="BF3", capacity=4, status="AVAILABLE")
+
+    server = _make_server(restaurant, branch, "srv-p@demo-bistro.demo", "Server P")
+    token = DineOSTokenObtainPairSerializer.get_token(server)
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.access_token}")
+
+    response = client.get(f"/v1/tables/?branch={other_branch.id}")
+
+    assert response.status_code == 200
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    assert results == []
