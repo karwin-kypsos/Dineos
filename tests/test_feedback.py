@@ -126,6 +126,61 @@ def test_list_feedback_staff_only_and_tenant_scoped(admin_client, cashier_client
     assert 1 not in ratings  # other restaurant's feedback must never leak in
 
 
+def test_submit_feedback_response_includes_food_items(api_client, cashier_client, table, menu_item):
+    """2026-09-02, per Karwin's report - a comment alone gave no way to
+    tell which food item a customer meant."""
+    cashier_user, _ = cashier_client
+    bill = _paid_bill(cashier_user, table, menu_item, quantity=2)
+
+    response = api_client.post(
+        "/v1/feedback/submit/", {"bill_id": str(bill.id), "rating": 4, "comment": "Loved it"}, format="json",
+    )
+
+    assert response.status_code == 201
+    assert len(response.data["items"]) == 1
+    assert response.data["items"][0]["menu_item_name"] == menu_item.name
+    assert response.data["items"][0]["quantity"] == 2
+
+
+def test_list_feedback_includes_food_items(admin_client, cashier_client, table, menu_item, api_client):
+    cashier_user, _ = cashier_client
+    bill = _paid_bill(cashier_user, table, menu_item)
+    api_client.post("/v1/feedback/submit/", {"bill_id": str(bill.id), "rating": 5}, format="json")
+
+    _, admin = admin_client
+    response = admin.get("/v1/feedback/")
+
+    assert response.status_code == 200
+    assert response.data[0]["items"][0]["menu_item_name"] == menu_item.name
+
+
+def test_list_feedback_defaults_to_managers_own_branch(restaurant, manager_client, cashier_client, branch, menu_item, api_client):
+    from apps.restaurant.models import Branch
+    from apps.tables.models import Table
+
+    cashier_user, _ = cashier_client
+    cashier_user.branch = branch
+    cashier_user.save(update_fields=["branch"])
+    table_a = Table.objects.create(restaurant=restaurant, branch=branch, table_number="FBa")
+    bill_a = _paid_bill(cashier_user, table_a, menu_item)
+    api_client.post("/v1/feedback/submit/", {"bill_id": str(bill_a.id), "rating": 5}, format="json")
+
+    other_branch = Branch.objects.create(restaurant=restaurant, name="Other Branch")
+    table_b = Table.objects.create(restaurant=restaurant, branch=other_branch, table_number="FBb")
+    bill_b = _paid_bill(cashier_user, table_b, menu_item)
+    api_client.post("/v1/feedback/submit/", {"bill_id": str(bill_b.id), "rating": 1}, format="json")
+
+    manager_user, manager = manager_client
+    manager_user.branch = branch
+    manager_user.save(update_fields=["branch"])
+
+    response = manager.get("/v1/feedback/")
+
+    assert response.status_code == 200
+    ratings = {f["rating"] for f in response.data}
+    assert ratings == {5}  # only the manager's own branch, not the other one
+
+
 def test_list_feedback_filters_by_rating(admin_client, cashier_client, table, menu_item, api_client):
     from apps.tables.models import Table
 

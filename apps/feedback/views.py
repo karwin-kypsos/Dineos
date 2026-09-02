@@ -62,11 +62,17 @@ class FeedbackListView(APIView):
     def get(self, request):
         feedback = (
             Feedback.objects.filter(restaurant=request.tenant)
-            .select_related("bill", "branch")
+            .select_related("bill", "bill__session__table", "bill__order__branch", "branch")
             .order_by("-created_at")
         )
 
-        branch_id = request.query_params.get("branch")
+        # ?branch= is optional and defaults to the caller's own branch
+        # (2026-09-02, per Karwin's request) - same convention as the
+        # Billing Dashboard fix: a Manager is always pinned to one branch,
+        # so they shouldn't have to pass it explicitly to see just their
+        # own feedback. Admin has no fixed branch, so this stays a no-op
+        # (still optional, still cross-branch by default) for them.
+        branch_id = request.query_params.get("branch") or getattr(request.user, "branch_id", None)
         if branch_id:
             feedback = feedback.filter(branch_id=branch_id)
 
