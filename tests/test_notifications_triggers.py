@@ -86,6 +86,32 @@ def test_mark_all_notifications_read_only_touches_own_notifications(admin_client
     assert manager_notification.is_read is False
 
 
+def test_clear_all_notifications(admin_client, restaurant):
+    admin_user, client = admin_client
+    Notification.objects.create(recipient=admin_user, type="STAFF_ADDED", title="One")
+    Notification.objects.create(recipient=admin_user, type="STAFF_ADDED", title="Two")
+    Notification.objects.create(recipient=admin_user, type="STAFF_ADDED", title="Already read", is_read=True)
+
+    response = client.delete("/v1/notifications/clear-all/")
+
+    assert response.status_code == 200
+    assert response.data["deleted"] == 3
+    assert not Notification.objects.filter(recipient=admin_user).exists()
+
+
+def test_clear_all_notifications_only_touches_own_notifications(admin_client, manager_client, restaurant):
+    admin_user, admin = admin_client
+    manager_user, _ = manager_client
+    Notification.objects.create(recipient=admin_user, type="STAFF_ADDED", title="Admin's")
+    manager_notification = Notification.objects.create(recipient=manager_user, type="STAFF_ADDED", title="Manager's")
+
+    response = admin.delete("/v1/notifications/clear-all/")
+
+    assert response.status_code == 200
+    assert response.data["deleted"] == 1
+    assert Notification.objects.filter(pk=manager_notification.pk).exists()
+
+
 def test_record_wastage_notifies_on_newly_low_stock(manager_client, admin_client, restaurant):
     _, manager = manager_client
     admin_user, _ = admin_client

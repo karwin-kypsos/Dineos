@@ -64,3 +64,16 @@ class MarkAllNotificationsReadView(APIView):
     def patch(self, request):
         updated = Notification.objects.filter(recipient=request.user, is_read=False).update(is_read=True)
         return Response({"marked_read": updated})
+
+
+class ClearAllNotificationsView(APIView):
+    """'Clear all' — Karwin (2026-09-03). Only ever deletes the calling
+    user's own notifications (read or unread), same recipient-scoping as
+    every other view here — one staff member's clear-all can never touch
+    another's rows."""
+
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request):
+        deleted, _ = Notification.objects.filter(recipient=request.user).delete()
+        return Response({"deleted": deleted})
