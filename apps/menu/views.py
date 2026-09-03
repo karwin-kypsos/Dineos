@@ -214,7 +214,16 @@ class CategoryViewSet(ImageUploadErrorHandlingMixin, viewsets.ModelViewSet):
         return base + [TenantObjectPermission()]
 
     def perform_create(self, serializer):
-        serializer.save(restaurant=self.request.tenant, branch=getattr(self.request.user, "branch", None))
+        # 2026-09-03 - a Manager (always pinned to one branch) can't
+        # override it via the request body; Admin (no fixed branch) can
+        # specify one explicitly (already tenant-validated by
+        # CategorySerializer.validate_branch) or omit it for a legacy/
+        # restaurant-wide row. This used to always force the CALLER's own
+        # branch (None for Admin), silently discarding whatever branch an
+        # Admin actually specified.
+        user_branch = getattr(self.request.user, "branch", None)
+        branch = user_branch if user_branch is not None else serializer.validated_data.get("branch")
+        serializer.save(restaurant=self.request.tenant, branch=branch)
 
     def destroy(self, request, *args, **kwargs):
         category = self.get_object()

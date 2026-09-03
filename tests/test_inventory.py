@@ -28,6 +28,64 @@ def test_manager_can_create_ingredient(manager_client, restaurant):
     assert Ingredient.objects.filter(restaurant=restaurant, name="Rice").exists()
 
 
+def test_admin_can_create_ingredient_for_a_specific_branch(admin_client, restaurant, branch):
+    """2026-09-03 - found while rebuilding test data: an Admin (no fixed
+    branch of their own) specifying a branch in the request body used to
+    have it silently discarded and replaced with None."""
+    _, client = admin_client
+
+    response = client.post(
+        "/v1/inventory/ingredients/", {"name": "Rice", "unit": "KG", "branch": str(branch.id)}, format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    assert str(response.data["branch"]) == str(branch.id)
+
+
+def test_admin_can_create_same_ingredient_name_on_two_different_branches(admin_client, restaurant):
+    from apps.restaurant.models import Branch
+
+    branch_a = Branch.objects.create(restaurant=restaurant, name="Branch A")
+    branch_b = Branch.objects.create(restaurant=restaurant, name="Branch B")
+    _, client = admin_client
+
+    r1 = client.post("/v1/inventory/ingredients/", {"name": "Rice", "unit": "KG", "branch": str(branch_a.id)}, format="json")
+    r2 = client.post("/v1/inventory/ingredients/", {"name": "Rice", "unit": "KG", "branch": str(branch_b.id)}, format="json")
+
+    assert r1.status_code == 201, r1.data
+    assert r2.status_code == 201, r2.data  # different branches - not a real conflict
+
+
+def test_manager_cannot_create_ingredient_for_another_branch(manager_client, restaurant, branch):
+    from apps.restaurant.models import Branch
+
+    other_branch = Branch.objects.create(restaurant=restaurant, name="Other Branch")
+    user, client = manager_client
+    user.branch = branch
+    user.save(update_fields=["branch"])
+
+    response = client.post(
+        "/v1/inventory/ingredients/", {"name": "Rice", "unit": "KG", "branch": str(other_branch.id)}, format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    assert str(response.data["branch"]) == str(branch.id)  # forced to their own, not other_branch
+
+
+def test_ingredient_branch_rejects_another_restaurants_branch(admin_client):
+    from apps.restaurant.models import Branch, Restaurant
+
+    other_restaurant = Restaurant.objects.create(name="Other Restaurant", slug="other-restaurant-ing")
+    foreign_branch = Branch.objects.create(restaurant=other_restaurant, name="Foreign Branch")
+    _, client = admin_client
+
+    response = client.post(
+        "/v1/inventory/ingredients/", {"name": "Rice", "unit": "KG", "branch": str(foreign_branch.id)}, format="json",
+    )
+
+    assert response.status_code == 400
+
+
 def test_server_cannot_create_ingredient(server_client):
     _, client = server_client
 

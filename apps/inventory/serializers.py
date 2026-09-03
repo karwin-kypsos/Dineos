@@ -18,24 +18,42 @@ class IngredientSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "current_stock", "created_at"]
         validators = []  # conditional UniqueConstraints — see apps/menu CategorySerializer for why
 
-    def validate_name(self, value):
+    def validate_branch(self, value):
+        # 2026-09-03 - branch had no tenant-ownership check at all: a
+        # client could specify any restaurant's branch id and it would be
+        # accepted outright.
+        request = self.context.get("request")
+        if value is not None and request is not None and value.restaurant_id != request.tenant.id:
+            raise serializers.ValidationError("Branch does not belong to your restaurant.")
+        return value
+
+    def validate(self, attrs):
+        # 2026-09-03 - moved from validate_name (field-level, ran before
+        # "branch" was resolved) to here (object-level, sees the actual
+        # branch attrs already validated above) - the uniqueness check
+        # used to key off request.user.branch (the CALLER's own branch,
+        # always None for Admin) instead of the branch actually being
+        # written, so an Admin creating an ingredient for a specific
+        # branch was checked against the wrong scope entirely.
+        name = attrs.get("name", self.instance.name if self.instance else None)
+        if name is None:
+            return attrs
+        branch = attrs["branch"] if "branch" in attrs else (self.instance.branch if self.instance else None)
         request = self.context.get("request")
         restaurant = getattr(request, "tenant", None) if request else None
-        branch = getattr(getattr(request, "user", None), "branch", None) if request else None
-        if self.instance is not None:
-            restaurant = restaurant or self.instance.restaurant
-            branch = self.instance.branch
+        if restaurant is None and self.instance is not None:
+            restaurant = self.instance.restaurant
         if branch is not None:
-            conflict = Ingredient.objects.filter(branch=branch, name=value)
+            conflict = Ingredient.objects.filter(branch=branch, name=name)
         elif restaurant is not None:
-            conflict = Ingredient.objects.filter(restaurant=restaurant, name=value, branch__isnull=True)
+            conflict = Ingredient.objects.filter(restaurant=restaurant, name=name, branch__isnull=True)
         else:
-            return value
+            return attrs
         if self.instance is not None:
             conflict = conflict.exclude(pk=self.instance.pk)
         if conflict.exists():
             raise serializers.ValidationError("An ingredient with this name already exists.")
-        return value
+        return attrs
 
 
 class StockMovementSerializer(serializers.ModelSerializer):
