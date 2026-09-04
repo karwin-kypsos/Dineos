@@ -297,6 +297,37 @@ def test_purchase_order_date_range_filters_inclusive(manager_client, ingredient)
     assert str(po_outside_range.id) not in ids
 
 
+def test_purchase_order_single_date_filter(manager_client, ingredient):
+    """New: date (2026-09-04, per Karwin - Admin's Purchase Orders list
+    always sends one selected branch + one selected date). Exact-day match
+    on created_at, distinct from the date_from/date_to range above."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    _, client = manager_client
+    today_po = client.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00"}]}, format="json",
+    ).data
+
+    yesterday_po = client.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00"}]}, format="json",
+    ).data
+    po_yesterday = PurchaseOrder.objects.get(id=yesterday_po["id"])
+    po_yesterday.created_at = po_yesterday.created_at - timedelta(days=1)
+    po_yesterday.save(update_fields=["created_at"])
+
+    today = timezone.localdate().isoformat()
+    response = client.get(f"/v1/inventory/purchase-orders/?date={today}")
+
+    assert response.status_code == 200
+    ids = {po["id"] for po in response.data["results"]}
+    assert today_po["id"] in ids
+    assert yesterday_po["id"] not in ids
+
+
 def test_purchase_order_needs_action_filter_and_branch_scoping(admin_client, ingredient, restaurant):
     from apps.authentication.serializers import DineOSTokenObtainPairSerializer
     from apps.authentication.models import User

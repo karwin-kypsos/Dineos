@@ -198,6 +198,18 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         if status_filter in PurchaseOrder.Status.values:
             qs = qs.filter(status=status_filter)
 
+        # date (2026-09-04, per Karwin - Admin's Purchase Orders list always
+        # sends one selected branch + one selected date, defaulting to today
+        # on the client side). A single exact-day filter on created_at,
+        # distinct from the date_from/date_to range below.
+        date_param = self.request.query_params.get("date")
+        if date_param:
+            try:
+                target_date = timezone.datetime.strptime(date_param, "%Y-%m-%d").date()
+                qs = qs.filter(created_at__date=target_date)
+            except ValueError:
+                pass  # malformed date — no filter applied, same convention as branch_id above
+
         # date_from/date_to (2026-08-27, per Shereena's Purchase Order History
         # screen needing a from/to range, same as the Billing dashboard and
         # bill history list). Both bounds are inclusive calendar dates,
