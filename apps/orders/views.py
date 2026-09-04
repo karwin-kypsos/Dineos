@@ -371,7 +371,18 @@ class OrderKitchenStatusView(APIView):
     def patch(self, request, order_id):
         serializer = OrderStatusUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        order = services.advance_kitchen_status(order_id, serializer.validated_data["status"])
+        # Tenant-scope the lookup first (same dual-Q dine-in/takeaway
+        # pattern as OrderItemKitchenStatusView below) - advance_kitchen_status
+        # itself fetches by bare id with no tenant check, so without this a
+        # KDS device from one restaurant could advance another restaurant's
+        # order given its id.
+        order = get_object_or_404(
+            Order.objects.filter(
+                models.Q(table__restaurant=request.tenant) | models.Q(branch__restaurant=request.tenant)
+            ),
+            id=order_id,
+        )
+        order = services.advance_kitchen_status(order.id, serializer.validated_data["status"])
         return Response(OrderSerializer(order).data)
 
 

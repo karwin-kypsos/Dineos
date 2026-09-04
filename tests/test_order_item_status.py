@@ -100,6 +100,32 @@ def test_item_tenant_scoped_404s_for_other_restaurants_order(kds_client, table, 
     assert response.status_code == 404
 
 
+def test_order_level_tenant_scoped_404s_for_other_restaurants_order(kds_client, table, menu_item):
+    # Whole-order counterpart to test_item_tenant_scoped_404s_for_other_restaurants_order
+    # above - advance_kitchen_status() fetches the order by bare id with no
+    # tenant check, so the view itself must scope the lookup first, or a KDS
+    # device from a different restaurant could advance this order's status.
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order = order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+
+    from apps.restaurant.models import Restaurant
+    from apps.kitchen.models import KDSDevice
+
+    foreign_restaurant = Restaurant.objects.create(name="Foreign Kitchen", slug="foreign-kitchen-order")
+    foreign_device = KDSDevice.objects.create(restaurant=foreign_restaurant, label="Foreign KDS")
+
+    from rest_framework.test import APIClient
+
+    foreign_client = APIClient()
+    foreign_client.credentials(HTTP_X_KDS_API_KEY=foreign_device.api_key)
+
+    response = foreign_client.patch(f"/v1/orders/{order.id}/status/", {"status": "accepted"}, format="json")
+    assert response.status_code == 404
+
+    order.refresh_from_db()
+    assert order.status == "NEW"
+
+
 def test_item_status_works_for_takeaway_order(cashier_with_branch, kds_client, menu_item, other_menu_item):
     _, cashier = cashier_with_branch
     _, kitchen = kds_client
