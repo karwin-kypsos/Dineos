@@ -6,9 +6,45 @@ pytestmark = pytest.mark.django_db
 
 
 def test_customer_menu_hides_zero_portion_items(api_client, table, menu_item):
+    # tracks_daily_portions (2026-09-05): hiding on zero remaining now only
+    # applies to items explicitly opted into daily portion tracking.
+    menu_item.tracks_daily_portions = True
+    menu_item.save(update_fields=["tracks_daily_portions"])
     portion = menu_item.prepared_portions.get()
     portion.portions_remaining = 0
     portion.save()
+
+    response = api_client.get(f"/v1/menu/customer/{table.id}/")
+    assert response.status_code == 200
+    ids = [item["id"] for item in response.data]
+    assert menu_item.id not in ids
+
+
+def test_untracked_item_with_zero_portions_still_shows(api_client, table, menu_item):
+    """New (2026-09-05): tracks_daily_portions defaults to False, so a
+    stray PreparedPortion row at zero (e.g. from before this field existed,
+    or just never explicitly opted in) no longer hides the item - only
+    items explicitly marked as tracked can be hidden this way."""
+    portion = menu_item.prepared_portions.get()
+    portion.portions_remaining = 0
+    portion.save()
+
+    response = api_client.get(f"/v1/menu/customer/{table.id}/")
+    assert response.status_code == 200
+    ids = [item["id"] for item in response.data]
+    assert menu_item.id in ids
+
+
+def test_tracked_item_with_no_prep_logged_today_is_hidden(api_client, table, menu_item):
+    """New (2026-09-05): this is the bug the field fixes - a tracked item
+    nobody has logged a prep count for yet today used to incorrectly show
+    as available (there was no PreparedPortion row to find "zero" in).
+    Now it's correctly hidden until today's count is logged."""
+    from django.utils import timezone
+
+    menu_item.tracks_daily_portions = True
+    menu_item.save(update_fields=["tracks_daily_portions"])
+    menu_item.prepared_portions.filter(date=timezone.localdate()).delete()
 
     response = api_client.get(f"/v1/menu/customer/{table.id}/")
     assert response.status_code == 200

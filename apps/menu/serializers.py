@@ -104,6 +104,7 @@ class MenuItemSerializer(ImageUploadMixin, serializers.ModelSerializer):
             "is_available",
             "is_active",
             "sort_order",
+            "tracks_daily_portions",
             "portions_remaining_today",
             "recipe_items",
             "recipe",
@@ -177,7 +178,7 @@ class MenuItemCustomerSerializer(serializers.ModelSerializer):
         model = MenuItem
         fields = [
             "id", "category", "category_name", "name", "description", "price", "image_url", "is_veg",
-            "is_available", "portions_remaining",
+            "is_available", "tracks_daily_portions", "portions_remaining",
         ]
 
     def get_portions_remaining(self, obj):

@@ -42,6 +42,14 @@ class MenuItem(models.Model):
     is_available = models.BooleanField(default=True)
     is_active = models.BooleanField(default=True)
     sort_order = models.PositiveIntegerField(default=0)
+    # 2026-09-05, per Karwin - previously "batch-wise vs unlimited" was
+    # never an explicit setting, only inferred from whether a PreparedPortion
+    # row happened to exist for today. That meant a batch-tracked dish with
+    # no prep count logged yet today showed as fully available (wrong), and
+    # there was no real way to tell "always available" apart from "just
+    # hasn't been prepped yet". This is a menu-design decision the
+    # restaurant makes once per dish, not something to infer from behavior.
+    tracks_daily_portions = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -70,15 +70,25 @@ def _apply_category_and_search(qs, request):
 
 
 def _available_today_queryset(restaurant, branch=None):
-    today_zero_ids = PreparedPortion.objects.filter(
-        date=timezone.localdate(), portions_remaining=0
-    ).values_list("menu_item_id", flat=True)
+    # tracks_daily_portions (2026-09-05, per Karwin): a batch-tracked item
+    # needs an existing PreparedPortion row for TODAY with stock left, or
+    # it's excluded - not just when it's explicitly hit zero. Before this
+    # field existed, a batch-tracked dish nobody had logged a prep count
+    # for yet today incorrectly showed as available (there was no row to
+    # find "zero" in). Items that don't track daily portions are never
+    # touched by this exclusion at all - the old "unlimited" behavior.
+    today = timezone.localdate()
+    unprepped_or_zero_tracked_ids = (
+        MenuItem.objects.filter(category__restaurant=restaurant, tracks_daily_portions=True)
+        .exclude(prepared_portions__date=today, prepared_portions__portions_remaining__gt=0)
+        .values_list("id", flat=True)
+    )
     qs = MenuItem.objects.filter(category__restaurant=restaurant, is_available=True, is_active=True)
     if branch is not None:
         # Branch-scoped categories only, plus any legacy restaurant-wide
         # (branch-less) categories that still apply to every branch.
         qs = qs.filter(dj_models.Q(category__branch=branch) | dj_models.Q(category__branch__isnull=True))
-    return qs.exclude(id__in=today_zero_ids)
+    return qs.exclude(id__in=unprepped_or_zero_tracked_ids)
 
 
 class CustomerMenuView(APIView):
