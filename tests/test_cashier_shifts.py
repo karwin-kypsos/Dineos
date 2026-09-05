@@ -212,10 +212,12 @@ def test_reconciliation_shows_discrepancy_after_mismatched_close(cashier_client,
 
 
 def test_shift_bills_lists_full_bill_detail_matching_reconciliation_totals(cashier_client, table, menu_item):
-    """New: GET /v1/cashier/shifts/{shift_id}/bills/ (2026-09-04, per Karwin -
-    the reconciliation endpoint only gives totals, not the individual bills
-    behind them). Uses the same cashier + opened_at/closed_at window as
-    shift_totals_by_method, so its bills always sum to the same total."""
+    """New: GET /v1/cashier/shifts/{shift_id}/bills/ (2026-09-04/05, per
+    Karwin's shift-detail mockup) - the full shift-detail screen in one call:
+    shift header, payment split (with a bill count per method), and the
+    individual bills. Uses the same cashier + opened_at/closed_at window as
+    shift_totals_by_method, so "shift"/"payment_split" always match
+    ShiftReconciliationView's totals exactly."""
     cashier_user, client = cashier_client
     shift = billing_services.open_shift(cashier_user)
 
@@ -228,11 +230,27 @@ def test_shift_bills_lists_full_bill_detail_matching_reconciliation_totals(cashi
     response = client.get(f"/v1/cashier/shifts/{shift.id}/bills/")
 
     assert response.status_code == 200
-    assert len(response.data) == 2
-    total = sum(Decimal(bill["total_amount"]) for bill in response.data)
-    assert total == _with_tax(menu_item.price) * 2
+    expected_each = _with_tax(menu_item.price)
+
+    assert response.data["shift"]["cashier_name"] == cashier_user.name
+    assert response.data["shift"]["status"] == "OPEN"
+    assert response.data["shift"]["tables_served"] == 2
+    assert Decimal(response.data["shift"]["total_collected"]) == expected_each * 2
+
+    split = response.data["payment_split"]
+    assert Decimal(split["cash"]["amount"]) == expected_each
+    assert split["cash"]["bill_count"] == 1
+    assert split["cash"]["percentage"] == 50.0
+    assert Decimal(split["card"]["amount"]) == expected_each
+    assert split["card"]["bill_count"] == 1
+    assert split["upi"]["bill_count"] == 0
+
+    bills = response.data["bills"]
+    assert len(bills) == 2
+    total = sum(Decimal(bill["total_amount"]) for bill in bills)
+    assert total == expected_each * 2
     # newest first
-    assert response.data[0]["paid_at"] >= response.data[1]["paid_at"]
+    assert bills[0]["paid_at"] >= bills[1]["paid_at"]
 
 
 def test_a_cashier_cannot_view_another_cashiers_shift_bills(cashier_client, restaurant):
@@ -259,7 +277,7 @@ def test_manager_can_view_any_cashiers_shift_bills(manager_client, cashier_clien
     response = manager.get(f"/v1/cashier/shifts/{shift.id}/bills/")
 
     assert response.status_code == 200
-    assert len(response.data) == 1
+    assert len(response.data["bills"]) == 1
 
 
 def test_manager_can_view_any_cashiers_reconciliation(manager_client, cashier_client, table, menu_item):

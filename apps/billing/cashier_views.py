@@ -60,22 +60,43 @@ class ShiftReconciliationView(APIView):
 
 
 class ShiftBillsView(APIView):
-    """List every bill's full detail for one specific shift - not just the
-    totals ShiftReconciliationView above already gives (2026-09-04, per
-    Karwin). Reuses _get_owned_shift's same cashier-can-only-see-their-own /
-    Manager-or-Admin-can-see-any-in-their-tenant rule, and _shift_bills'
-    same cashier + opened_at/closed_at time window shift_totals_by_method
-    already uses - so this always matches those totals exactly, including
-    a shift that runs past midnight."""
+    """The full Shift Detail screen in one call (2026-09-04/05, per Karwin's
+    mockup - header line, Payment Split card, Cash Reconciliation card, and
+    the individual bills, all for one shift). Reuses _get_owned_shift's same
+    cashier-can-only-see-their-own / Manager-or-Admin-can-see-any-in-their-
+    tenant rule, and shift_totals_by_method/_shift_bills' same cashier +
+    opened_at/closed_at time window - so "shift" and "payment_split" here
+    always match ShiftReconciliationView's totals exactly, including a
+    shift that runs past midnight."""
 
     permission_classes = [IsCashierOrManager, IsBillingEnabled]
 
     def get(self, request, shift_id):
         shift = _get_owned_shift(request, shift_id)
+        totals = services.shift_totals_by_method(shift)
         bills = services._shift_bills(shift).select_related(
             "session__table", "order", "processed_by"
         ).order_by("-paid_at")
-        return Response(BillSerializer(bills, many=True).data)
+        return Response({
+            "shift": {
+                "id": str(shift.id),
+                "cashier_name": totals["cashier_name"],
+                "status": totals["status"],
+                "opened_at": totals["opened_at"],
+                "closed_at": totals["closed_at"],
+                "tables_served": totals["tables_served"],
+                "total_collected": totals["total"],
+                "counted_cash": totals["counted_cash"],
+                "discrepancy_amount": totals["discrepancy_amount"],
+                "is_matched": totals["is_matched"],
+            },
+            "payment_split": {
+                "cash": {"amount": totals["cash"], "percentage": totals["cash_percentage"], "bill_count": totals["cash_count"]},
+                "card": {"amount": totals["card"], "percentage": totals["card_percentage"], "bill_count": totals["card_count"]},
+                "upi": {"amount": totals["upi"], "percentage": totals["upi_percentage"], "bill_count": totals["upi_count"]},
+            },
+            "bills": BillSerializer(bills, many=True).data,
+        })
 
 
 class CloseShiftView(APIView):

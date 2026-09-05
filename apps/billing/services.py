@@ -319,10 +319,12 @@ def shift_totals_by_method(shift):
     """
     bills = list(_shift_bills(shift))
     totals = {"cash": Decimal("0"), "card": Decimal("0"), "upi": Decimal("0")}
+    counts = {"cash": 0, "card": 0, "upi": 0}
     for bill in bills:
         key = _PAYMENT_METHOD_KEYS.get(bill.payment_method)
         if key:
             totals[key] += bill.total_amount
+            counts[key] += 1
     totals["total"] = totals["cash"] + totals["card"] + totals["upi"]
 
     def _pct(amount):
@@ -331,9 +333,15 @@ def shift_totals_by_method(shift):
     totals["cash_percentage"] = _pct(totals["cash"])
     totals["card_percentage"] = _pct(totals["card"])
     totals["upi_percentage"] = _pct(totals["upi"])
+    # *_count (2026-09-05, per Karwin's shift-detail mockup - Payment Split
+    # shows "Cash Rs1428 (100% - 2 bills)", one bill count per method).
+    totals["cash_count"] = counts["cash"]
+    totals["card_count"] = counts["card"]
+    totals["upi_count"] = counts["upi"]
     totals["tables_served"] = len(bills)
     totals["cashier_name"] = shift.cashier.name
     totals["status"] = shift.status
+    totals["opened_at"] = shift.opened_at
     is_closed = shift.status == CashierShift.Status.CLOSED
     totals["counted_cash"] = shift.counted_cash if is_closed else None
     totals["discrepancy_amount"] = shift.discrepancy_amount if is_closed else None
