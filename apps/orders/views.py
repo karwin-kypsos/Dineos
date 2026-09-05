@@ -427,7 +427,18 @@ class OrderCollectedView(APIView):
     permission_classes = [IsAnyStaff]
 
     def patch(self, request, order_id):
-        order = services.mark_collected(order_id)
+        # Tenant-scope the lookup first (same dual-Q pattern as
+        # OrderKitchenStatusView/OrderItemKitchenStatusView above) -
+        # mark_collected() fetches by bare id with no tenant check, so
+        # without this any staff member could mark another restaurant's
+        # order collected given its id.
+        order = get_object_or_404(
+            Order.objects.filter(
+                models.Q(table__restaurant=request.tenant) | models.Q(branch__restaurant=request.tenant)
+            ),
+            id=order_id,
+        )
+        order = services.mark_collected(order.id)
         return Response(OrderSerializer(order).data)
 
 
@@ -435,5 +446,11 @@ class OrderServedView(APIView):
     permission_classes = [IsAnyStaff]
 
     def patch(self, request, order_id):
-        order = services.mark_served(order_id)
+        order = get_object_or_404(
+            Order.objects.filter(
+                models.Q(table__restaurant=request.tenant) | models.Q(branch__restaurant=request.tenant)
+            ),
+            id=order_id,
+        )
+        order = services.mark_served(order.id)
         return Response(OrderSerializer(order).data)

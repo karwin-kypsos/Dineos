@@ -211,6 +211,57 @@ def test_reconciliation_shows_discrepancy_after_mismatched_close(cashier_client,
     assert response.data["is_matched"] is False
 
 
+def test_shift_bills_lists_full_bill_detail_matching_reconciliation_totals(cashier_client, table, menu_item):
+    """New: GET /v1/cashier/shifts/{shift_id}/bills/ (2026-09-04, per Karwin -
+    the reconciliation endpoint only gives totals, not the individual bills
+    behind them). Uses the same cashier + opened_at/closed_at window as
+    shift_totals_by_method, so its bills always sum to the same total."""
+    cashier_user, client = cashier_client
+    shift = billing_services.open_shift(cashier_user)
+
+    from apps.tables.models import Table
+
+    other_table = Table.objects.create(restaurant=table.restaurant, branch=table.branch, table_number="Bills1")
+    _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+    _pay(cashier_user, other_table, menu_item, quantity=1, method="CARD")
+
+    response = client.get(f"/v1/cashier/shifts/{shift.id}/bills/")
+
+    assert response.status_code == 200
+    assert len(response.data) == 2
+    total = sum(Decimal(bill["total_amount"]) for bill in response.data)
+    assert total == _with_tax(menu_item.price) * 2
+    # newest first
+    assert response.data[0]["paid_at"] >= response.data[1]["paid_at"]
+
+
+def test_a_cashier_cannot_view_another_cashiers_shift_bills(cashier_client, restaurant):
+    from django.contrib.auth import get_user_model
+
+    User = get_user_model()
+    other_cashier = User.objects.create_user(
+        email="other-cashier-bills@test.dineos", password="Test@1234", role="CASHIER", restaurant=restaurant
+    )
+    other_shift = billing_services.open_shift(other_cashier)
+
+    _, client = cashier_client
+    response = client.get(f"/v1/cashier/shifts/{other_shift.id}/bills/")
+
+    assert response.status_code == 403
+
+
+def test_manager_can_view_any_cashiers_shift_bills(manager_client, cashier_client, table, menu_item):
+    cashier_user, _ = cashier_client
+    shift = billing_services.open_shift(cashier_user)
+    _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+
+    _, manager = manager_client
+    response = manager.get(f"/v1/cashier/shifts/{shift.id}/bills/")
+
+    assert response.status_code == 200
+    assert len(response.data) == 1
+
+
 def test_manager_can_view_any_cashiers_reconciliation(manager_client, cashier_client, table, menu_item):
     cashier_user, cashier = cashier_client
     shift = billing_services.open_shift(cashier_user)

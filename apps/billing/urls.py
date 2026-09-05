@@ -7,6 +7,7 @@ from .cashier_views import (
     DailyCollectionsView,
     MySalesView,
     OpenShiftView,
+    ShiftBillsView,
     ShiftReconciliationView,
 )
 from .views import BillDetailView, BillListView, PayBillView, PayTakeawayBillView, SessionBillView, TakeawayBillView
@@ -24,6 +25,7 @@ cashier_urlpatterns = [
     path("shifts/open/", OpenShiftView.as_view(), name="cashier-shift-open"),
     path("shifts/current/", CurrentShiftView.as_view(), name="cashier-shift-current"),
     path("shifts/<uuid:shift_id>/reconciliation/", ShiftReconciliationView.as_view(), name="cashier-shift-reconciliation"),
+    path("shifts/<uuid:shift_id>/bills/", ShiftBillsView.as_view(), name="cashier-shift-bills"),
     path("shifts/<uuid:shift_id>/close/", CloseShiftView.as_view(), name="cashier-shift-close"),
     path("collections/daily/", DailyCollectionsView.as_view(), name="cashier-collections-daily"),
     path("collections/my-sales/", MySalesView.as_view(), name="cashier-collections-my-sales"),

@@ -176,8 +176,15 @@ class TableViewSet(viewsets.ReadOnlyModelViewSet):
     def override_status(self, request, pk=None):
         serializer = ManagerStatusOverrideSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        # get_object() first (same fix as OrderKitchenStatusView) -
+        # manager_override_status() fetches by bare id with no tenant check,
+        # so without this a Manager/Admin could override another
+        # restaurant's table given its id. get_queryset() already scopes to
+        # this tenant (and this Manager's own branch), so a 404 here is the
+        # correct outcome for a foreign table.
+        table_obj = self.get_object()
         table = services.manager_override_status(
-            pk,
+            table_obj.id,
             status=serializer.validated_data["status"],
             mark_unpaid=serializer.validated_data["mark_unpaid"],
             manager=request.user,

@@ -256,32 +256,40 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
+        # get_object() first (same fix as OrderKitchenStatusView /
+        # TableViewSet.override_status) - approve_purchase_order() fetches by
+        # bare id with no tenant check, so without this an Admin/Manager
+        # could approve another restaurant's purchase order given its id.
+        po_obj = self.get_object()
         try:
-            po = services.approve_purchase_order(pk, approved_by=request.user)
+            po = services.approve_purchase_order(po_obj.id, approved_by=request.user)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
         return Response(PurchaseOrderSerializer(po).data)
 
     @action(detail=True, methods=["post"])
     def reject(self, request, pk=None):
+        po_obj = self.get_object()
         try:
-            po = services.reject_purchase_order(pk, rejected_by=request.user)
+            po = services.reject_purchase_order(po_obj.id, rejected_by=request.user)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
         return Response(PurchaseOrderSerializer(po).data)
 
     @action(detail=True, methods=["post"], url_path="mark-ordered")
     def mark_ordered(self, request, pk=None):
+        po_obj = self.get_object()
         try:
-            po = services.mark_purchase_order_ordered(pk)
+            po = services.mark_purchase_order_ordered(po_obj.id)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
         return Response(PurchaseOrderSerializer(po).data)
 
     @action(detail=True, methods=["post"])
     def receive(self, request, pk=None):
+        po_obj = self.get_object()
         try:
-            po = services.receive_purchase_order(pk, recorded_by=request.user)
+            po = services.receive_purchase_order(po_obj.id, recorded_by=request.user)
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
         return Response(PurchaseOrderSerializer(po).data)

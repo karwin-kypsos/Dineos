@@ -10,6 +10,7 @@ from core.permissions import FeatureEnabledPermission, IsAdminOrManager, IsAnySt
 from . import services
 from .models import CashierShift
 from .serializers import (
+    BillSerializer,
     CashierCollectionSerializer,
     CashierDashboardSerializer,
     CashierShiftSerializer,
@@ -56,6 +57,25 @@ class ShiftReconciliationView(APIView):
         shift = _get_owned_shift(request, shift_id)
         totals = services.shift_totals_by_method(shift)
         return Response(ShiftReconciliationSerializer(totals).data)
+
+
+class ShiftBillsView(APIView):
+    """List every bill's full detail for one specific shift - not just the
+    totals ShiftReconciliationView above already gives (2026-09-04, per
+    Karwin). Reuses _get_owned_shift's same cashier-can-only-see-their-own /
+    Manager-or-Admin-can-see-any-in-their-tenant rule, and _shift_bills'
+    same cashier + opened_at/closed_at time window shift_totals_by_method
+    already uses - so this always matches those totals exactly, including
+    a shift that runs past midnight."""
+
+    permission_classes = [IsCashierOrManager, IsBillingEnabled]
+
+    def get(self, request, shift_id):
+        shift = _get_owned_shift(request, shift_id)
+        bills = services._shift_bills(shift).select_related(
+            "session__table", "order", "processed_by"
+        ).order_by("-paid_at")
+        return Response(BillSerializer(bills, many=True).data)
 
 
 class CloseShiftView(APIView):
