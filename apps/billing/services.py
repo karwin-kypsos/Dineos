@@ -345,6 +345,7 @@ def shift_totals_by_method(shift):
     is_closed = shift.status == CashierShift.Status.CLOSED
     totals["counted_cash"] = shift.counted_cash if is_closed else None
     totals["discrepancy_amount"] = shift.discrepancy_amount if is_closed else None
+    totals["discrepancy_reason"] = shift.discrepancy_reason if is_closed else ""
     totals["is_matched"] = (shift.discrepancy_amount == 0) if is_closed else None
     totals["closed_at"] = shift.closed_at
     return totals

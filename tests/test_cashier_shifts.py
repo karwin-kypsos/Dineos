@@ -236,6 +236,7 @@ def test_shift_bills_lists_full_bill_detail_matching_reconciliation_totals(cashi
     assert response.data["shift"]["status"] == "OPEN"
     assert response.data["shift"]["tables_served"] == 2
     assert Decimal(response.data["shift"]["total_collected"]) == expected_each * 2
+    assert response.data["shift"]["discrepancy_reason"] == ""
 
     split = response.data["payment_split"]
     assert Decimal(split["cash"]["amount"]) == expected_each
@@ -251,6 +252,22 @@ def test_shift_bills_lists_full_bill_detail_matching_reconciliation_totals(cashi
     assert total == expected_each * 2
     # newest first
     assert bills[0]["paid_at"] >= bills[1]["paid_at"]
+
+
+def test_shift_bills_includes_discrepancy_reason_after_mismatched_close(cashier_client, table, menu_item):
+    cashier_user, client = cashier_client
+    shift = billing_services.open_shift(cashier_user)
+    _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+    client.post(
+        f"/v1/cashier/shifts/{shift.id}/close/",
+        {"counted_cash": "1.00", "acknowledge_discrepancy": True, "discrepancy_reason": "Miscounted"},
+        format="json",
+    )
+
+    response = client.get(f"/v1/cashier/shifts/{shift.id}/bills/")
+
+    assert response.status_code == 200
+    assert response.data["shift"]["discrepancy_reason"] == "Miscounted"
 
 
 def test_a_cashier_cannot_view_another_cashiers_shift_bills(cashier_client, restaurant):

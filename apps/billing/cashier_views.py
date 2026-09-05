@@ -88,6 +88,7 @@ class ShiftBillsView(APIView):
                 "total_collected": totals["total"],
                 "counted_cash": totals["counted_cash"],
                 "discrepancy_amount": totals["discrepancy_amount"],
+                "discrepancy_reason": totals["discrepancy_reason"],
                 "is_matched": totals["is_matched"],
             },
             "payment_split": {
