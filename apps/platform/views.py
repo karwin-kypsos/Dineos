@@ -189,6 +189,20 @@ class TenantViewSet(viewsets.ModelViewSet):
 
         return qs
 
+    def list(self, request, *args, **kwargs):
+        # total_tenants/active_tenants/total_staff (2026-09-07, per Karwin -
+        # the Organizations screen's summary tiles were computed client-side
+        # from this same response and came out wrong; moving the numbers
+        # here removes any need for the frontend to derive them itself).
+        # Platform-wide, not scoped to whatever ?status=/?search= narrowed
+        # `results` to - same definitions DashboardView already uses, so
+        # these always agree with the Dashboard screen's own numbers.
+        response = super().list(request, *args, **kwargs)
+        response.data["total_tenants"] = Restaurant.objects.count()
+        response.data["active_tenants"] = Restaurant.objects.filter(is_active=True).count()
+        response.data["total_staff"] = User.objects.count()
+        return response
+
     def create(self, request, *args, **kwargs):
         # Platform-wide defaults (from .env) apply only when the Super Admin
         # doesn't explicitly set a rate for this specific tenant. A plan

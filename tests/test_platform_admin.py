@@ -88,6 +88,38 @@ class TestDashboard:
         names = {org["name"] for org in resp.data["organizations_needing_attention"]}
         assert names == {"Expired Trial Co"}
 
+    def test_tenants_list_includes_platform_wide_summary_counts(self, platform_admin_client):
+        """New (2026-09-07, per Karwin): total_tenants/active_tenants/
+        total_staff on GET /platform/tenants/ - same definitions
+        DashboardView already uses, so the two screens always agree, and
+        deliberately NOT scoped to whatever ?status=/?search= narrows
+        `results` to (these are the Organizations screen's summary tiles,
+        always platform-wide - the tiles used to compute this client-side
+        and came out wrong)."""
+        from apps.authentication.models import User as StaffUser
+
+        _, client = platform_admin_client
+        first_co = Restaurant.objects.create(name="Foo Kitchen", slug="foo-kitchen", is_active=True)
+        Restaurant.objects.create(name="Bar Bistro", slug="bar-bistro", is_active=False)
+        StaffUser.objects.create_user(email="staff1@foo-kitchen.demo", password="Test@1234", restaurant=first_co)
+        StaffUser.objects.create_user(email="staff2@foo-kitchen.demo", password="Test@1234", restaurant=first_co)
+
+        resp = client.get("/platform/tenants/")
+
+        assert resp.status_code == 200
+        assert resp.data["total_tenants"] == 2
+        assert resp.data["active_tenants"] == 1
+        assert resp.data["total_staff"] == 2
+        assert resp.data["count"] == 2  # unfiltered `results` count, unaffected
+
+        # Narrowing `results` with ?search= must not shrink the summary counts.
+        filtered = client.get("/platform/tenants/?search=Foo")
+        assert filtered.status_code == 200
+        assert filtered.data["total_tenants"] == 2
+        assert filtered.data["active_tenants"] == 1
+        assert filtered.data["total_staff"] == 2
+        assert filtered.data["count"] == 1  # `results` itself IS filtered
+
     def test_create_tenant_as_trial_sets_trial_ends_at(self, platform_admin_client):
         _, client = platform_admin_client
 
