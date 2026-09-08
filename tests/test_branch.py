@@ -26,6 +26,30 @@ def test_list_branches_includes_total_revenue_and_orders(admin_client, table, me
     assert Decimal(str(response.data["total_revenue"])) == expected_total
 
 
+def test_branch_list_includes_per_branch_today_revenue_and_orders(admin_client, branch, table, menu_item):
+    """2026-09-08, per Karwin - each branch object in GET /v1/branches/
+    now carries its own today_revenue/today_orders, separate from the
+    restaurant-wide total_revenue/total_orders on the response envelope."""
+    _, client = admin_client
+    table.branch = branch
+    table.save(update_fields=["branch"])
+    other_branch = Branch.objects.create(restaurant=branch.restaurant, name="Other Branch")
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    billing_services.pay_bill(session.id, "CASH", None)
+
+    response = client.get("/v1/branches/")
+
+    assert response.status_code == 200
+    by_id = {b["id"]: b for b in response.data["results"]}
+    expected_total = (menu_item.price * Decimal("1.05")).quantize(Decimal("0.01"))
+    assert by_id[str(branch.id)]["today_orders"] == 1
+    assert Decimal(str(by_id[str(branch.id)]["today_revenue"])) == expected_total
+    assert by_id[str(other_branch.id)]["today_orders"] == 0
+    assert Decimal(str(by_id[str(other_branch.id)]["today_revenue"])) == Decimal("0")
+
+
 def test_branches_totals_exclude_other_restaurants(admin_client, restaurant):
     _, client = admin_client
 

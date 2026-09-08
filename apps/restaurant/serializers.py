@@ -40,12 +40,43 @@ class BranchSerializer(ImageUploadMixin, serializers.ModelSerializer):
     manager_detail = BranchManagerSummarySerializer(source="manager", read_only=True)
     tables = serializers.SerializerMethodField()
     image = serializers.ImageField(write_only=True, required=False)
+    today_revenue = serializers.SerializerMethodField()
+    today_orders = serializers.SerializerMethodField()
 
     class Meta:
         model = Branch
         fields = ["id", "name", "slug", "address", "phone", "photo_url", "image", "manager", "manager_detail",
-                  "table_count", "is_active", "created_at", "tables"]
+                  "table_count", "is_active", "created_at", "tables", "today_revenue", "today_orders"]
         read_only_fields = ["id", "slug", "created_at"]
+
+    def _today_start(self):
+        from django.utils import timezone
+
+        return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def get_today_revenue(self, obj):
+        # 2026-09-08, per Karwin - per-branch counterpart to the
+        # restaurant-wide total_revenue/total_orders already on the list
+        # response (see BranchViewSet.list); same today_start/table-or-branch
+        # fallback convention as the Admin/Manager Dashboard.
+        from decimal import Decimal
+
+        from django.db.models import Q, Sum
+
+        from apps.billing.models import Bill
+
+        return Bill.objects.filter(
+            Q(session__table__branch=obj) | Q(order__branch=obj), paid_at__gte=self._today_start(),
+        ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
+
+    def get_today_orders(self, obj):
+        from django.db.models import Q
+
+        from apps.orders.models import Order
+
+        return Order.objects.filter(
+            Q(table__branch=obj) | Q(branch=obj), placed_at__gte=self._today_start(),
+        ).exclude(status="CANCELLED").count()
 
     def get_tables(self, obj):
         # Only on retrieve/create/update, not list — generating a QR PNG per
