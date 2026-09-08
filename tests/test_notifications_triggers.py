@@ -188,6 +188,74 @@ def test_dine_in_order_ready_notifies_server_not_cashier(
     assert not Notification.objects.filter(recipient=cashier_user, type="ORDER_READY").exists()
 
 
+def test_order_ready_does_not_cross_branch_leak_to_other_branch_server(
+    django_capture_on_commit_callbacks, restaurant
+):
+    """Regression (2026-09-08, Shereena): a Branch A order going READY was
+    also notifying Branch B's server - notify_role() resolved table/order
+    into a branch for the Notification row's own metadata, but never
+    actually used it to filter WHO got notified."""
+    from apps.authentication.models import User
+    from apps.menu.models import Category, MenuItem
+    from apps.orders import services as order_services
+    from apps.restaurant.models import Branch
+    from apps.tables import services as table_services
+    from apps.tables.models import Table
+
+    branch_a = Branch.objects.create(restaurant=restaurant, name="Branch A")
+    branch_b = Branch.objects.create(restaurant=restaurant, name="Branch B")
+    server_a = User.objects.create_user(
+        email="server-a@test.dineos", password="Test@1234", role="SERVER", restaurant=restaurant, branch=branch_a,
+    )
+    server_b = User.objects.create_user(
+        email="server-b@test.dineos", password="Test@1234", role="SERVER", restaurant=restaurant, branch=branch_b,
+    )
+    category = Category.objects.create(restaurant=restaurant, name="Branch A Mains", branch=branch_a, sort_order=1)
+    item = MenuItem.objects.create(category=category, name="Branch A Dish", price="100.00")
+    table_a = Table.objects.create(restaurant=restaurant, branch=branch_a, table_number="A1", capacity=4)
+
+    session, _ = table_services.get_or_create_active_session(table_a.id)
+    order = order_services.place_order(session.id, [{"menu_item_id": item.id, "quantity": 1}])
+    order_services.advance_kitchen_status(order.id, "ACCEPTED")
+    order_services.advance_kitchen_status(order.id, "PREPARING")
+    with django_capture_on_commit_callbacks(execute=True):
+        order_services.advance_kitchen_status(order.id, "READY")
+
+    assert Notification.objects.filter(recipient=server_a, type="ORDER_READY").exists()
+    assert not Notification.objects.filter(recipient=server_b, type="ORDER_READY").exists()
+
+
+def test_low_stock_notifies_own_branch_manager_and_admin_but_not_other_branch_manager(
+    admin_client, restaurant
+):
+    """Same regression as above, for LOW_STOCK -> ADMIN + MANAGER. Admin has
+    no fixed branch and is meant to see every branch's alerts."""
+    from apps.authentication.models import User
+    from apps.inventory import services as inventory_services
+    from apps.inventory.models import Ingredient
+    from apps.restaurant.models import Branch
+
+    admin_user, _ = admin_client
+    branch_a = Branch.objects.create(restaurant=restaurant, name="Branch A")
+    branch_b = Branch.objects.create(restaurant=restaurant, name="Branch B")
+    manager_a = User.objects.create_user(
+        email="manager-a@test.dineos", password="Test@1234", role="MANAGER", restaurant=restaurant, branch=branch_a,
+    )
+    manager_b = User.objects.create_user(
+        email="manager-b@test.dineos", password="Test@1234", role="MANAGER", restaurant=restaurant, branch=branch_b,
+    )
+    ingredient = Ingredient.objects.create(
+        restaurant=restaurant, branch=branch_a, name="Branch A Onions", unit="KG",
+        current_stock=Decimal("10.00"), minimum_stock_level=Decimal("5.00"),
+    )
+
+    inventory_services.record_wastage(ingredient.id, Decimal("6.00"), wastage_reason="SPOILED")
+
+    assert Notification.objects.filter(recipient=manager_a, type="LOW_STOCK").exists()
+    assert not Notification.objects.filter(recipient=manager_b, type="LOW_STOCK").exists()
+    assert Notification.objects.filter(recipient=admin_user, type="LOW_STOCK").exists()
+
+
 def test_takeaway_order_ready_notifies_cashier_not_server(
     django_capture_on_commit_callbacks, cashier_client, server_client, menu_item, branch
 ):

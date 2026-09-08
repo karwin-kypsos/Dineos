@@ -245,6 +245,55 @@ class StaffViewSet(viewsets.ModelViewSet):
         user.save(update_fields=["is_active"])
         return Response(UserSerializer(user).data)
 
+    @action(detail=True, methods=["post"], url_path="regenerate-temp-password")
+    def regenerate_temp_password(self, request, pk=None):
+        """"Recreate Temporary Password" (2026-09-08, per Shereena) - covers
+        the Admin forgetting to hand over a new hire's credentials, or the
+        original temp password getting lost before first login. Only valid
+        while the staff member is still ON that original temp password
+        (must_change_password=True, set at account creation and only ever
+        cleared by the staff member successfully changing it themselves -
+        see ChangePasswordView/ResetPasswordView). Once they've done that,
+        this is correctly a 409: their real password is theirs alone now,
+        an Admin has no legitimate reason to reset it silently, and any
+        genuine "I forgot my password" case afterward goes through the
+        existing ForgotPasswordView/email-reset flow instead, same as any
+        other user.
+        """
+        user = self.get_object()
+        if not user.must_change_password:
+            return Response(
+                {
+                    "detail": (
+                        "This staff member has already set their own password. "
+                        "Use the forgot-password flow instead of regenerating a temp password."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        temp_password = secrets.token_urlsafe(9)
+        user.set_password(temp_password)
+        user.must_change_password = True
+        user.save(update_fields=["password", "must_change_password"])
+
+        from core.email import send_notification_email
+
+        send_notification_email(
+            subject="Your DineOS staff account - new temporary password",
+            body=(
+                f"Hi {user.name or 'there'},\n\n"
+                f"Your temporary password has been reset. Log in with:\n\n"
+                f"Email: {user.email}\nTemporary password: {temp_password}\n\n"
+                f"You'll be asked to set your own password the first time you log in."
+            ),
+            to_email=user.email,
+        )
+
+        data = UserSerializer(user).data
+        data["temp_password"] = temp_password
+        return Response(data)
+
     @action(detail=True, methods=["patch"], url_path="assign-branch")
     def assign_branch(self, request, pk=None):
         """Assign or change which branch this staff member belongs to (pass

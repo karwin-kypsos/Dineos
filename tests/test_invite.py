@@ -38,6 +38,64 @@ def test_creating_staff_without_password_generates_temp_password(admin_client):
     assert not PasswordResetToken.objects.filter(user=user).exists()
 
 
+def test_regenerate_temp_password_issues_a_new_one_while_still_pending(admin_client):
+    """New (2026-09-08, per Shereena) - "Recreate Temporary Password":
+    covers the Admin forgetting to hand over a new hire's credentials, or
+    the original temp password getting lost before first login."""
+    _, client = admin_client
+    create = client.post(
+        "/v1/staff/", {"email": "forgot-creds@test.dineos", "role": "SERVER", "name": "Forgot Creds"}, format="json",
+    )
+    old_temp_password = create.data["temp_password"]
+    user_id = create.data["id"]
+
+    response = client.post(f"/v1/staff/{user_id}/regenerate-temp-password/")
+
+    assert response.status_code == 200, response.data
+    new_temp_password = response.data["temp_password"]
+    assert new_temp_password != old_temp_password
+    assert response.data["must_change_password"] is True
+
+    # Old temp password no longer works, new one does, still forcing a change.
+    old_login = APIClient().post(
+        "/v1/auth/login/", {"email": "forgot-creds@test.dineos", "password": old_temp_password}, format="json",
+    )
+    assert old_login.status_code == 401
+
+    new_login = APIClient().post(
+        "/v1/auth/login/", {"email": "forgot-creds@test.dineos", "password": new_temp_password}, format="json",
+    )
+    assert new_login.status_code == 200, new_login.data
+    assert new_login.data["must_change_password"] is True
+
+
+def test_regenerate_temp_password_rejected_once_staff_has_set_their_own(admin_client):
+    _, client = admin_client
+    create = client.post(
+        "/v1/staff/", {"email": "already-changed@test.dineos", "role": "SERVER", "name": "Already Changed"},
+        format="json",
+    )
+    temp_password = create.data["temp_password"]
+    user_id = create.data["id"]
+
+    api_client = APIClient()
+    login = api_client.post(
+        "/v1/auth/login/", {"email": "already-changed@test.dineos", "password": temp_password}, format="json",
+    )
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['access']}")
+    api_client.patch(
+        "/v1/auth/change-password/",
+        {"current_password": temp_password, "new_password": "MyOwnRealPass1"},
+        format="json",
+    )
+
+    response = client.post(f"/v1/staff/{user_id}/regenerate-temp-password/")
+
+    assert response.status_code == 409, response.data
+    user = User.objects.get(email="already-changed@test.dineos")
+    assert user.check_password("MyOwnRealPass1")  # untouched by the rejected attempt
+
+
 def test_creating_staff_with_password_skips_invite(admin_client):
     _, client = admin_client
 

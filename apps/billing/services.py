@@ -234,6 +234,11 @@ def _notify_takeaway_payment_confirmed(bill, order, restaurant):
         type="PAYMENT_CONFIRMED",
         title=f"Payment received — takeaway for {order.customer_name or 'walk-in'}",
         body=f"Bill total: {bill.total_amount}",
+        # order (not table - takeaway has none) is what lets notify_role
+        # resolve which branch this is for and scope Manager recipients to
+        # it - previously missing here entirely, so every Manager
+        # restaurant-wide got every branch's takeaway payment.
+        order=order,
     )
 
 
