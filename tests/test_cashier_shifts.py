@@ -236,6 +236,7 @@ def test_shift_bills_lists_full_bill_detail_matching_reconciliation_totals(cashi
     assert response.data["shift"]["status"] == "OPEN"
     assert response.data["shift"]["tables_served"] == 2
     assert Decimal(response.data["shift"]["total_collected"]) == expected_each * 2
+    assert Decimal(response.data["shift"]["expected_cash"]) == expected_each
     assert response.data["shift"]["discrepancy_reason"] == ""
 
     split = response.data["payment_split"]
@@ -268,6 +269,14 @@ def test_shift_bills_includes_discrepancy_reason_after_mismatched_close(cashier_
 
     assert response.status_code == 200
     assert response.data["shift"]["discrepancy_reason"] == "Miscounted"
+    # expected_cash (2026-09-08, per Karwin) is the system's cash-method
+    # total regardless of what was actually counted - stays put even when
+    # counted_cash/discrepancy_amount show a mismatch, since it's the
+    # "what should be in the drawer" figure being reconciled against.
+    expected_each = _with_tax(menu_item.price)
+    assert Decimal(response.data["shift"]["expected_cash"]) == expected_each
+    assert Decimal(response.data["shift"]["counted_cash"]) == Decimal("1.00")
+    assert Decimal(response.data["shift"]["discrepancy_amount"]) == Decimal("1.00") - expected_each
 
 
 def test_a_cashier_cannot_view_another_cashiers_shift_bills(cashier_client, restaurant):

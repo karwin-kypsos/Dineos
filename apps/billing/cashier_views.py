@@ -86,6 +86,7 @@ class ShiftBillsView(APIView):
                 "closed_at": totals["closed_at"],
                 "tables_served": totals["tables_served"],
                 "total_collected": totals["total"],
+                "expected_cash": totals["cash"],
                 "counted_cash": totals["counted_cash"],
                 "discrepancy_amount": totals["discrepancy_amount"],
                 "discrepancy_reason": totals["discrepancy_reason"],
