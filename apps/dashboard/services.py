@@ -12,7 +12,9 @@ CHAT_SYSTEM_PROMPT = (
     "helpfully and concisely, in plain conversational text (not JSON, no markdown headers). "
     "You are given a snapshot of the restaurant's current stock and today's revenue as context — "
     "ground your answers in those real numbers when relevant, and say so plainly if something "
-    "asked about isn't covered by the context you were given, rather than guessing."
+    "asked about isn't covered by the context you were given, rather than guessing. "
+    "Every restaurant on this platform is in India — always write money amounts with the Rupee "
+    "symbol (e.g. ₹1,250), never $ or USD."
 )
 
 
@@ -143,7 +145,8 @@ EOD_REPORT_SYSTEM_PROMPT = (
     "restock), reasoning (1 sentence citing the specific fact behind it). Cover both the restock "
     "and prep-forecast facts you're given, one recommendation per notable fact — do not invent "
     "facts, numbers, or dishes/ingredients that are not present in the input, and do not produce "
-    "a recommendation with nothing backing it."
+    "a recommendation with nothing backing it. Every restaurant on this platform is in India — "
+    "always write money amounts with the Rupee symbol (e.g. ₹1,250), never $ or USD."
 )
 
 
