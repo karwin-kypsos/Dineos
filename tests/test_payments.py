@@ -290,6 +290,27 @@ def test_customer_create_order_succeeds_with_no_auth(api_client, table, menu_ite
     assert attempt.restaurant_id == restaurant.id
 
 
+def test_customer_payment_status_reflects_unpaid_then_paid(api_client, cashier_client, table, menu_item):
+    """The customer app's actual confirmation-polling target — unlike
+    GET /v1/tables/{id}/session/, this must NOT 404 once the session
+    closes; it needs to positively report paid=true with the Bill."""
+    cashier_user, staff_client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+
+    before = api_client.get(f"/v1/payments/razorpay/customer/status/{session.id}/")
+    assert before.status_code == 200
+    assert before.data["paid"] is False
+    assert before.data["bill"] is None
+
+    staff_client.post("/v1/bills/payment/", {"session_id": str(session.id), "payment_method": "CASH"}, format="json")
+
+    after = api_client.get(f"/v1/payments/razorpay/customer/status/{session.id}/")
+    assert after.status_code == 200
+    assert after.data["paid"] is True
+    assert after.data["bill"]["payment_method"] == "CASH"
+
+
 def test_customer_create_order_404s_for_unknown_session(api_client, settings):
     settings.RAZORPAY_KEY_ID = "rzp_test_fake"
     settings.RAZORPAY_KEY_SECRET = "fake_secret"

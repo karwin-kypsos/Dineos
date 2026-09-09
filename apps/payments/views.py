@@ -235,6 +235,30 @@ class CreateCustomerRazorpayOrderView(APIView):
         )
 
 
+class CustomerPaymentStatusView(APIView):
+    """No-auth 'has this session been paid yet' check (2026-09-09) — the
+    customer app's confirmation-polling target while waiting on the
+    webhook. Not the same as GET /v1/tables/{table_id}/session/: that
+    endpoint only ever looks up sessions still in ACTIVE/BILL_REQUESTED
+    status, so it 404s the moment a session closes (paid or not) and can't
+    actually confirm payment success. This mirrors
+    apps.billing.views.SessionBillView's Bill.objects.filter(session_id=...)
+    lookup exactly, just without the staff-auth requirement — same trust
+    model as every other customer-facing endpoint (the session_id is the
+    access token), scoped to read-only status, nothing mutates here.
+    """
+
+    permission_classes = [AllowAny]
+
+    def get(self, request, session_id):
+        bill = Bill.objects.filter(session_id=session_id).first()
+        if bill is None:
+            return Response({"paid": False, "bill": None})
+        from apps.billing.serializers import BillSerializer
+
+        return Response({"paid": True, "bill": BillSerializer(bill).data})
+
+
 class RazorpayWebhookView(APIView):
     """Receives Razorpay's payment.captured (Checkout/Orders) and
     qr_code.credited (2026-09-09, per Shereena's 'Pay by QR' — a distinct
