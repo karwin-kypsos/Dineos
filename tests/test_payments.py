@@ -12,10 +12,20 @@ from apps.tables import services as table_services
 pytestmark = pytest.mark.django_db
 
 
-def _webhook_payload(razorpay_order_id):
+def _webhook_payload(razorpay_order_id, method=None):
+    entity = {"order_id": razorpay_order_id, "status": "captured"}
+    if method:
+        entity["method"] = method
+    return json.dumps({"event": "payment.captured", "payload": {"payment": {"entity": entity}}})
+
+
+def _qr_webhook_payload(razorpay_qr_code_id, method="upi"):
     return json.dumps({
-        "event": "payment.captured",
-        "payload": {"payment": {"entity": {"order_id": razorpay_order_id, "status": "captured"}}},
+        "event": "qr_code.credited",
+        "payload": {
+            "qr_code": {"entity": {"id": razorpay_qr_code_id}},
+            "payment": {"entity": {"method": method, "status": "captured"}},
+        },
     })
 
 
@@ -229,3 +239,198 @@ def test_existing_cash_payment_flow_is_completely_unaffected(cashier_client, tab
     assert response.status_code == 201
     assert response.data["payment_method"] == "CASH"
     assert PaymentAttempt.objects.count() == 0
+
+
+def test_webhook_uses_razorpays_reported_method_over_the_preselection(cashier_client, table, menu_item, restaurant):
+    """Correctness fix (2026-09-09): Checkout can let the payer switch
+    methods after a pre-selection, so the webhook's own reported method
+    must win - the PaymentAttempt here is pre-set to UPI but the webhook
+    reports the customer actually paid by card, and the resulting Bill
+    must end up CARD, not UPI."""
+    cashier_user, client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    PaymentAttempt.objects.create(
+        session_id=session.id, restaurant=restaurant, razorpay_order_id="order_fake123",
+        payment_method="UPI", amount=Decimal("231.00"), initiated_by=cashier_user,
+    )
+
+    with patch("apps.payments.views.verify_webhook_signature", return_value=None):
+        response = client.post(
+            "/v1/payments/razorpay/webhook/", data=_webhook_payload("order_fake123", method="card"),
+            content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="sig",
+        )
+
+    assert response.status_code == 200, response.data
+    bill = Bill.objects.get(session=session)
+    assert bill.payment_method == "CARD"
+
+
+# ---- Customer self-checkout (Phase 2, no auth at all) ----
+
+def test_customer_create_order_succeeds_with_no_auth(api_client, table, menu_item, restaurant, settings):
+    settings.RAZORPAY_KEY_ID = "rzp_test_fake"
+    settings.RAZORPAY_KEY_SECRET = "fake_secret"
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+
+    with patch("apps.payments.views.create_order", return_value={"id": "order_customer123"}) as mock_create:
+        response = api_client.post(
+            "/v1/payments/razorpay/customer/create-order/", {"session_id": str(session.id)}, format="json",
+        )
+
+    assert response.status_code == 201, response.data
+    assert response.data["razorpay_order_id"] == "order_customer123"
+    mock_create.assert_called_once()
+    assert mock_create.call_args.kwargs["linked_account_id"] is None
+
+    attempt = PaymentAttempt.objects.get()
+    assert attempt.session_id == session.id
+    assert attempt.initiated_by is None
+    assert attempt.restaurant_id == restaurant.id
+
+
+def test_customer_create_order_404s_for_unknown_session(api_client, settings):
+    settings.RAZORPAY_KEY_ID = "rzp_test_fake"
+    settings.RAZORPAY_KEY_SECRET = "fake_secret"
+    import uuid
+
+    response = api_client.post(
+        "/v1/payments/razorpay/customer/create-order/", {"session_id": str(uuid.uuid4())}, format="json",
+    )
+
+    assert response.status_code == 404
+    assert PaymentAttempt.objects.count() == 0
+
+
+def test_customer_create_order_rejects_already_paid_bill(api_client, cashier_client, table, menu_item):
+    cashier_user, staff_client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    staff_client.post("/v1/bills/payment/", {"session_id": str(session.id), "payment_method": "CASH"}, format="json")
+
+    response = api_client.post(
+        "/v1/payments/razorpay/customer/create-order/", {"session_id": str(session.id)}, format="json",
+    )
+
+    assert response.status_code == 409
+    assert PaymentAttempt.objects.count() == 0
+
+
+def test_customer_initiated_webhook_confirms_payment_with_no_processed_by(
+    api_client, table, menu_item, restaurant, settings,
+):
+    """A customer self-checkout PaymentAttempt has initiated_by=None - the
+    webhook -> pay_bill path must handle that cleanly (Bill.processed_by
+    stays null, no crash), same as PaymentAttempt.initiated_by already
+    being nullable for exactly this reason."""
+    settings.RAZORPAY_KEY_ID = "rzp_test_fake"
+    settings.RAZORPAY_KEY_SECRET = "fake_secret"
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+
+    with patch("apps.payments.views.create_order", return_value={"id": "order_customer456"}):
+        api_client.post(
+            "/v1/payments/razorpay/customer/create-order/", {"session_id": str(session.id)}, format="json",
+        )
+
+    with patch("apps.payments.views.verify_webhook_signature", return_value=None):
+        response = api_client.post(
+            "/v1/payments/razorpay/webhook/", data=_webhook_payload("order_customer456", method="upi"),
+            content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="sig",
+        )
+
+    assert response.status_code == 200, response.data
+    bill = Bill.objects.get(session=session)
+    assert bill.payment_method == "UPI"
+    assert bill.processed_by is None
+
+
+# ---- "Pay by QR" (2026-09-09, per Shereena) ----
+
+def test_create_qr_code_succeeds(cashier_client, table, menu_item, restaurant, settings):
+    settings.RAZORPAY_KEY_ID = "rzp_test_fake"
+    settings.RAZORPAY_KEY_SECRET = "fake_secret"
+    cashier_user, client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+
+    with patch(
+        "apps.payments.views.create_qr_code",
+        return_value={"id": "qr_fake123", "image_url": "https://rzp.io/i/fake123"},
+    ) as mock_create:
+        response = client.post(
+            "/v1/payments/razorpay/qr-code/", {"session_id": str(session.id)}, format="json",
+        )
+
+    assert response.status_code == 201, response.data
+    assert response.data["razorpay_qr_code_id"] == "qr_fake123"
+    assert response.data["image_url"] == "https://rzp.io/i/fake123"
+    mock_create.assert_called_once()
+
+    attempt = PaymentAttempt.objects.get()
+    assert attempt.razorpay_qr_code_id == "qr_fake123"
+    assert attempt.razorpay_order_id is None
+    assert attempt.payment_method == "UPI"
+
+
+def test_create_qr_code_rejects_already_paid_bill(cashier_client, table, menu_item, settings):
+    settings.RAZORPAY_KEY_ID = "rzp_test_fake"
+    settings.RAZORPAY_KEY_SECRET = "fake_secret"
+    cashier_user, client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    client.post("/v1/bills/payment/", {"session_id": str(session.id), "payment_method": "CASH"}, format="json")
+
+    response = client.post("/v1/payments/razorpay/qr-code/", {"session_id": str(session.id)}, format="json")
+
+    assert response.status_code == 409
+    assert PaymentAttempt.objects.count() == 0
+
+
+def test_qr_code_webhook_confirms_payment_and_is_idempotent(cashier_client, table, menu_item, restaurant):
+    cashier_user, client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    attempt = PaymentAttempt.objects.create(
+        session_id=session.id, restaurant=restaurant, razorpay_qr_code_id="qr_fake123",
+        payment_method="UPI", amount=Decimal("231.00"), initiated_by=cashier_user,
+    )
+
+    with patch("apps.payments.views.verify_webhook_signature", return_value=None):
+        response = client.post(
+            "/v1/payments/razorpay/webhook/", data=_qr_webhook_payload("qr_fake123"),
+            content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="sig",
+        )
+
+    assert response.status_code == 200, response.data
+    bill = Bill.objects.get(session=session)
+    assert bill.payment_method == "UPI"
+    attempt.refresh_from_db()
+    assert attempt.status == PaymentAttempt.Status.PAID
+
+    with patch("apps.payments.views.verify_webhook_signature", return_value=None):
+        replay = client.post(
+            "/v1/payments/razorpay/webhook/", data=_qr_webhook_payload("qr_fake123"),
+            content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="sig",
+        )
+    assert replay.status_code == 200
+    assert Bill.objects.filter(session=session).count() == 1
+
+
+def test_razorpay_client_qr_code_payload_shape(settings):
+    """Unit-level proof (no mocking of the SDK's HTTP layer, only the
+    Client class itself) that create_qr_code sends the exact fixed-amount,
+    single-use payload Razorpay's QR Codes API requires."""
+    settings.RAZORPAY_KEY_ID = "rzp_test_fake"
+    settings.RAZORPAY_KEY_SECRET = "fake_secret"
+    from core.razorpay_client import create_qr_code
+
+    with patch("razorpay.Client") as MockClient:
+        MockClient.return_value.qrcode.create.return_value = {"id": "qr_x", "image_url": "https://rzp.io/i/x"}
+        create_qr_code(Decimal("150.00"), name="Table 5 bill")
+        payload = MockClient.return_value.qrcode.create.call_args[0][0]
+        assert payload == {
+            "type": "upi_qr", "name": "Table 5 bill", "usage": "single_use",
+            "fixed_amount": True, "payment_amount": 15000,
+        }

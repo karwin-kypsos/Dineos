@@ -42,6 +42,36 @@ def create_order(amount_rupees, receipt, linked_account_id=None):
         raise RazorpayUnavailableError(f"Razorpay order creation failed: {e}") from e
 
 
+def create_qr_code(amount_rupees, name):
+    """A standalone, single-use, fixed-amount UPI QR Code (2026-09-09, per
+    Shereena) — a distinct Razorpay product from Orders/Checkout: the app
+    renders this QR image itself for a separate "Pay by QR" button, instead
+    of opening the Checkout widget. fixed_amount + single_use means
+    Razorpay only accepts a payment matching this exact amount and auto-
+    closes the QR after one successful payment, so it can't be reused for
+    a different bill. Does not support Route fund-splitting the way
+    create_order does — not a gap specific to this function, Route isn't
+    enabled on this platform's account yet regardless (see create_order)."""
+    if not (settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET):
+        raise RazorpayUnavailableError("Razorpay is not configured on this platform yet.")
+
+    import razorpay
+
+    client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+    amount_paise = int(amount_rupees * 100)
+    try:
+        return client.qrcode.create({
+            "type": "upi_qr",
+            "name": name,
+            "usage": "single_use",
+            "fixed_amount": True,
+            "payment_amount": amount_paise,
+        })
+    except Exception as e:
+        logger.exception("Razorpay QR code creation failed")
+        raise RazorpayUnavailableError(f"Razorpay QR code creation failed: {e}") from e
+
+
 def verify_webhook_signature(body, signature):
     """Raises RazorpayUnavailableError if the signature doesn't match — the
     webhook view turns this into a 400 rather than trusting an unverified

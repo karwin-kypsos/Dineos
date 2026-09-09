@@ -5,14 +5,19 @@ from django.db import models
 
 
 class PaymentAttempt(models.Model):
-    """One Razorpay Order per cashier-initiated CARD/UPI payment attempt.
-    Mirrors apps.billing.models.Bill's session-xor-order shape (dine-in vs
-    takeaway) but is deliberately a separate model, not a Bill field —
-    a Bill only ever exists once payment is CONFIRMED (via the webhook
-    calling the existing apps.billing.services.pay_bill/pay_takeaway_bill),
-    so a customer who abandons checkout mid-payment leaves no Bill behind,
-    same as today's behavior when a cashier never gets around to clicking
-    Pay.
+    """One Razorpay payment attempt — either a Checkout Order (Card/UPI
+    picked inside Razorpay's own widget) or a QR Code (2026-09-09, per
+    Shereena — a distinct Razorpay product from Orders: a standalone,
+    single-use, fixed-amount UPI QR the app renders itself, for a separate
+    "Pay by QR" button rather than opening Checkout). Exactly one of
+    razorpay_order_id/razorpay_qr_code_id is set, mirroring the existing
+    session-xor-order shape below. Mirrors apps.billing.models.Bill's
+    session-xor-order shape (dine-in vs takeaway) but is deliberately a
+    separate model, not a Bill field — a Bill only ever exists once payment
+    is CONFIRMED (via the webhook calling the existing
+    apps.billing.services.pay_bill/pay_takeaway_bill), so a customer who
+    abandons checkout mid-payment leaves no Bill behind, same as today's
+    behavior when a cashier never gets around to clicking Pay.
     """
 
     class Status(models.TextChoices):
@@ -32,7 +37,8 @@ class PaymentAttempt(models.Model):
         "orders.Order", on_delete=models.CASCADE, null=True, blank=True, related_name="payment_attempts"
     )
     restaurant = models.ForeignKey("restaurant.Restaurant", on_delete=models.CASCADE, related_name="payment_attempts")
-    razorpay_order_id = models.CharField(max_length=64, unique=True)
+    razorpay_order_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    razorpay_qr_code_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
     payment_method = models.CharField(max_length=8, choices=PaymentMethod.choices)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.CREATED)
@@ -53,7 +59,14 @@ class PaymentAttempt(models.Model):
                 ),
                 name="payment_attempt_has_exactly_one_of_session_or_order",
             ),
+            models.CheckConstraint(
+                check=(
+                    models.Q(razorpay_order_id__isnull=False, razorpay_qr_code_id__isnull=True)
+                    | models.Q(razorpay_order_id__isnull=True, razorpay_qr_code_id__isnull=False)
+                ),
+                name="payment_attempt_has_exactly_one_of_order_or_qr_code",
+            ),
         ]
 
     def __str__(self):
-        return f"PaymentAttempt {self.id} — {self.razorpay_order_id} ({self.status})"
+        return f"PaymentAttempt {self.id} — {self.razorpay_order_id or self.razorpay_qr_code_id} ({self.status})"

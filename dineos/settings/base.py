@@ -148,6 +148,15 @@ REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",
     ],
+    # No blanket throttling anywhere in this codebase — every other AllowAny
+    # endpoint (menu, ordering, bill-request) is intentionally unthrottled.
+    # This one scope is opt-in only, set via throttle_classes/throttle_scope
+    # on apps.payments.views.CreateCustomerRazorpayOrderView alone, since an
+    # unauthenticated endpoint that calls a billed third-party API deserves
+    # a basic abuse guard the others don't need.
+    "DEFAULT_THROTTLE_RATES": {
+        "razorpay_customer_order": "5/min",
+    },
 }
 
 # ---------------------------------------------------------------------------
