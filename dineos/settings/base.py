@@ -117,7 +117,20 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalisation
 # ---------------------------------------------------------------------------
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "UTC"
+# 2026-09-09, per Shereena's bug report - every restaurant on this platform
+# is in India, but TIME_ZONE was UTC, so timezone.localdate() (used
+# everywhere "today" is scoped: Daily Prep Log's PreparedPortion rows,
+# Admin/Manager Dashboard "today" metrics, Cashier shift day boundaries, AI
+# EOD reports, notification default-to-today filtering) stayed on the
+# PREVIOUS calendar day for the first 5.5 hours of every real India day
+# (00:00-05:30 IST is still the previous day in UTC) - e.g. a batch of
+# prepared portions added "yesterday" would still show as "today's" stock
+# if checked early the next morning IST, exactly what was reported. USE_TZ
+# stays True - datetimes are still stored UTC-aware in the DB, this only
+# changes what counts as "today" for local day-boundary logic across the
+# whole app, which is the actually-correct behavior for an India-only
+# platform.
+TIME_ZONE = "Asia/Kolkata"
 USE_I18N = True
 USE_TZ = True
 
