@@ -19,23 +19,76 @@ def _webhook_payload(razorpay_order_id):
     })
 
 
-def test_create_order_fails_cleanly_when_restaurant_not_onboarded(cashier_client, table, menu_item):
+def test_create_order_falls_back_to_shared_account_when_restaurant_not_linked(
+    cashier_client, table, menu_item, restaurant, settings,
+):
     """restaurant.razorpay_account_id is blank by default (2026-09-09) -
-    Razorpay collection is off for every restaurant until they explicitly
-    link an account, so this must fail with a clear message, not a crash,
-    and must not create a PaymentAttempt row."""
+    which is every restaurant right now, since this platform's Razorpay
+    account doesn't have Route enabled yet ("Route feature not enabled
+    for the merchant", confirmed live against Razorpay's real API). Rather
+    than block payment collection entirely until Route gets approved, a
+    blank linked account falls back to a plain order with no transfers -
+    still fully functional, just settling to the platform's own account
+    for now. Routing kicks in automatically the moment an account is
+    linked, no code change needed."""
+    settings.RAZORPAY_KEY_ID = "rzp_test_fake"
+    settings.RAZORPAY_KEY_SECRET = "fake_secret"
     cashier_user, client = cashier_client
     session, _ = table_services.get_or_create_active_session(table.id)
     order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
 
-    response = client.post(
-        "/v1/payments/razorpay/create-order/",
-        {"session_id": str(session.id), "payment_method": "UPI"}, format="json",
-    )
+    with patch("apps.payments.views.create_order", return_value={"id": "order_fake123"}) as mock_create:
+        response = client.post(
+            "/v1/payments/razorpay/create-order/",
+            {"session_id": str(session.id), "payment_method": "UPI"}, format="json",
+        )
 
-    assert response.status_code == 400
-    assert "not set up for this restaurant" in response.data["detail"]
-    assert PaymentAttempt.objects.count() == 0
+    assert response.status_code == 201, response.data
+    mock_create.assert_called_once()
+    assert mock_create.call_args.kwargs["linked_account_id"] is None
+
+
+def test_create_order_routes_to_linked_account_when_restaurant_has_one(
+    cashier_client, table, menu_item, restaurant, settings,
+):
+    settings.RAZORPAY_KEY_ID = "rzp_test_fake"
+    settings.RAZORPAY_KEY_SECRET = "fake_secret"
+    restaurant.razorpay_account_id = "acc_fake123"
+    restaurant.save(update_fields=["razorpay_account_id"])
+    cashier_user, client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+
+    with patch("apps.payments.views.create_order", return_value={"id": "order_fake123"}) as mock_create:
+        response = client.post(
+            "/v1/payments/razorpay/create-order/",
+            {"session_id": str(session.id), "payment_method": "UPI"}, format="json",
+        )
+
+    assert response.status_code == 201, response.data
+    mock_create.assert_called_once()
+    assert mock_create.call_args.kwargs["linked_account_id"] == "acc_fake123"
+
+
+def test_razorpay_client_omits_transfers_when_no_linked_account(settings):
+    """Unit-level proof (no mocking of the SDK itself) that a blank
+    linked_account_id produces a plain order payload with no "transfers"
+    key, matching what Razorpay's real API actually accepts without Route."""
+    settings.RAZORPAY_KEY_ID = "rzp_test_fake"
+    settings.RAZORPAY_KEY_SECRET = "fake_secret"
+    from core.razorpay_client import create_order
+
+    with patch("razorpay.Client") as MockClient:
+        MockClient.return_value.order.create.return_value = {"id": "order_x"}
+        create_order(Decimal("100.00"), receipt="r1", linked_account_id=None)
+        payload = MockClient.return_value.order.create.call_args[0][0]
+        assert "transfers" not in payload
+
+    with patch("razorpay.Client") as MockClient:
+        MockClient.return_value.order.create.return_value = {"id": "order_y"}
+        create_order(Decimal("100.00"), receipt="r1", linked_account_id="acc_fake123")
+        payload = MockClient.return_value.order.create.call_args[0][0]
+        assert payload["transfers"] == [{"account": "acc_fake123", "amount": 10000, "currency": "INR"}]
 
 
 def test_create_order_fails_cleanly_when_platform_not_configured(cashier_client, table, menu_item, restaurant):

@@ -24,14 +24,21 @@ IsBillingEnabled = FeatureEnabledPermission("billing_enabled")
 
 
 class CreateRazorpayOrderView(APIView):
-    """Cashier's 'Pay via Razorpay' action — creates a Razorpay Order routed
-    to this restaurant's own linked account (Restaurant.razorpay_account_id)
-    and a matching PaymentAttempt row, but does NOT create a Bill yet: that
-    only happens once RazorpayWebhookView confirms the payment actually
-    went through, same as a cashier never getting a Bill for a payment they
+    """Cashier's 'Pay via Razorpay' action — creates a Razorpay Order and a
+    matching PaymentAttempt row, but does NOT create a Bill yet: that only
+    happens once RazorpayWebhookView confirms the payment actually went
+    through, same as a cashier never getting a Bill for a payment they
     never actually collected. The existing manual CASH/CARD/UPI path
     (apps.billing.views.PayBillView/PayTakeawayBillView) is completely
     separate from this and untouched by it.
+
+    Fund routing (2026-09-09): if this restaurant has linked a Razorpay
+    account (Restaurant.razorpay_account_id, via Razorpay Route), the order
+    routes straight to their own account. If not — which is every
+    restaurant right now, since this platform's Razorpay account doesn't
+    have Route enabled yet — the order is created plainly and settles to
+    the platform's own account instead, so payment collection still works
+    end to end today. See core.razorpay_client.create_order.
     """
 
     permission_classes = [IsAnyStaff, IsBillingEnabled]
@@ -61,14 +68,11 @@ class CreateRazorpayOrderView(APIView):
             preview = billing_services.get_takeaway_bill_preview(order_id)
             attempt_kwargs = {"order_id": order_id}
 
-        if not request.tenant.razorpay_account_id:
-            return Response({"detail": "Razorpay is not set up for this restaurant yet."}, status=400)
-
         amount = preview["total_amount"]
         try:
             razorpay_order = create_order(
                 amount, receipt=str(attempt_kwargs.get("session_id") or attempt_kwargs.get("order_id")),
-                linked_account_id=request.tenant.razorpay_account_id,
+                linked_account_id=request.tenant.razorpay_account_id or None,
             )
         except RazorpayUnavailableError as e:
             return Response({"detail": str(e)}, status=502)
