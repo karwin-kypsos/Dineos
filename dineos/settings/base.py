@@ -49,6 +49,7 @@ LOCAL_APPS = [
     "apps.dashboard",
     "apps.feedback",
     "apps.websockets",
+    "apps.payments",
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -277,6 +278,21 @@ COMMON_VERIFICATION_CODE = env("COMMON_VERIFICATION_CODE", default="123456")
 RESEND_API_KEY = env("RESEND_API_KEY", default="")
 DEFAULT_FROM_EMAIL = env("DEFAULT_FROM_EMAIL", default="DineOS <onboarding@resend.dev>")
 TEST_EMAIL_OVERRIDE = env("TEST_EMAIL_OVERRIDE", default="")
+
+# ---------------------------------------------------------------------------
+# Razorpay (apps.payments / core.razorpay_client) — cashier-initiated CARD/UPI
+# collection via Razorpay Route, so each restaurant's payments settle to that
+# restaurant's own linked Razorpay account rather than one shared pool (see
+# Restaurant.razorpay_account_id). All three blank (the default) means the
+# platform itself hasn't been onboarded to Razorpay yet — apps.payments'
+# endpoints then fail cleanly with a clear message rather than crashing, and
+# every existing CASH/manually-tendered CARD/UPI flow through
+# apps.billing.views.PayBillView/PayTakeawayBillView is completely unaffected
+# either way, since this integration never modifies those.
+# ---------------------------------------------------------------------------
+RAZORPAY_KEY_ID = env("RAZORPAY_KEY_ID", default="")
+RAZORPAY_KEY_SECRET = env("RAZORPAY_KEY_SECRET", default="")
+RAZORPAY_WEBHOOK_SECRET = env("RAZORPAY_WEBHOOK_SECRET", default="")
 
 # ---------------------------------------------------------------------------
 # Logging — send everything to stdout so Render captures it

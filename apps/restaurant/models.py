@@ -56,6 +56,14 @@ class Restaurant(models.Model):
     billing_enabled = models.BooleanField(default=True)
     realtime_enabled = models.BooleanField(default=True)
 
+    # Razorpay Route linked account id (2026-09-09) — this restaurant's own
+    # Razorpay sub-account, set once they've completed Razorpay's own hosted
+    # onboarding/KYC outside this app. Blank means "not onboarded to
+    # Razorpay yet", which apps.payments treats as Razorpay collection being
+    # off for this restaurant — the existing manual CASH/CARD/UPI flow in
+    # apps.billing is unaffected either way.
+    razorpay_account_id = models.CharField(max_length=64, blank=True, default="")
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

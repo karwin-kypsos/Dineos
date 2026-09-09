@@ -32,5 +32,6 @@ urlpatterns = [
     path("v1/billing/", include(billing_dashboard_urlpatterns)),
     path("v1/notifications/", include("apps.notifications.urls")),
     path("v1/feedback/", include("apps.feedback.urls")),
+    path("v1/payments/", include("apps.payments.urls")),
     path("platform/", include("apps.platform.urls")),
 ]
