@@ -301,3 +301,100 @@ def test_cleanup_notifications_command_purges_only_past_the_cutoff(admin_client)
     assert not Notification.objects.filter(id=old.id).exists()
     assert Notification.objects.filter(id=recent.id).exists()
     assert "Deleted 1 notification" in out.getvalue()
+
+
+def test_purchase_order_raised_notifies_admin(django_capture_on_commit_callbacks, manager_client, admin_client, restaurant):
+    manager_user, _ = manager_client
+    admin_user, _ = admin_client
+    ingredient = Ingredient.objects.create(
+        restaurant=restaurant, name="Rice", unit="KG",
+        current_stock=Decimal("2.00"), minimum_stock_level=Decimal("5.00"),
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.create_purchase_order(
+            restaurant=restaurant, branch=None,
+            lines=[{"ingredient": ingredient, "quantity_ordered": Decimal("10.00")}],
+            requested_by=manager_user,
+        )
+
+    assert Notification.objects.filter(recipient=admin_user, type="PURCHASE_ORDER_RAISED").exists()
+
+
+def test_emergency_purchase_order_does_not_notify_admin(django_capture_on_commit_callbacks, manager_client, admin_client, restaurant):
+    """Emergency POs auto-receive immediately (nothing left for Admin to
+    approve/reject), so this should NOT fire the same PURCHASE_ORDER_RAISED
+    notification a normal PO does."""
+    manager_user, _ = manager_client
+    admin_user, _ = admin_client
+    ingredient = Ingredient.objects.create(
+        restaurant=restaurant, name="Salt", unit="KG",
+        current_stock=Decimal("2.00"), minimum_stock_level=Decimal("5.00"),
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.create_purchase_order(
+            restaurant=restaurant, branch=None,
+            lines=[{"ingredient": ingredient, "quantity_ordered": Decimal("10.00")}],
+            requested_by=manager_user, is_emergency=True,
+        )
+
+    assert not Notification.objects.filter(recipient=admin_user, type="PURCHASE_ORDER_RAISED").exists()
+
+
+def test_purchase_order_approved_notifies_requesting_manager(django_capture_on_commit_callbacks, manager_client, admin_client, restaurant):
+    manager_user, _ = manager_client
+    admin_user, _ = admin_client
+    ingredient = Ingredient.objects.create(
+        restaurant=restaurant, name="Flour", unit="KG",
+        current_stock=Decimal("2.00"), minimum_stock_level=Decimal("5.00"),
+    )
+    po = inventory_services.create_purchase_order(
+        restaurant=restaurant, branch=None,
+        lines=[{"ingredient": ingredient, "quantity_ordered": Decimal("10.00")}],
+        requested_by=manager_user,
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.approve_purchase_order(po.id, approved_by=admin_user)
+
+    assert Notification.objects.filter(recipient=manager_user, type="PURCHASE_ORDER_APPROVED").exists()
+
+
+def test_purchase_order_rejected_notifies_requesting_manager(django_capture_on_commit_callbacks, manager_client, admin_client, restaurant):
+    manager_user, _ = manager_client
+    admin_user, _ = admin_client
+    ingredient = Ingredient.objects.create(
+        restaurant=restaurant, name="Sugar", unit="KG",
+        current_stock=Decimal("2.00"), minimum_stock_level=Decimal("5.00"),
+    )
+    po = inventory_services.create_purchase_order(
+        restaurant=restaurant, branch=None,
+        lines=[{"ingredient": ingredient, "quantity_ordered": Decimal("10.00")}],
+        requested_by=manager_user,
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.reject_purchase_order(po.id, rejected_by=admin_user)
+
+    assert Notification.objects.filter(recipient=manager_user, type="PURCHASE_ORDER_REJECTED").exists()
+
+
+def test_purchase_order_marked_ordered_notifies_admin(django_capture_on_commit_callbacks, manager_client, admin_client, restaurant):
+    manager_user, _ = manager_client
+    admin_user, _ = admin_client
+    ingredient = Ingredient.objects.create(
+        restaurant=restaurant, name="Oil", unit="L",
+        current_stock=Decimal("2.00"), minimum_stock_level=Decimal("5.00"),
+    )
+    po = inventory_services.create_purchase_order(
+        restaurant=restaurant, branch=None,
+        lines=[{"ingredient": ingredient, "quantity_ordered": Decimal("10.00")}],
+        requested_by=manager_user,
+    )
+    inventory_services.approve_purchase_order(po.id, approved_by=admin_user)
+
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.mark_purchase_order_ordered(po.id)
+
+    assert Notification.objects.filter(recipient=admin_user, type="PURCHASE_ORDER_ORDERED").exists()

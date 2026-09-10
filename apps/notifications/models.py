@@ -10,6 +10,13 @@ class Notification(models.Model):
         LOW_STOCK = "LOW_STOCK", "Low Stock"
         STAFF_ADDED = "STAFF_ADDED", "Staff Added"
         PREP_LOGGED = "PREP_LOGGED", "Prep Logged"
+        # 2026-09-10, per Shereena - the Purchase Order approval workflow
+        # (Manager raises -> Admin approves/rejects -> Manager orders) had no
+        # notifications at all on either side of it.
+        PURCHASE_ORDER_RAISED = "PURCHASE_ORDER_RAISED", "Purchase Order Raised"
+        PURCHASE_ORDER_APPROVED = "PURCHASE_ORDER_APPROVED", "Purchase Order Approved"
+        PURCHASE_ORDER_REJECTED = "PURCHASE_ORDER_REJECTED", "Purchase Order Rejected"
+        PURCHASE_ORDER_ORDERED = "PURCHASE_ORDER_ORDERED", "Purchase Order Ordered"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications")
     branch = models.ForeignKey(

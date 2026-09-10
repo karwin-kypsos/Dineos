@@ -113,8 +113,38 @@ def create_purchase_order(
             line.save(update_fields=["quantity_received"])
         po.status = PurchaseOrder.Status.RECEIVED
         po.save(update_fields=["status"])
+    else:
+        # 2026-09-10, per Shereena - Admin needs to know a Manager raised a
+        # PO that needs approval. Skipped for emergency POs above since
+        # those are already RECEIVED by the time this runs - nothing left
+        # for Admin to approve/reject.
+        _notify_purchase_order_raised(po)
 
     return po
+
+
+def _notify_purchase_order_raised(po):
+    transaction.on_commit(lambda: notify_role(
+        ["ADMIN"], tenant=po.restaurant, type="PURCHASE_ORDER_RAISED",
+        title=f"Purchase order raised — {po.supplier_name or 'no supplier set'}",
+        body=f"Requested by {po.requested_by.name if po.requested_by else 'a manager'}.",
+        data={"purchase_order_id": str(po.id)}, branch=po.branch,
+    ))
+
+
+def _notify_purchase_order_requester(po, type, title, body):
+    # 2026-09-10, per Shereena - the Manager who raised it should hear back
+    # once Admin acts on it. Targets that one specific requester directly
+    # (notify(), not notify_role()) - this is about their own PO, not
+    # something every Manager at the branch needs to see.
+    if po.requested_by is None:
+        return
+    from apps.notifications.services import notify
+
+    transaction.on_commit(lambda: notify(
+        po.requested_by, type=type, title=title, body=body,
+        data={"purchase_order_id": str(po.id)}, branch=po.branch,
+    ))
 
 
 @transaction.atomic
@@ -128,6 +158,10 @@ def approve_purchase_order(po_id, approved_by):
     po.approved_by = approved_by
     po.approved_at = timezone.now()
     po.save(update_fields=["status", "approved_by", "approved_at"])
+    _notify_purchase_order_requester(
+        po, "PURCHASE_ORDER_APPROVED", "Purchase order approved",
+        f"Your purchase order ({po.supplier_name or 'no supplier set'}) was approved.",
+    )
     return po
 
 
@@ -142,6 +176,10 @@ def reject_purchase_order(po_id, rejected_by):
     po.approved_by = rejected_by
     po.approved_at = timezone.now()
     po.save(update_fields=["status", "approved_by", "approved_at"])
+    _notify_purchase_order_requester(
+        po, "PURCHASE_ORDER_REJECTED", "Purchase order rejected",
+        f"Your purchase order ({po.supplier_name or 'no supplier set'}) was rejected.",
+    )
     return po
 
 
@@ -152,6 +190,15 @@ def mark_purchase_order_ordered(po_id):
         raise ValueError(f"Cannot mark a purchase order in {po.status} status as ordered.")
     po.status = PurchaseOrder.Status.ORDERED
     po.save(update_fields=["status"])
+    # 2026-09-10, per Shereena - Admin should also see when a Manager has
+    # actually placed the order with the supplier, not just when it's
+    # raised/approved.
+    transaction.on_commit(lambda: notify_role(
+        ["ADMIN"], tenant=po.restaurant, type="PURCHASE_ORDER_ORDERED",
+        title=f"Purchase order marked as ordered — {po.supplier_name or 'no supplier set'}",
+        body="The approved order has been placed with the supplier.",
+        data={"purchase_order_id": str(po.id)}, branch=po.branch,
+    ))
     return po
 
 
