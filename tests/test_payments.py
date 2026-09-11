@@ -203,6 +203,34 @@ def test_webhook_confirms_payment_creates_bill_and_is_idempotent(cashier_client,
     assert Bill.objects.filter(session=session).count() == 1
 
 
+def test_webhook_noslash_url_is_accepted_without_a_redirect(cashier_client, table, menu_item, restaurant):
+    """2026-09-11: confirmed live in production that Razorpay's webhook
+    dispatcher POSTs to the URL exactly as saved in their dashboard, and if
+    that's missing the trailing slash, Django's APPEND_SLASH 301-redirects it
+    - which most webhook clients (Razorpay's included) follow by re-sending
+    as GET, silently dropping the signed payload. This left every real
+    payment confirmed on Razorpay's side stuck as PENDING on ours, no matter
+    how many times it was retried. The no-slash path in urls.py must resolve
+    directly, with no redirect, regardless of what's saved on Razorpay's end.
+    """
+    cashier_user, client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    PaymentAttempt.objects.create(
+        session_id=session.id, restaurant=restaurant, razorpay_order_id="order_fake123",
+        payment_method="UPI", amount=Decimal("231.00"), initiated_by=cashier_user,
+    )
+
+    with patch("apps.payments.views.verify_webhook_signature", return_value=None):
+        response = client.post(
+            "/v1/payments/razorpay/webhook", data=_webhook_payload("order_fake123"),
+            content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="sig",
+        )
+
+    assert response.status_code == 200, response.data
+    assert Bill.objects.filter(session=session).exists()
+
+
 def test_webhook_rejects_invalid_signature(cashier_client, table, menu_item, restaurant):
     cashier_user, client = cashier_client
     session, _ = table_services.get_or_create_active_session(table.id)
