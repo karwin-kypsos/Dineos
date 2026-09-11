@@ -360,7 +360,9 @@ def cashier_dashboard(restaurant, cashier):
     """'Cashier Home' — awaiting/occupied/paid-today counts and lists, plus
     today's collected total for the calling cashier's current shift.
     """
-    today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    # 2026-09-11 fix: localtime() first, so replace(hour=0) zeroes the
+    # local (IST) hour instead of the UTC one — see BranchSerializer.
+    today_start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
 
     awaiting_sessions = (
         TableSession.objects.filter(table__restaurant=restaurant, status=TableSession.Status.BILL_REQUESTED)

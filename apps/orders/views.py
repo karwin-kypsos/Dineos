@@ -357,7 +357,9 @@ class OrdersByTableView(APIView):
     def get(self, request, table_id):
         from django.utils import timezone
 
-        today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        # 2026-09-11 fix: localtime() first, so replace(hour=0) zeroes the
+        # local (IST) hour instead of the UTC one — see BranchSerializer.
+        today_start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
         orders = Order.objects.filter(
             table_id=table_id, table__restaurant=request.tenant, placed_at__gte=today_start
         ).select_related("table").prefetch_related("items")

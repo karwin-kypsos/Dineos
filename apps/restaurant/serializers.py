@@ -52,7 +52,13 @@ class BranchSerializer(ImageUploadMixin, serializers.ModelSerializer):
     def _today_start(self):
         from django.utils import timezone
 
-        return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        # 2026-09-11 fix: timezone.now() is always UTC-aware even with
+        # TIME_ZONE=Asia/Kolkata (only localdate()/localtime() apply it) —
+        # .replace(hour=0, ...) on the raw UTC value gave midnight UTC
+        # (5:30am IST), silently excluding anything placed 00:00-05:29 IST
+        # from "today". localtime() converts to the local wall-clock time
+        # first, so replace() actually zeroes the local hour.
+        return timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
 
     def get_today_revenue(self, obj):
         # 2026-09-08, per Karwin - per-branch counterpart to the

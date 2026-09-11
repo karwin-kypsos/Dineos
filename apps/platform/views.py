@@ -509,12 +509,17 @@ class DashboardView(APIView):
             total_staff,
             User.objects.filter(created_at__lte=seven_days_ago).count(),
         )
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        # 2026-09-11 fix: `now` is UTC-aware even with TIME_ZONE=Asia/Kolkata
+        # — replace(hour=0, ...) on it zeroed the UTC hour (5:30am IST), not
+        # local midnight. localtime() converts first so these boundaries
+        # line up with the IST day every restaurant on this platform uses.
+        local_now = timezone.localtime(now)
+        month_start = local_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         monthly_revenue = Bill.objects.filter(paid_at__gte=month_start).aggregate(total=Sum("total_amount"))[
             "total"
         ] or Decimal("0")
 
-        week_start = (now - timezone.timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = (local_now - timezone.timedelta(days=6)).replace(hour=0, minute=0, second=0, microsecond=0)
         signups_by_day = {
             row["day"]: row["count"]
             for row in Restaurant.objects.filter(created_at__gte=week_start)

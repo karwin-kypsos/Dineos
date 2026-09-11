@@ -50,7 +50,9 @@ class AdminDashboardView(APIView):
         restaurant = request.tenant
         branch_id = request.query_params.get("branch") or request.user.branch_id
 
-        today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        # 2026-09-11 fix: localtime() first, so replace(hour=0) zeroes the
+        # local (IST) hour instead of the UTC one — see BranchSerializer.
+        today_start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
 
         # An order/bill is scoped to this restaurant either via its table
         # (dine-in — always set, regardless of whether that table has a
@@ -168,7 +170,9 @@ class ManagerDashboardView(APIView):
             return Response({"detail": "Your account isn't assigned to a branch."}, status=status.HTTP_400_BAD_REQUEST)
 
         restaurant = request.tenant
-        today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        # 2026-09-11 fix: localtime() first, so replace(hour=0) zeroes the
+        # local (IST) hour instead of the UTC one — see BranchSerializer.
+        today_start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
 
         orders_today = Order.objects.filter(
             Q(table__branch=branch) | Q(branch=branch), placed_at__gte=today_start,
