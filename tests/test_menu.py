@@ -98,20 +98,25 @@ def test_customer_categories_excludes_inactive(api_client, table, restaurant):
 
 
 def test_customer_categories_branch_scoping(api_client, restaurant, branch, menu_item):
+    """2026-09-14, per Shereena's re-test across every role: a branch must
+    see ONLY its own explicitly-assigned categories - no more branch-less
+    "legacy" fallback, which was letting other branches' data (and
+    unassigned menu content) leak through."""
     from apps.menu.models import Category
     from apps.restaurant.models import Branch
     from apps.tables.models import Table
 
     other_branch = Branch.objects.create(restaurant=restaurant, name="Other Branch")
     Category.objects.create(restaurant=restaurant, branch=other_branch, name="Other Branch Only", sort_order=1)
+    own_category = Category.objects.create(restaurant=restaurant, branch=branch, name="Own Category", sort_order=2)
 
     branch_table = Table.objects.create(restaurant=restaurant, branch=branch, table_number="B1")
     response = api_client.get(f"/v1/menu/categories/customer/{branch_table.id}/")
 
     assert response.status_code == 200
     names = {c["name"] for c in response.data}
-    assert "Other Branch Only" not in names
-    assert menu_item.category.name in names  # branch-less legacy category still shows everywhere
+    assert names == {own_category.name}
+    assert menu_item.category.name not in names  # branch-less category no longer shows anywhere
 
 
 def test_customer_categories_table_not_found(api_client):

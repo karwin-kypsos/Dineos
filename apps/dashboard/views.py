@@ -198,11 +198,13 @@ class ManagerDashboardView(APIView):
         needs_restocking.sort(key=lambda row: 0 if row["stock_status"] == "critical" else 1)
 
         today = timezone.localdate()
+        # 2026-09-14 fix, per Karwin/Shereena: dropped the branch-less-is-
+        # shared fallback - see apps.menu.views.MenuItemViewSet's identical
+        # fix. A Manager's Prep Log widget should never surface another
+        # branch's dish.
         portions_today = PreparedPortion.objects.filter(
-            date=today, menu_item__category__restaurant=restaurant,
-        ).select_related("menu_item").filter(
-            Q(menu_item__category__branch=branch) | Q(menu_item__category__branch__isnull=True)
-        )
+            date=today, menu_item__category__branch=branch,
+        ).select_related("menu_item")
         prepared_dishes_needing_attention = [
             {
                 "menu_item_id": portion.menu_item_id,

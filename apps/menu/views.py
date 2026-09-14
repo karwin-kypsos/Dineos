@@ -94,9 +94,13 @@ def _available_today_queryset(restaurant, branch=None):
     )
     qs = MenuItem.objects.filter(category__restaurant=restaurant, is_available=True, is_active=True)
     if branch is not None:
-        # Branch-scoped categories only, plus any legacy restaurant-wide
-        # (branch-less) categories that still apply to every branch.
-        qs = qs.filter(dj_models.Q(category__branch=branch) | dj_models.Q(category__branch__isnull=True))
+        # 2026-09-14 fix, per Shereena's explicit report and re-test across
+        # every role: the "legacy" branch-less-category-is-shared-
+        # everywhere fallback was the actual cause of items from OTHER
+        # branches leaking through even with an explicit ?branch= passed.
+        # Strict now - a branch only ever sees categories/items explicitly
+        # assigned to it.
+        qs = qs.filter(category__branch=branch)
     return qs.exclude(id__in=unprepped_or_zero_tracked_ids)
 
 
@@ -128,8 +132,10 @@ class CustomerCategoriesView(APIView):
             return Response({"detail": "Table not found."}, status=status.HTTP_404_NOT_FOUND)
         branch = get_branch_from_table(table_id)
         categories = Category.objects.filter(restaurant=restaurant, is_active=True)
+        # 2026-09-14 fix: no more branch-less-is-shared fallback - see
+        # MenuItemViewSet.get_queryset's identical fix above.
         if branch is not None:
-            categories = categories.filter(dj_models.Q(branch=branch) | dj_models.Q(branch__isnull=True))
+            categories = categories.filter(branch=branch)
         return Response(CategoryCustomerSerializer(categories, many=True).data)
 
 
@@ -173,8 +179,14 @@ class MenuItemViewSet(ImageUploadErrorHandlingMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         qs = MenuItem.objects.filter(category__restaurant=self.request.tenant).select_related("category")
         branch = _effective_branch(self.request)
+        # 2026-09-14 fix, per Shereena's explicit report and re-test across
+        # every role: the "legacy" branch-less-category-is-shared-
+        # everywhere fallback was the actual cause of items from OTHER
+        # branches leaking through even with an explicit ?branch= passed.
+        # Strict now - a branch only ever sees categories/items explicitly
+        # assigned to it.
         if branch is not None:
-            qs = qs.filter(dj_models.Q(category__branch=branch) | dj_models.Q(category__branch__isnull=True))
+            qs = qs.filter(category__branch=branch)
         return _apply_category_and_search(qs, self.request)
 
     def get_permissions(self):
@@ -224,8 +236,10 @@ class CategoryViewSet(ImageUploadErrorHandlingMixin, viewsets.ModelViewSet):
     def get_queryset(self):
         qs = Category.objects.filter(restaurant=self.request.tenant)
         branch = _effective_branch(self.request)
+        # 2026-09-14 fix: no more branch-less-is-shared fallback - see
+        # MenuItemViewSet.get_queryset's identical fix above.
         if branch is not None:
-            qs = qs.filter(dj_models.Q(branch=branch) | dj_models.Q(branch__isnull=True))
+            qs = qs.filter(branch=branch)
         return qs
 
     def get_permissions(self):
@@ -261,20 +275,16 @@ class PreparedDishesTodayView(APIView):
         portions = PreparedPortion.objects.filter(
             date=timezone.localdate(), menu_item__category__restaurant=request.tenant
         ).select_related("menu_item")
-        # 2026-09-14 fix, per Karwin: this had NO branch scoping at all - a
-        # Manager/Server/Cashier's Daily Prep Log showed every branch's
-        # prepared dishes, not just their own. Same Q(branch=X) |
-        # Q(branch__isnull=True) convention as MenuItemViewSet/
-        # CategoryViewSet elsewhere in this file - a shared (no-branch)
-        # item still shows for whichever branch is asking, but a branch's
-        # own items never leak to a different branch. No filtering (full
-        # restaurant view) only when _effective_branch resolves to None -
-        # an Admin who hasn't picked one via ?branch= or the switcher.
+        # 2026-09-14 fix, per Karwin/Shereena: this had NO branch scoping at
+        # all - a Manager/Server/Cashier's Daily Prep Log showed every
+        # branch's prepared dishes, not just their own. Strict branch match
+        # (no branch-less-is-shared fallback - see MenuItemViewSet). No
+        # filtering (full restaurant view) only when _effective_branch
+        # resolves to None - an Admin who hasn't picked one via ?branch= or
+        # the switcher.
         branch = _effective_branch(request)
         if branch is not None:
-            portions = portions.filter(
-                dj_models.Q(menu_item__category__branch=branch) | dj_models.Q(menu_item__category__branch__isnull=True)
-            )
+            portions = portions.filter(menu_item__category__branch=branch)
         return Response(PreparedPortionSerializer(portions, many=True).data)
 
 
