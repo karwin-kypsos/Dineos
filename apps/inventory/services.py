@@ -16,14 +16,21 @@ class InsufficientStockError(Exception):
 
 
 def _notify_if_newly_low_stock(ingredient, was_low_stock):
-    """Fires once, right when stock crosses into low/critical territory —
-    not on every subsequent wastage/usage entry while it stays low, so
-    Admin/Manager aren't spammed with the same alert repeatedly."""
-    if was_low_stock or not ingredient.is_low_stock:
+    """Fires once, right when stock crosses into LOW territory — not on
+    every subsequent wastage/usage entry while it stays low, so
+    Admin/Manager aren't spammed with the same alert repeatedly.
+
+    2026-09-14, per Karwin: deliberately does NOT fire for `critical`
+    (stock at or below zero) — only `low` (below the reorder point but
+    still some on hand). Note this means a single large deduction that
+    takes an ingredient straight from healthy to zero skips the alert
+    entirely, since it never passes through `low`.
+    """
+    if was_low_stock or ingredient.stock_status != "low":
         return
     notify_role(
         ["ADMIN", "MANAGER"], tenant=ingredient.restaurant, type="LOW_STOCK",
-        title=f"Low stock: {ingredient.name} ({ingredient.stock_status.capitalize()})",
+        title=f"Low stock: {ingredient.name}",
         body=f"{ingredient.current_stock} {ingredient.unit} remaining (minimum {ingredient.minimum_stock_level}).",
         data={"ingredient_id": str(ingredient.id)}, branch=ingredient.branch,
     )

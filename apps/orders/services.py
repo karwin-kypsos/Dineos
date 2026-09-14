@@ -100,7 +100,39 @@ def _create_order_items(order, items, restaurant):
             portion_updates.append((menu_item.id, portion.portions_remaining))
             if hit_zero:
                 zero_hits.append(menu_item.id)
+        _deduct_recipe_for_unlimited_item(menu_item, item["quantity"], order.placed_by)
     return zero_hits, portion_updates
+
+
+def _deduct_recipe_for_unlimited_item(menu_item, quantity, recorded_by):
+    """2026-09-14, per Karwin: an Unlimited item's recipe ingredients were
+    never deducted from stock at all, no matter how many sold.
+
+    Batch-tracked items deduct their ingredients UPFRONT, once per prepared
+    batch, via the Daily Prep Log (apps.menu.services.add_portions) — so
+    deducting again per sale would double-count them. Unlimited items skip
+    the Prep Log entirely by design (there's no batch to log), which left
+    them with no deduction point anywhere. Point of sale is the natural
+    equivalent for them: one deduction per serving actually sold.
+
+    Deliberately does not block the order when stock is short — same
+    convention as the Prep Log's own deduction (see
+    apps.inventory.services.deduct_for_usage): the food is being served
+    either way, so refusing the sale wouldn't un-consume the ingredients,
+    it would just leave stock out of sync with reality.
+    """
+    if menu_item.tracks_daily_portions:
+        return
+
+    from apps.inventory.models import RecipeItem
+    from apps.inventory.services import deduct_for_usage
+
+    for recipe_item in RecipeItem.objects.filter(menu_item=menu_item).select_related("ingredient"):
+        deduct_for_usage(
+            recipe_item.ingredient_id,
+            recipe_item.quantity_per_serving * quantity,
+            recorded_by=recorded_by,
+        )
 
 
 def _finalize_new_order(order, restaurant, portion_updates, zero_hits):

@@ -145,6 +145,31 @@ def test_record_wastage_does_not_renotify_when_already_low(manager_client, admin
     assert Notification.objects.filter(recipient=admin_user, type="LOW_STOCK", data__ingredient_id=str(ingredient.id)).count() == 0
 
 
+def test_record_wastage_does_not_notify_when_stock_goes_critical(manager_client, admin_client, restaurant):
+    """2026-09-14, per Karwin: notify on `low` only, never on `critical`
+    (stock at or below zero). Note the side effect this accepts - a single
+    deduction straight from healthy to zero skips the alert entirely,
+    since it never passes through `low`."""
+    _, manager = manager_client
+    admin_user, _ = admin_client
+    ingredient = Ingredient.objects.create(
+        restaurant=restaurant, name="Ginger", unit="KG",
+        current_stock=Decimal("10.00"), minimum_stock_level=Decimal("5.00"),
+    )
+
+    response = manager.patch(
+        f"/v1/inventory/ingredients/{ingredient.id}/record-wastage/",
+        {"quantity": "10.00", "wastage_reason": "SPOILED"}, format="json",
+    )
+
+    assert response.status_code == 200, response.data
+    ingredient.refresh_from_db()
+    assert ingredient.stock_status == "critical"
+    assert not Notification.objects.filter(
+        recipient=admin_user, type="LOW_STOCK", data__ingredient_id=str(ingredient.id),
+    ).exists()
+
+
 def test_create_staff_notifies_admins(admin_client, restaurant):
     admin_user, client = admin_client
 

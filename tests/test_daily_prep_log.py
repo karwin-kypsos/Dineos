@@ -27,6 +27,50 @@ def recipe(menu_item, chicken, rice):
     RecipeItem.objects.create(menu_item=menu_item, ingredient=rice, quantity_per_serving=Decimal("0.200"))
 
 
+def test_unlimited_item_deducts_recipe_ingredients_when_sold(table, menu_item, chicken, rice, recipe):
+    """2026-09-14, per Karwin: an Unlimited item's ingredients were never
+    deducted anywhere - it skips the Prep Log by design, and nothing
+    deducted at point of sale either. Now deducts per serving sold."""
+    from apps.orders import services as order_services
+    from apps.tables import services as table_services
+
+    menu_item.tracks_daily_portions = False
+    menu_item.save(update_fields=["tracks_daily_portions"])
+    menu_item.prepared_portions.all().delete()
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 4}])
+
+    chicken.refresh_from_db()
+    rice.refresh_from_db()
+    assert chicken.current_stock == Decimal("49.00")  # 50 - (0.250 * 4)
+    assert rice.current_stock == Decimal("49.20")  # 50 - (0.200 * 4)
+    assert StockMovement.objects.filter(
+        ingredient=chicken, movement_type=StockMovement.MovementType.USAGE,
+    ).count() == 1
+
+
+def test_batch_tracked_item_does_not_double_deduct_on_sale(table, menu_item, chicken, rice, recipe):
+    """The other half of the same fix: Batch-tracked items already deduct
+    upfront via the Prep Log, so selling one must NOT deduct again."""
+    from apps.orders import services as order_services
+    from apps.tables import services as table_services
+
+    menu_item.tracks_daily_portions = True
+    menu_item.save(update_fields=["tracks_daily_portions"])
+
+    stock_before = chicken.current_stock
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 4}])
+
+    chicken.refresh_from_db()
+    assert chicken.current_stock == stock_before  # untouched - already deducted at prep time
+    assert not StockMovement.objects.filter(
+        ingredient=chicken, movement_type=StockMovement.MovementType.USAGE,
+    ).exists()
+
+
 def test_prepared_dishes_today_scoped_to_own_branch(manager_client, restaurant, branch):
     """2026-09-14 fix, per Karwin/Shereena: GET /v1/prepared-dishes/today/
     had no branch scoping at all - a Manager pinned to one branch saw every
