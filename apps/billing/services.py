@@ -107,7 +107,7 @@ def get_bill_preview(session_id):
 
 
 @transaction.atomic
-def pay_bill(session_id, payment_method, processed_by, amount_received=None):
+def pay_bill(session_id, payment_method, processed_by, amount_received=None, payment_method_detail=""):
     session = TableSession.objects.select_for_update().get(id=session_id)
 
     existing_bill = Bill.objects.filter(session=session).first()
@@ -124,6 +124,7 @@ def pay_bill(session_id, payment_method, processed_by, amount_received=None):
         service_charge=service_charge,
         total_amount=total_amount,
         payment_method=payment_method,
+        payment_method_detail=payment_method_detail,
         processed_by=processed_by,
         amount_received=amount_received,
         change_given=change_given,
@@ -184,7 +185,7 @@ def get_takeaway_bill_preview(order_id):
 
 
 @transaction.atomic
-def pay_takeaway_bill(order_id, payment_method, processed_by, amount_received=None):
+def pay_takeaway_bill(order_id, payment_method, processed_by, amount_received=None, payment_method_detail=""):
     # of=("self",): Order.branch is nullable, so select_related("branch__restaurant")
     # compiles to a LEFT OUTER JOIN — PostgreSQL rejects a plain FOR UPDATE across
     # the nullable side of an outer join ("FeatureNotSupported"). Restricting the
@@ -213,6 +214,7 @@ def pay_takeaway_bill(order_id, payment_method, processed_by, amount_received=No
         service_charge=service_charge,
         total_amount=total_amount,
         payment_method=payment_method,
+        payment_method_detail=payment_method_detail,
         processed_by=processed_by,
         amount_received=amount_received,
         change_given=change_given,
@@ -286,7 +288,20 @@ _PAYMENT_METHOD_KEYS = {
     Bill.PaymentMethod.CASH: "cash",
     Bill.PaymentMethod.CARD: "card",
     Bill.PaymentMethod.UPI: "upi",
+    # 2026-09-14: NETBANKING/WALLET must be bucketed too, not just mapped
+    # on the Bill. Every total below is built by summing these buckets, so
+    # an unbucketed method would be silently dropped from the shift's
+    # collected total and the day's grand total - money going missing from
+    # cash reconciliation, not just a cosmetic gap.
+    Bill.PaymentMethod.NETBANKING: "netbanking",
+    Bill.PaymentMethod.WALLET: "wallet",
 }
+
+# Every bucket, in the order reports display them. Kept as one list so a
+# new payment method can never be added to the totals in one place and
+# forgotten in another — every per-method total, percentage and split in
+# this module and in billing_dashboard_views is driven off it.
+PAYMENT_BUCKETS = ["cash", "card", "upi", "netbanking", "wallet"]
 
 
 def open_shift(cashier):
@@ -323,26 +338,23 @@ def shift_totals_by_method(shift):
     still OPEN — there's nothing submitted yet to compare against.
     """
     bills = list(_shift_bills(shift))
-    totals = {"cash": Decimal("0"), "card": Decimal("0"), "upi": Decimal("0")}
-    counts = {"cash": 0, "card": 0, "upi": 0}
+    totals = {bucket: Decimal("0") for bucket in PAYMENT_BUCKETS}
+    counts = {bucket: 0 for bucket in PAYMENT_BUCKETS}
     for bill in bills:
         key = _PAYMENT_METHOD_KEYS.get(bill.payment_method)
         if key:
             totals[key] += bill.total_amount
             counts[key] += 1
-    totals["total"] = totals["cash"] + totals["card"] + totals["upi"]
+    totals["total"] = sum((totals[bucket] for bucket in PAYMENT_BUCKETS), Decimal("0"))
 
     def _pct(amount):
         return float((amount / totals["total"] * 100).quantize(Decimal("0.1"))) if totals["total"] > 0 else 0.0
 
-    totals["cash_percentage"] = _pct(totals["cash"])
-    totals["card_percentage"] = _pct(totals["card"])
-    totals["upi_percentage"] = _pct(totals["upi"])
     # *_count (2026-09-05, per Karwin's shift-detail mockup - Payment Split
     # shows "Cash Rs1428 (100% - 2 bills)", one bill count per method).
-    totals["cash_count"] = counts["cash"]
-    totals["card_count"] = counts["card"]
-    totals["upi_count"] = counts["upi"]
+    for bucket in PAYMENT_BUCKETS:
+        totals[f"{bucket}_percentage"] = _pct(totals[bucket])
+        totals[f"{bucket}_count"] = counts[bucket]
     totals["tables_served"] = len(bills)
     totals["cashier_name"] = shift.cashier.name
     totals["status"] = shift.status
@@ -658,24 +670,22 @@ def daily_collections(
         paid_at__gte=previous_week_start, paid_at__lt=previous_week_end
     ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
 
-    totals = {"cash": Decimal("0"), "card": Decimal("0"), "upi": Decimal("0")}
+    totals = {bucket: Decimal("0") for bucket in PAYMENT_BUCKETS}
     bill_amounts = []
     for bill in bills:
         key = _PAYMENT_METHOD_KEYS.get(bill.payment_method)
         if key:
             totals[key] += bill.total_amount
         bill_amounts.append(bill.total_amount)
-    grand_total = totals["cash"] + totals["card"] + totals["upi"]
+    grand_total = sum((totals[bucket] for bucket in PAYMENT_BUCKETS), Decimal("0"))
 
     def _pct(amount):
         return float((amount / grand_total * 100).quantize(Decimal("0.1"))) if grand_total > 0 else 0.0
 
-    payment_breakdown = {
-        "cash": totals["cash"], "card": totals["card"], "upi": totals["upi"],
-        "cash_percentage": _pct(totals["cash"]),
-        "card_percentage": _pct(totals["card"]),
-        "upi_percentage": _pct(totals["upi"]),
-    }
+    payment_breakdown = {}
+    for bucket in PAYMENT_BUCKETS:
+        payment_breakdown[bucket] = totals[bucket]
+        payment_breakdown[f"{bucket}_percentage"] = _pct(totals[bucket])
 
     bills_count = len(bills)
     # "Tables" on the My Sales screen = billed tables today (bills_count —

@@ -28,6 +28,14 @@ class PaymentAttempt(models.Model):
     class PaymentMethod(models.TextChoices):
         CARD = "CARD", "Card"
         UPI = "UPI", "UPI"
+        # 2026-09-14, per Shereena: the app now has a single "Pay via
+        # Razorpay" button instead of separate Card/UPI ones, so it sends
+        # ONLINE - a placeholder meaning "whatever the customer picks in
+        # Checkout". The webhook overwrites it with Razorpay's own reported
+        # method, so the Bill always ends up with what was actually used.
+        ONLINE = "ONLINE", "Online (method chosen in Checkout)"
+        NETBANKING = "NETBANKING", "Net Banking"
+        WALLET = "WALLET", "Wallet"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     session = models.ForeignKey(
@@ -39,7 +47,7 @@ class PaymentAttempt(models.Model):
     restaurant = models.ForeignKey("restaurant.Restaurant", on_delete=models.CASCADE, related_name="payment_attempts")
     razorpay_order_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
     razorpay_qr_code_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
-    payment_method = models.CharField(max_length=8, choices=PaymentMethod.choices)
+    payment_method = models.CharField(max_length=12, choices=PaymentMethod.choices)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     status = models.CharField(max_length=8, choices=Status.choices, default=Status.CREATED)
     initiated_by = models.ForeignKey(

@@ -150,6 +150,7 @@ class BillSerializer(serializers.ModelSerializer):
             "discount_amount",
             "total_amount",
             "payment_method",
+            "payment_method_detail",
             "amount_received",
             "change_given",
             "processed_by",
@@ -263,6 +264,13 @@ class PaymentBreakdownSerializer(serializers.Serializer):
     cash_percentage = serializers.FloatField()
     card_percentage = serializers.FloatField()
     upi_percentage = serializers.FloatField()
+    # 2026-09-14: added alongside the NETBANKING/WALLET Bill methods. The
+    # total these feed is summed from every bucket, so leaving them out of
+    # the serializer would hide real revenue the total already counts.
+    netbanking = serializers.DecimalField(max_digits=10, decimal_places=2)
+    wallet = serializers.DecimalField(max_digits=10, decimal_places=2)
+    netbanking_percentage = serializers.FloatField()
+    wallet_percentage = serializers.FloatField()
 
 
 class CashierCollectionSerializer(serializers.Serializer):

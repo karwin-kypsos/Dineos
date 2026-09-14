@@ -28,7 +28,21 @@ from .serializers import (
 # see RazorpayWebhookView._resolve_payment_method) maps onto our two-value
 # enum. Checkout is configured (frontend-side) to only ever offer card/upi,
 # so this covers every case in practice; anything else falls back safely.
-_RAZORPAY_METHOD_MAP = {"card": "CARD", "emi": "CARD", "upi": "UPI"}
+_RAZORPAY_METHOD_MAP = {
+    "card": "CARD",
+    "emi": "CARD",
+    "upi": "UPI",
+    # 2026-09-14, per Shereena's report that a Net Banking payment was
+    # being recorded as Card/UPI: these two were missing from the map, so
+    # they hit the fallback and kept whatever the app had pre-selected.
+    "netbanking": "NETBANKING",
+    "wallet": "WALLET",
+}
+
+# Which key on Razorpay's payment entity carries the human-readable
+# sub-detail for each method (bank code for netbanking, wallet brand for a
+# wallet). Card/UPI have no equivalent worth storing.
+_RAZORPAY_METHOD_DETAIL_KEY = {"netbanking": "bank", "wallet": "wallet"}
 
 logger = logging.getLogger(__name__)
 
@@ -279,15 +293,26 @@ class RazorpayWebhookView(APIView):
     permission_classes = [AllowAny]
 
     def _resolve_payment_method(self, attempt, payment_entity):
-        # 2026-09-09 correctness fix: attempt.payment_method is only ever a
-        # pre-selection (a cashier's manual choice, or the customer
-        # self-checkout placeholder) — Checkout itself may let the payer
-        # pick a different method than what was pre-selected. Razorpay's
-        # own reported method on the captured payment is authoritative;
-        # fall back to the pre-selection only for a method we don't
-        # recognize (never crash the webhook over an unmapped value).
+        """Returns (payment_method, payment_method_detail).
+
+        2026-09-09 correctness fix: attempt.payment_method is only ever a
+        pre-selection (a cashier's manual choice, or the app's generic
+        ONLINE placeholder) — Checkout lets the payer pick whatever they
+        like regardless. Razorpay's own reported method on the captured
+        payment is authoritative; fall back to the pre-selection only for a
+        method we don't recognise (never crash the webhook over an unmapped
+        value).
+
+        2026-09-14: also pulls the sub-detail Razorpay reports alongside —
+        the bank for netbanking, the wallet brand for a wallet — so a
+        report can say "Net Banking - Canara" instead of just the method.
+        """
         razorpay_method = payment_entity.get("method")
-        return _RAZORPAY_METHOD_MAP.get(razorpay_method, attempt.payment_method)
+        payment_method = _RAZORPAY_METHOD_MAP.get(razorpay_method, attempt.payment_method)
+
+        detail_key = _RAZORPAY_METHOD_DETAIL_KEY.get(razorpay_method)
+        detail = payment_entity.get(detail_key) if detail_key else None
+        return payment_method, detail or ""
 
     def post(self, request):
         signature = request.headers.get("X-Razorpay-Signature", "")
@@ -314,11 +339,17 @@ class RazorpayWebhookView(APIView):
         if attempt.status == PaymentAttempt.Status.PAID:
             return Response({"detail": "Already processed."}, status=200)  # idempotent replay
 
-        payment_method = self._resolve_payment_method(attempt, payment_entity)
+        payment_method, payment_method_detail = self._resolve_payment_method(attempt, payment_entity)
         if attempt.session_id:
-            bill = billing_services.pay_bill(attempt.session_id, payment_method, attempt.initiated_by)
+            bill = billing_services.pay_bill(
+                attempt.session_id, payment_method, attempt.initiated_by,
+                payment_method_detail=payment_method_detail,
+            )
         else:
-            bill = billing_services.pay_takeaway_bill(attempt.order_id, payment_method, attempt.initiated_by)
+            bill = billing_services.pay_takeaway_bill(
+                attempt.order_id, payment_method, attempt.initiated_by,
+                payment_method_detail=payment_method_detail,
+            )
 
         attempt.status = PaymentAttempt.Status.PAID
         attempt.resolved_at = timezone.now()

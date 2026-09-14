@@ -50,6 +50,12 @@ class Bill(models.Model):
         CASH = "CASH", "Cash"
         CARD = "CARD", "Card"
         UPI = "UPI", "UPI"
+        # 2026-09-14, per Shereena: a Razorpay payment can be any method
+        # Checkout offers, not just card/UPI. Before this, a netbanking or
+        # wallet payment fell back to whatever the app had pre-selected, so
+        # a Net Banking payment was recorded as "Card" or "UPI".
+        NETBANKING = "NETBANKING", "Net Banking"
+        WALLET = "WALLET", "Wallet"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     # Dine-in: session set, order null. Takeaway: order set, session null.
@@ -67,7 +73,12 @@ class Bill(models.Model):
     service_charge = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
-    payment_method = models.CharField(max_length=8, choices=PaymentMethod.choices)
+    payment_method = models.CharField(max_length=12, choices=PaymentMethod.choices)
+    # Sub-detail of the method, straight from Razorpay's captured payment
+    # (2026-09-14, per Shereena): the bank code for netbanking, the wallet
+    # name for a wallet payment - so reports can show "Net Banking - Canara"
+    # rather than just "Net Banking". Always "" for cash/card/UPI.
+    payment_method_detail = models.CharField(max_length=64, blank=True, default="")
     processed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="processed_bills")
     paid_at = models.DateTimeField(auto_now_add=True)
     # Cash-payment tender — both null when not provided (e.g. card/UPI, or a

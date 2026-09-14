@@ -12,10 +12,11 @@ from apps.tables import services as table_services
 pytestmark = pytest.mark.django_db
 
 
-def _webhook_payload(razorpay_order_id, method=None):
+def _webhook_payload(razorpay_order_id, method=None, **extra_entity_fields):
     entity = {"order_id": razorpay_order_id, "status": "captured"}
     if method:
         entity["method"] = method
+    entity.update(extra_entity_fields)
     return json.dumps({"event": "payment.captured", "payload": {"payment": {"entity": entity}}})
 
 
@@ -292,6 +293,75 @@ def test_webhook_uses_razorpays_reported_method_over_the_preselection(cashier_cl
     assert response.status_code == 200, response.data
     bill = Bill.objects.get(session=session)
     assert bill.payment_method == "CARD"
+
+
+def test_webhook_records_netbanking_with_bank_detail(cashier_client, table, menu_item, restaurant):
+    """2026-09-14, per Shereena: a Net Banking payment was being recorded
+    as Card or UPI, because netbanking wasn't in the method map and so fell
+    back to whatever the app pre-selected. The bank code is captured too,
+    so a report can say "Net Banking - CNRB"."""
+    cashier_user, client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    PaymentAttempt.objects.create(
+        session_id=session.id, restaurant=restaurant, razorpay_order_id="order_nb123",
+        payment_method="ONLINE", amount=Decimal("231.00"), initiated_by=cashier_user,
+    )
+
+    with patch("apps.payments.views.verify_webhook_signature", return_value=None):
+        response = client.post(
+            "/v1/payments/razorpay/webhook/",
+            data=_webhook_payload("order_nb123", method="netbanking", bank="CNRB"),
+            content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="sig",
+        )
+
+    assert response.status_code == 200, response.data
+    bill = Bill.objects.get(session=session)
+    assert bill.payment_method == "NETBANKING"
+    assert bill.payment_method_detail == "CNRB"
+
+
+def test_webhook_records_wallet_with_wallet_name(cashier_client, table, menu_item, restaurant):
+    """Same fix, wallet side — the wallet brand is the sub-detail."""
+    cashier_user, client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    PaymentAttempt.objects.create(
+        session_id=session.id, restaurant=restaurant, razorpay_order_id="order_wl123",
+        payment_method="ONLINE", amount=Decimal("231.00"), initiated_by=cashier_user,
+    )
+
+    with patch("apps.payments.views.verify_webhook_signature", return_value=None):
+        response = client.post(
+            "/v1/payments/razorpay/webhook/",
+            data=_webhook_payload("order_wl123", method="wallet", wallet="mobikwik"),
+            content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="sig",
+        )
+
+    assert response.status_code == 200, response.data
+    bill = Bill.objects.get(session=session)
+    assert bill.payment_method == "WALLET"
+    assert bill.payment_method_detail == "mobikwik"
+
+
+def test_create_order_accepts_online_as_payment_method(cashier_client, table, menu_item, restaurant, settings):
+    """2026-09-14, per Shereena: the app merged its Card/UPI buttons into a
+    single "Pay via Razorpay", so it sends the generic ONLINE placeholder.
+    The real method is resolved from the webhook afterwards."""
+    settings.RAZORPAY_KEY_ID = "rzp_test_fake"
+    settings.RAZORPAY_KEY_SECRET = "fake_secret"
+    _, client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+
+    with patch("apps.payments.views.create_order", return_value={"id": "order_online123"}):
+        response = client.post(
+            "/v1/payments/razorpay/create-order/",
+            {"session_id": str(session.id), "payment_method": "ONLINE"}, format="json",
+        )
+
+    assert response.status_code == 201, response.data
+    assert PaymentAttempt.objects.get().payment_method == "ONLINE"
 
 
 # ---- Customer self-checkout (Phase 2, no auth at all) ----

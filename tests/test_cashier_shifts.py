@@ -465,6 +465,32 @@ def test_daily_collections_payment_breakdown_percentages(manager_client, cashier
     assert breakdown["upi_percentage"] == 0.0
 
 
+def test_daily_collections_counts_netbanking_and_wallet_in_the_total(manager_client, cashier_client, table, menu_item):
+    """2026-09-14 money-safety check: NETBANKING/WALLET were added as Bill
+    payment methods, and every total here is built by summing the
+    per-method buckets — so a bucket that isn't summed means real revenue
+    silently missing from collections, not just a cosmetic gap."""
+    from apps.tables.models import Table
+
+    cashier_user, _ = cashier_client
+    _pay(cashier_user, table, menu_item, quantity=1, method="CASH")
+    nb_table = Table.objects.create(restaurant=table.restaurant, branch=table.branch, table_number="NB1")
+    _pay(cashier_user, nb_table, menu_item, quantity=1, method="NETBANKING")
+    wl_table = Table.objects.create(restaurant=table.restaurant, branch=table.branch, table_number="WL1")
+    _pay(cashier_user, wl_table, menu_item, quantity=1, method="WALLET")
+
+    _, manager = manager_client
+    response = manager.get("/v1/cashier/collections/daily/")
+
+    assert response.status_code == 200
+    breakdown = response.data["payment_breakdown"]
+    one_bill = _with_tax(menu_item.price)
+    assert Decimal(breakdown["netbanking"]) == one_bill
+    assert Decimal(breakdown["wallet"]) == one_bill
+    # the grand total must include all three, not just the cash one
+    assert Decimal(response.data["total_collected"]) == one_bill * 3
+
+
 def test_daily_collections_bills_include_item_count_and_peak_hour(manager_client, cashier_client, table, menu_item):
     cashier_user, _ = cashier_client
     _pay(cashier_user, table, menu_item, quantity=3, method="CASH")

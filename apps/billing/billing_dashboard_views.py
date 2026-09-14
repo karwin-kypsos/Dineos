@@ -105,10 +105,12 @@ class BillingPaymentSplitView(APIView):
         branch = _branch_param(request)
         report = _collections_report(request, date, date_from, date_to, branch)
         pb = report["payment_breakdown"]
+        # 2026-09-14: driven off the same bucket list the totals are summed
+        # from, so a newly-added payment method can never appear in the
+        # grand total while being missing from this split.
         return Response({
-            "cash": {"amount": pb["cash"], "percentage": pb["cash_percentage"]},
-            "card": {"amount": pb["card"], "percentage": pb["card_percentage"]},
-            "upi": {"amount": pb["upi"], "percentage": pb["upi_percentage"]},
+            bucket: {"amount": pb[bucket], "percentage": pb[f"{bucket}_percentage"]}
+            for bucket in services.PAYMENT_BUCKETS
         })
 
 
