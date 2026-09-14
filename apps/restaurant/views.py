@@ -53,14 +53,18 @@ class BranchViewSet(ImageUploadErrorHandlingMixin, viewsets.ModelViewSet):
 
         from apps.billing.models import Bill
         from apps.orders.models import Order
+        from apps.orders.services import count_distinct_visits
 
         restaurant = request.user.restaurant
         total_revenue = Bill.objects.filter(
             Q(session__table__restaurant=restaurant) | Q(order__branch__restaurant=restaurant),
         ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
-        total_orders = Order.objects.filter(
+        # 2026-09-14 fix: count distinct visits, not raw Order rows - see
+        # apps.orders.services.count_distinct_visits (same bug already
+        # fixed on today_orders_count elsewhere, found via Karwin's report).
+        total_orders = count_distinct_visits(Order.objects.filter(
             Q(table__restaurant=restaurant) | Q(branch__restaurant=restaurant),
-        ).exclude(status="CANCELLED").count()
+        ).exclude(status="CANCELLED"))
 
         response.data["total_revenue"] = total_revenue
         response.data["total_orders"] = total_orders

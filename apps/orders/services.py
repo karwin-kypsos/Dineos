@@ -16,6 +16,34 @@ from core.exceptions import (
 
 from .models import Order, OrderItem
 
+
+def count_distinct_visits(queryset):
+    """'How many orders' as a human on the floor would count them — one per
+    customer visit/ticket, not one per Order row. A dine-in table's extra
+    rounds (see place_order's session_id reuse) and a takeaway's extra
+    rounds (see place_takeaway_order's existing_order_id/parent_order) are
+    each a fresh Order row so the kitchen sees them as new unprepared work,
+    but they're the SAME visit continuing, not a new customer. 2026-09-14,
+    found while investigating Karwin's "3 real orders, dashboard shows 4"
+    report: Admin/Manager Dashboard and List Branches' today_orders all did
+    a plain .count() over Order rows, so a table's second round (or a
+    takeaway's added round) inflated the total by one per extra round.
+    Coalesce(session_id, parent_order_id, id) collapses every round of one
+    dine-in visit to its shared session_id, every round of one takeaway
+    to its root's id (parent_order_id on later rounds, or its own id on
+    the root/only round), and leaves genuine singleton orders counted by
+    their own id - then .distinct() over that grouping key.
+    """
+    from django.db.models.functions import Coalesce
+
+    return (
+        queryset.annotate(_visit_key=Coalesce("session_id", "parent_order_id", "id"))
+        .values("_visit_key")
+        .distinct()
+        .count()
+    )
+
+
 KITCHEN_NEXT_STATUS = {
     Order.Status.NEW: Order.Status.ACCEPTED,
     Order.Status.ACCEPTED: Order.Status.PREPARING,
@@ -142,11 +170,18 @@ def place_takeaway_order(
         from apps.billing.models import Bill
 
         try:
+            # 2026-09-14 fix (per Karwin's report - a takeaway order showed
+            # up under a DIFFERENT staff member's name): this used to filter
+            # only by branch__restaurant=restaurant, so any staff member
+            # anywhere in the tenant could attach a new round to ANY other
+            # branch's existing takeaway order. Scoping by branch=branch (the
+            # acting user's own branch) closes that - a round can now only
+            # ever be merged into an order already at your own branch.
             existing = Order.objects.select_for_update().get(
-                id=existing_order_id, order_type=Order.OrderType.TAKEAWAY, branch__restaurant=restaurant
+                id=existing_order_id, order_type=Order.OrderType.TAKEAWAY, branch=branch
             )
         except Order.DoesNotExist:
-            raise PermissionDenied("This order does not belong to your restaurant.")
+            raise PermissionDenied("This order does not belong to your branch.")
         root = existing if existing.parent_order_id is None else existing.parent_order
         if Bill.objects.filter(order=root).exists():
             raise OrderAlreadyBilledError()

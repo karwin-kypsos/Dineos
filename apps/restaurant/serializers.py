@@ -79,10 +79,16 @@ class BranchSerializer(ImageUploadMixin, serializers.ModelSerializer):
         from django.db.models import Q
 
         from apps.orders.models import Order
+        from apps.orders.services import count_distinct_visits
 
-        return Order.objects.filter(
+        # 2026-09-14 fix: count distinct visits (one dine-in session or one
+        # takeaway group), not raw Order rows - a second round on an
+        # already-active table/takeaway was inflating this by one per extra
+        # round. See apps.orders.services.count_distinct_visits.
+        orders_today = Order.objects.filter(
             Q(table__branch=obj) | Q(branch=obj), placed_at__gte=self._today_start(),
-        ).exclude(status="CANCELLED").count()
+        ).exclude(status="CANCELLED")
+        return count_distinct_visits(orders_today)
 
     def get_tables(self, obj):
         # Only on retrieve/create/update, not list — generating a QR PNG per

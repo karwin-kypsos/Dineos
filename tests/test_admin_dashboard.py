@@ -50,6 +50,34 @@ def test_dashboard_counts_takeaway_order_and_revenue(admin_client, manager_clien
     assert response.data["today_bills_count"] == 1
 
 
+def test_dashboard_order_count_does_not_double_count_extra_rounds(admin_client, manager_client, table, branch, menu_item):
+    """2026-09-14 fix, per Karwin's report ('3 real orders, dashboard shows
+    4'): a table's second round and a takeaway's added round are each a
+    fresh Order row, but they're the same visit continuing, not a new
+    customer - today_orders_count should count visits, not rounds."""
+    _, client = admin_client
+    manager_user, _ = manager_client
+    manager_user.branch = branch
+    manager_user.save(update_fields=["branch"])
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])  # round 2, same visit
+
+    root = order_services.place_takeaway_order(
+        manager_user.restaurant, branch, [{"menu_item_id": menu_item.id, "quantity": 1}], placed_by=manager_user,
+    )
+    order_services.place_takeaway_order(
+        manager_user.restaurant, branch, [{"menu_item_id": menu_item.id, "quantity": 1}],
+        placed_by=manager_user, existing_order_id=root.id,
+    )  # round 2, same takeaway group
+
+    response = client.get("/v1/admin/dashboard/")
+
+    assert response.status_code == 200
+    assert response.data["today_orders_count"] == 2  # 1 dine-in visit + 1 takeaway group, not 4 rows
+
+
 def test_dashboard_low_stock_and_pending_po_counts(admin_client, restaurant):
     _, client = admin_client
     Ingredient.objects.create(

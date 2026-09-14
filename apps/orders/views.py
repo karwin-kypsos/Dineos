@@ -177,7 +177,15 @@ class TakeawayOrderView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        branch = getattr(request.user, "branch", None)
+        # 2026-09-14 fix: an Admin has no fixed user.branch (unlike
+        # Manager/Server/Cashier), so fall back to their persisted
+        # branch-switcher choice (selected_branch, see
+        # apps.authentication.serializers) - without this an Admin got a
+        # flat 403 trying to create a takeaway order at all, regardless of
+        # which branch they'd switched to.
+        branch = request.user.branch
+        if branch is None and request.user.selected_branch_id is not None and request.user.selected_branch.is_active:
+            branch = request.user.selected_branch
         if branch is None:
             raise PermissionDenied("Your staff account isn't assigned to a branch — takeaway orders need one.")
 

@@ -403,6 +403,31 @@ def test_list_menu_search_by_name(manager_client, menu_item):
     assert results == []
 
 
+def test_list_menu_filter_by_tracks_daily_portions(manager_client, menu_item):
+    """2026-09-14, per Karwin: ?tracks_daily_portions=true/false narrows to
+    just Batch-wise or just Unlimited items."""
+    from apps.menu.models import MenuItem
+
+    menu_item.tracks_daily_portions = True
+    menu_item.save(update_fields=["tracks_daily_portions"])
+    unlimited_item = MenuItem.objects.create(
+        category=menu_item.category, name="Cold Coffee", price="90.00", sort_order=2,
+    )
+    _, client = manager_client
+
+    response = client.get("/v1/menu/all/?tracks_daily_portions=true")
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    assert {item["name"] for item in results} == {menu_item.name}
+
+    response = client.get("/v1/menu/all/?tracks_daily_portions=false")
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    assert {item["name"] for item in results} == {unlimited_item.name}
+
+    response = client.get("/v1/menu/all/")
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    assert {item["name"] for item in results} == {menu_item.name, unlimited_item.name}
+
+
 def test_create_menu_item_requires_sort_order(manager_client, menu_item):
     _, client = manager_client
 

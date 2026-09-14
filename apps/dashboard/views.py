@@ -15,6 +15,7 @@ from apps.inventory.serializers import IngredientSerializer, PurchaseOrderSerial
 from apps.menu.models import PreparedPortion
 from apps.notifications.models import Notification
 from apps.orders.models import Order
+from apps.orders.services import count_distinct_visits
 from apps.restaurant.models import Branch
 from apps.tables.models import Table
 from core.ai_client import AIUnavailableError
@@ -128,7 +129,7 @@ class AdminDashboardView(APIView):
         ]
 
         return Response({
-            "today_orders_count": orders_today.count(),
+            "today_orders_count": count_distinct_visits(orders_today),
             "today_revenue": today_revenue,
             "today_bills_count": bills_today.count(),
             "active_tables_count": tables.exclude(status="AVAILABLE").count(),
@@ -229,7 +230,7 @@ class ManagerDashboardView(APIView):
         return Response({
             "branch_id": str(branch.id),
             "branch_name": branch.name,
-            "today_orders_count": orders_today.count(),
+            "today_orders_count": count_distinct_visits(orders_today),
             "today_revenue": today_revenue,
             "stock_status": stock_status_counts,
             "needs_restocking": needs_restocking,

@@ -27,6 +27,43 @@ def recipe(menu_item, chicken, rice):
     RecipeItem.objects.create(menu_item=menu_item, ingredient=rice, quantity_per_serving=Decimal("0.200"))
 
 
+def test_prepared_dishes_today_scoped_to_own_branch(manager_client, restaurant, branch):
+    """2026-09-14 fix, per Karwin: GET /v1/prepared-dishes/today/ had no
+    branch scoping at all - a Manager pinned to one branch saw every
+    branch's prepared dishes. A shared (no-branch) item's portions should
+    still show everywhere, matching how the menu itself is scoped."""
+    from django.utils import timezone
+
+    from apps.menu.models import Category, MenuItem, PreparedPortion
+    from apps.restaurant.models import Branch
+
+    other_branch = Branch.objects.create(restaurant=restaurant, name="Other Branch")
+
+    own_category = Category.objects.create(restaurant=restaurant, branch=branch, name="Own", sort_order=1)
+    own_item = MenuItem.objects.create(category=own_category, name="Own Dish", price=Decimal("100.00"))
+    PreparedPortion.objects.create(menu_item=own_item, date=timezone.localdate(), portions_initial=10, portions_remaining=10)
+
+    other_category = Category.objects.create(restaurant=restaurant, branch=other_branch, name="Other", sort_order=2)
+    other_item = MenuItem.objects.create(category=other_category, name="Other Dish", price=Decimal("100.00"))
+    PreparedPortion.objects.create(menu_item=other_item, date=timezone.localdate(), portions_initial=10, portions_remaining=10)
+
+    shared_category = Category.objects.create(restaurant=restaurant, branch=None, name="Shared", sort_order=3)
+    shared_item = MenuItem.objects.create(category=shared_category, name="Shared Dish", price=Decimal("100.00"))
+    PreparedPortion.objects.create(menu_item=shared_item, date=timezone.localdate(), portions_initial=10, portions_remaining=10)
+
+    user, client = manager_client
+    user.branch = branch
+    user.save(update_fields=["branch"])
+
+    response = client.get("/v1/prepared-dishes/today/")
+
+    assert response.status_code == 200
+    names = {row["menu_item_name"] for row in response.data}
+    assert own_item.name in names
+    assert shared_item.name in names
+    assert other_item.name not in names
+
+
 def test_add_portions_deducts_recipe_ingredients(manager_client, menu_item, chicken, rice, recipe):
     _, client = manager_client
 

@@ -53,6 +53,24 @@ def test_manager_dashboard_scoped_to_own_branch_only(restaurant, manager_client,
     assert response.data["table_overview"]["total"] == 1  # only this branch's table
 
 
+def test_manager_dashboard_order_count_does_not_double_count_extra_rounds(manager_client, branch, table, menu_item):
+    """2026-09-14 fix, per Karwin's report: a table's second round is a
+    fresh Order row but the same visit continuing - today_orders_count
+    should count visits, not rounds."""
+    _, client = _manager_on_branch(manager_client, branch)
+    table.branch = branch
+    table.save(update_fields=["branch"])
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])  # round 2, same visit
+
+    response = client.get("/v1/manager/dashboard/")
+
+    assert response.status_code == 200
+    assert response.data["today_orders_count"] == 1
+
+
 def test_manager_dashboard_stock_status_breakdown(restaurant, manager_client, branch):
     _, client = _manager_on_branch(manager_client, branch)
 

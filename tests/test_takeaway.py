@@ -482,6 +482,63 @@ def test_cannot_add_takeaway_round_to_another_restaurants_order(cashier_with_bra
     assert response.status_code == 403
 
 
+def test_cannot_add_takeaway_round_to_another_branchs_order(cashier_with_branch, menu_item, restaurant):
+    """2026-09-14 fix, per Karwin's report: a takeaway order placed at one
+    branch was showing up under a DIFFERENT staff member's name once that
+    staff member (at a different branch, same restaurant) added a round to
+    it - existing_order_id used to only check branch__restaurant, letting
+    any staff member anywhere in the tenant merge into any other branch's
+    order. Same-restaurant, different-branch must 403 exactly like the
+    already-covered cross-restaurant case above."""
+    from apps.authentication.serializers import DineOSTokenObtainPairSerializer
+    from apps.restaurant.models import Branch
+    from rest_framework.test import APIClient
+
+    _, client = cashier_with_branch
+    root = client.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    )
+    assert root.status_code == 201
+
+    other_branch = Branch.objects.create(restaurant=restaurant, name="Other Branch")
+    other_cashier = User.objects.create_user(
+        email="other-cashier@test.dineos", password="Test@1234", role="CASHIER", name="Other Cashier",
+        restaurant=restaurant, branch=other_branch,
+    )
+    other_client = APIClient()
+    token = DineOSTokenObtainPairSerializer.get_token(other_cashier)
+    other_client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.access_token}")
+
+    response = other_client.post(
+        "/v1/orders/takeaway/",
+        {"existing_order_id": root.data["id"], "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+
+    assert response.status_code == 403
+    # the original order is untouched - no round was merged in under the
+    # other branch's name
+    assert Order.objects.filter(parent_order_id=root.data["id"]).count() == 0
+
+
+def test_admin_uses_selected_branch_for_takeaway_order(admin_client, menu_item, branch):
+    """2026-09-14 fix: Admin has no fixed user.branch, so takeaway-order
+    creation used to flat-out 403 for them regardless of which branch
+    they'd switched to via the branch-switcher. Falls back to
+    selected_branch, same concept apps.authentication.serializers already
+    uses to report an Admin's 'current' branch."""
+    user, client = admin_client
+    user.selected_branch = branch
+    user.save(update_fields=["selected_branch"])
+
+    response = client.post(
+        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    )
+
+    assert response.status_code == 201
+    assert response.data["branch"] == branch.id
+
+
 def test_cannot_add_takeaway_round_once_order_is_billed(cashier_with_branch, menu_item):
     _, client = cashier_with_branch
 

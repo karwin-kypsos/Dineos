@@ -52,7 +52,12 @@ def _effective_branch(request):
 def _apply_category_and_search(qs, request):
     """?category=<id> narrows to one category; ?search=<text> matches the
     dish name (case-insensitive substring). Malformed ?category= is ignored
-    rather than raising, same convention as the branch/staff filters."""
+    rather than raising, same convention as the branch/staff filters.
+
+    ?tracks_daily_portions=true/false (2026-09-14, per Karwin) - filters to
+    just Batch-wise (true) or just Unlimited (false) items; same
+    ==\"true\" string-comparison convention as ?low_stock= on the
+    Inventory list. Omit the param to get both, unchanged from before."""
     category_id = request.query_params.get("category")
     if category_id:
         try:
@@ -65,6 +70,10 @@ def _apply_category_and_search(qs, request):
     search = request.query_params.get("search", "").strip()
     if search:
         qs = qs.filter(name__icontains=search)
+
+    tracks_daily_portions = request.query_params.get("tracks_daily_portions")
+    if tracks_daily_portions is not None:
+        qs = qs.filter(tracks_daily_portions=tracks_daily_portions == "true")
 
     return qs
 
@@ -252,6 +261,20 @@ class PreparedDishesTodayView(APIView):
         portions = PreparedPortion.objects.filter(
             date=timezone.localdate(), menu_item__category__restaurant=request.tenant
         ).select_related("menu_item")
+        # 2026-09-14 fix, per Karwin: this had NO branch scoping at all - a
+        # Manager/Server/Cashier's Daily Prep Log showed every branch's
+        # prepared dishes, not just their own. Same Q(branch=X) |
+        # Q(branch__isnull=True) convention as MenuItemViewSet/
+        # CategoryViewSet elsewhere in this file - a shared (no-branch)
+        # item still shows for whichever branch is asking, but a branch's
+        # own items never leak to a different branch. No filtering (full
+        # restaurant view) only when _effective_branch resolves to None -
+        # an Admin who hasn't picked one via ?branch= or the switcher.
+        branch = _effective_branch(request)
+        if branch is not None:
+            portions = portions.filter(
+                dj_models.Q(menu_item__category__branch=branch) | dj_models.Q(menu_item__category__branch__isnull=True)
+            )
         return Response(PreparedPortionSerializer(portions, many=True).data)
 
 

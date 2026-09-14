@@ -26,6 +26,21 @@ def test_list_branches_includes_total_revenue_and_orders(admin_client, table, me
     assert Decimal(str(response.data["total_revenue"])) == expected_total
 
 
+def test_total_orders_does_not_double_count_extra_rounds(admin_client, table, menu_item):
+    """2026-09-14 fix, per Karwin's report: a table's second round is a
+    fresh Order row but the same visit continuing - total_orders should
+    count visits, not rounds."""
+    _, client = admin_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])  # round 2, same visit
+
+    response = client.get("/v1/branches/")
+
+    assert response.status_code == 200
+    assert response.data["total_orders"] == 1
+
+
 def test_branch_list_includes_per_branch_today_revenue_and_orders(admin_client, branch, table, menu_item):
     """2026-09-08, per Karwin - each branch object in GET /v1/branches/
     now carries its own today_revenue/today_orders, separate from the
@@ -48,6 +63,23 @@ def test_branch_list_includes_per_branch_today_revenue_and_orders(admin_client, 
     assert Decimal(str(by_id[str(branch.id)]["today_revenue"])) == expected_total
     assert by_id[str(other_branch.id)]["today_orders"] == 0
     assert Decimal(str(by_id[str(other_branch.id)]["today_revenue"])) == Decimal("0")
+
+
+def test_branch_today_orders_does_not_double_count_extra_rounds(admin_client, branch, table, menu_item):
+    """2026-09-14 fix: same dedup as total_orders above, per-branch."""
+    _, client = admin_client
+    table.branch = branch
+    table.save(update_fields=["branch"])
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])  # round 2, same visit
+
+    response = client.get("/v1/branches/")
+
+    assert response.status_code == 200
+    by_id = {b["id"]: b for b in response.data["results"]}
+    assert by_id[str(branch.id)]["today_orders"] == 1
 
 
 def test_branches_totals_exclude_other_restaurants(admin_client, restaurant):
