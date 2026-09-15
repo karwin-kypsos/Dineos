@@ -213,6 +213,75 @@ def test_dine_in_order_ready_notifies_server_not_cashier(
     assert not Notification.objects.filter(recipient=cashier_user, type="ORDER_READY").exists()
 
 
+def test_order_ready_notifies_only_the_assigned_server_not_every_server_on_the_branch(
+    django_capture_on_commit_callbacks, server_client, restaurant, branch, table, menu_item
+):
+    """2026-09-15, per Shereena: a table assigned to Server A was alerting
+    other servers too. The 2026-09-08 fix narrowed this from
+    restaurant-wide to branch-wide; it needed to go the rest of the way to
+    the one server actually looking after that table."""
+    from apps.authentication.models import User
+    from apps.orders import services as order_services
+    from apps.tables import services as table_services
+
+    assigned, _ = server_client
+    assigned.branch = branch
+    assigned.save(update_fields=["branch"])
+    table.branch = branch
+    table.save(update_fields=["branch"])
+
+    # A second, equally-active server on the SAME branch who owns no table here.
+    other = User.objects.create_user(
+        email="other-server@test.dineos", password="Test@1234", role="SERVER",
+        name="Other Server", restaurant=restaurant, branch=branch,
+    )
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order = order_services.place_order(
+        session.id, [{"menu_item_id": menu_item.id, "quantity": 1}], placed_by=assigned,
+    )
+    session.refresh_from_db()
+    assert session.assigned_server_id == assigned.id
+
+    order_services.advance_kitchen_status(order.id, "ACCEPTED")
+    order_services.advance_kitchen_status(order.id, "PREPARING")
+    with django_capture_on_commit_callbacks(execute=True):
+        order_services.advance_kitchen_status(order.id, "READY")
+
+    assert Notification.objects.filter(recipient=assigned, type="ORDER_READY").exists()
+    assert not Notification.objects.filter(recipient=other, type="ORDER_READY").exists()
+
+
+def test_order_ready_falls_back_to_branch_servers_when_no_one_is_assigned(
+    django_capture_on_commit_callbacks, server_client, branch, table, menu_item
+):
+    """Deliberate fallback: a session with no assigned server (legacy row,
+    or nobody active to assign to when its first order landed) must still
+    alert the branch's servers. A missed 'food is ready' is worse than one
+    extra buzz."""
+    from apps.orders import services as order_services
+    from apps.tables import services as table_services
+
+    server_user, _ = server_client
+    server_user.branch = branch
+    server_user.save(update_fields=["branch"])
+    table.branch = branch
+    table.save(update_fields=["branch"])
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order = order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    # Clear whatever round-robin assigned, to simulate an unassigned session.
+    session.assigned_server = None
+    session.save(update_fields=["assigned_server"])
+
+    order_services.advance_kitchen_status(order.id, "ACCEPTED")
+    order_services.advance_kitchen_status(order.id, "PREPARING")
+    with django_capture_on_commit_callbacks(execute=True):
+        order_services.advance_kitchen_status(order.id, "READY")
+
+    assert Notification.objects.filter(recipient=server_user, type="ORDER_READY").exists()
+
+
 def test_order_ready_does_not_cross_branch_leak_to_other_branch_server(
     django_capture_on_commit_callbacks, restaurant
 ):

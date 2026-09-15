@@ -411,6 +411,10 @@ def _order_payload(order):
         "table_id": str(order.table_id) if order.table_id else None,
         "order_type": order.order_type,
         "status": order.status,
+        "assigned_server_id": (
+            str(order.session.assigned_server_id)
+            if order.session_id and order.session.assigned_server_id else None
+        ),
     }
 
 
@@ -426,13 +430,38 @@ def _notify_order_ready(order, restaurant):
     # something none of them could act on, while the Cashier — who's the
     # one actually handing it over / collecting payment — got nothing
     # (2026-08-26, per Shereena). Dine-in keeps notifying the Server.
+    title = f"Order ready — {_order_label(order)}"
+    body = f"Round {order.round_number} is ready to collect from the kitchen."
+
+    # 2026-09-15, per Shereena: this is a PERSONAL alert, so it goes to the
+    # one server actually looking after that table — not every server on
+    # the floor. The session already knows who that is (assigned on its
+    # first order, either round-robin or the server who placed it — see
+    # apps.tables.services.assign_next_server); we just weren't using it.
+    # The 2026-09-08 fix narrowed this from restaurant-wide to branch-wide;
+    # this narrows it the rest of the way.
+    if order.order_type != Order.OrderType.TAKEAWAY and order.session_id:
+        from apps.notifications.services import notify
+
+        assigned_server = order.session.assigned_server
+        if assigned_server is not None and assigned_server.is_active:
+            notify(
+                assigned_server, type="ORDER_READY", title=title, body=body,
+                order=order, table=order.table,
+            )
+            return
+        # No assigned server (legacy session, or nobody active to assign to
+        # when the first order landed): fall back to telling every server on
+        # the branch rather than nobody — a missed "food is ready" is worse
+        # than one extra buzz.
+
     roles = ["CASHIER"] if order.order_type == Order.OrderType.TAKEAWAY else ["SERVER"]
     notify_role(
         roles,
         tenant=restaurant,
         type="ORDER_READY",
-        title=f"Order ready — {_order_label(order)}",
-        body=f"Round {order.round_number} is ready to collect from the kitchen.",
+        title=title,
+        body=body,
         order=order,
         table=order.table,
     )
