@@ -78,6 +78,14 @@ class DineOSTokenObtainPairSerializer(TokenObtainPairSerializer):
         data = super().validate(attrs)
         if self.user.restaurant.status == Restaurant.Status.SUSPENDED:
             raise serializers.ValidationError("This organization's account has been suspended.")
+        # 2026-09-21, per Karwin: the login response carried role, role_id
+        # (the ROLE's id, not the person's) and name — nothing stable to
+        # compare against assigned_server_id, so the app had no way to ask
+        # "is this one mine". The id was already reachable, via the JWT's
+        # own user_id claim and GET /v1/auth/me/, but making the frontend
+        # decode a token or spend a second round trip for its own identity
+        # is the wrong ergonomics. Same UUID as both of those.
+        data["user_id"] = str(self.user.id)
         data["role"] = self.user.role
         data["role_id"] = ROLE_METADATA[self.user.role]["id"]
         data["role_name"] = ROLE_METADATA[self.user.role]["name"]

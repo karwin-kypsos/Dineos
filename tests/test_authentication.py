@@ -104,3 +104,38 @@ def test_role_metadata_covers_every_role_choice():
     """Guardrail: if a new role is added to User.Role, ROLE_METADATA must
     also grow — otherwise the login/Me serializers will KeyError at runtime."""
     assert set(ROLE_METADATA.keys()) == set(User.Role.values)
+
+
+def test_login_response_includes_the_users_own_id(api_client, restaurant):
+    """2026-09-21, per Karwin: the login response carried role_id — the
+    ROLE's id, not the person's — so the app had nothing stable to compare
+    against assigned_server_id and could not tell whether a table was its
+    own user's. user_id is the User's own UUID, and must match both the
+    JWT's user_id claim and GET /v1/auth/me/'s id."""
+    import base64
+    import json as _json
+
+    user = User.objects.create_user(
+        email="idcheck@rolemeta.test", password="Demo@1234", role="SERVER",
+        name="Id Check", restaurant=restaurant,
+    )
+
+    response = api_client.post(
+        "/v1/auth/login/", {"email": "idcheck@rolemeta.test", "password": "Demo@1234"}, format="json",
+    )
+
+    assert response.status_code == 200, response.data
+    assert response.data["user_id"] == str(user.id)
+    # Distinct from role_id, which is the role's id and shared by every
+    # user holding that role — the exact confusion this field resolves.
+    assert response.data["user_id"] != response.data["role_id"]
+
+    payload = response.data["access"].split(".")[1]
+    payload += "=" * (-len(payload) % 4)
+    claims = _json.loads(base64.urlsafe_b64decode(payload))
+    assert claims["user_id"] == str(user.id)
+
+    api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {response.data['access']}")
+    me = api_client.get("/v1/auth/me/")
+    assert me.status_code == 200
+    assert me.data["id"] == str(user.id)
