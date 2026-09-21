@@ -12,6 +12,7 @@ from .views import (
     OrdersBySessionView,
     OrdersByTableView,
     ReadyOrdersView,
+    TableServiceStatusView,
     TakeawayOrderDetailView,
     TakeawayOrderView,
 )
@@ -23,6 +24,7 @@ urlpatterns = [
     path("active/", ActiveOrdersView.as_view(), name="orders-active"),
     path("ready/", ReadyOrdersView.as_view(), name="orders-ready"),
     path("mine/", MyOrdersView.as_view(), name="orders-mine"),
+    path("service-status/", TableServiceStatusView.as_view(), name="orders-service-status"),
     path("session/<uuid:session_id>/", OrdersBySessionView.as_view(), name="orders-by-session"),
     path("table/<uuid:table_id>/", OrdersByTableView.as_view(), name="orders-by-table"),
     path("<uuid:order_id>/status/", OrderKitchenStatusView.as_view(), name="orders-kitchen-status"),

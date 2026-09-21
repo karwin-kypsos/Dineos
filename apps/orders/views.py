@@ -1,3 +1,4 @@
+import uuid
 from collections import Counter
 from decimal import Decimal
 
@@ -334,6 +335,102 @@ class MyOrdersView(APIView):
             .prefetch_related("items")
         )
         return Response(OrderSerializer(orders, many=True).data)
+
+
+class TableServiceStatusView(APIView):
+    """2026-09-21, per Karwin: "there is no clear place to track whether an
+    order has been served for a specific table".
+
+    Every order already carries status / collected_at / served_at, and the
+    existing endpoints return all of it — but they return it order by
+    order, so answering "is Table 8 fully served yet" meant fetching a
+    table's orders and reducing them client-side, per table, on a screen
+    that lists many tables. This does that reduction server-side and
+    returns one row per open table.
+
+    Scoped the same way the rest of this module is: a SERVER sees only
+    the tables assigned to them (the whole point — it is their own
+    outstanding work), a CASHIER/MANAGER sees their branch, and an ADMIN
+    (no fixed branch) sees the restaurant, narrowable with ?branch=.
+    ?table=<uuid> narrows to a single table.
+
+    Dine-in only. Takeaway has no table and no session to aggregate over;
+    a takeaway order is collected at the counter, never "served to a
+    table" (see TakeawayOrderView for that queue).
+    """
+
+    permission_classes = [IsAnyStaff]
+
+    def get(self, request):
+        from apps.tables.models import TableSession
+
+        sessions = (
+            TableSession.objects.filter(
+                table__restaurant=request.tenant,
+                status__in=["ACTIVE", "BILL_REQUESTED"],
+            )
+            .select_related("table")
+            .prefetch_related("orders__items__menu_item")
+            .order_by("table__table_number")
+        )
+
+        if request.user.role == "SERVER":
+            sessions = sessions.filter(assigned_server=request.user)
+        else:
+            branch = _request_branch(request)
+            if branch is not None:
+                sessions = sessions.filter(table__branch=branch)
+
+        branch_id = request.query_params.get("branch")
+        if branch_id:
+            try:
+                uuid.UUID(branch_id)
+                sessions = sessions.filter(table__branch_id=branch_id)
+            except ValueError:
+                pass  # malformed branch id — ignored, same convention as elsewhere
+
+        table_id = request.query_params.get("table")
+        if table_id:
+            try:
+                uuid.UUID(table_id)
+                sessions = sessions.filter(table_id=table_id)
+            except ValueError:
+                return Response([])
+
+        payload = []
+        for session in sessions:
+            # CANCELLED orders are not outstanding work and must not make a
+            # table look unserved forever.
+            orders = [o for o in session.orders.all() if o.status != Order.Status.CANCELLED]
+            if not orders:
+                continue
+            rows = [
+                {
+                    "order_id": str(o.id),
+                    "status": o.status,
+                    "is_served": o.status == Order.Status.SERVED,
+                    "collected_at": o.collected_at,
+                    "served_at": o.served_at,
+                    "items": [
+                        {"menu_item_name": i.menu_item.name, "quantity": i.quantity}
+                        for i in o.items.all()
+                    ],
+                }
+                for o in sorted(orders, key=lambda o: o.placed_at)
+            ]
+            served = sum(1 for r in rows if r["is_served"])
+            payload.append({
+                "table_id": str(session.table_id),
+                "table_number": session.table.table_number,
+                "session_id": str(session.id),
+                "assigned_server_id": str(session.assigned_server_id) if session.assigned_server_id else None,
+                "total_orders": len(rows),
+                "served_count": served,
+                "unserved_count": len(rows) - served,
+                "all_served": served == len(rows),
+                "orders": rows,
+            })
+        return Response(payload)
 
 
 class OrderDetailView(APIView):
