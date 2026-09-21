@@ -126,10 +126,19 @@ def test_add_portions_deducts_recipe_ingredients(manager_client, menu_item, chic
     assert StockMovement.objects.filter(ingredient=chicken, movement_type="USAGE", quantity=Decimal("5.00")).exists()
 
 
-def test_add_portions_floors_stock_at_zero_instead_of_going_negative(manager_client, menu_item, chicken, recipe):
-    """2026-08-31, per Shereena's report: deducting more than what's on hand
-    used to leave current_stock negative, and a later restock added on top
-    of that negative number instead of starting clean from zero."""
+def test_add_portions_lets_stock_go_negative_and_restock_self_corrects(
+    manager_client, menu_item, chicken, recipe
+):
+    """2026-09-21, per Shereena and Karwin - the direct reversal of the
+    2026-08-31 clamp.
+
+    That clamp was added because a negative balance looked like a
+    phantom debt. But restock is ADDITIVE, so flooring at zero silently
+    throws the overdraft away and the balance never catches up: use 25
+    against 5 on hand, floor to 0, restock 10, and the books say 10 when
+    only 10 - 20 = -10 worth of it is really free. Allowing the negative
+    makes the arithmetic self-correcting, which is what this asserts.
+    """
     _, client = manager_client
     chicken.current_stock = Decimal("5.00")
     chicken.save(update_fields=["current_stock"])
@@ -140,14 +149,54 @@ def test_add_portions_floors_stock_at_zero_instead_of_going_negative(manager_cli
 
     assert response.status_code == 200, response.data
     chicken.refresh_from_db()
-    assert chicken.current_stock == Decimal("0.00")  # would be -20.00 pre-fix (0.25 * 100 = 25)
+    # 0.25 * 100 = 25 used against 5 on hand.
+    assert chicken.current_stock == Decimal("-20.00")
 
-    # A later restock starts clean from zero, not from the old negative debt.
+    # And the restock corrects itself rather than starting from a lie:
+    # -20 + 30 = 10, which is genuinely what is on the shelf.
     from apps.inventory.services import add_stock
 
-    add_stock(chicken.id, Decimal("10.00"))
+    add_stock(chicken.id, Decimal("30.00"))
     chicken.refresh_from_db()
     assert chicken.current_stock == Decimal("10.00")
+
+
+def test_add_portions_reports_what_it_pushed_under(manager_client, menu_item, chicken, recipe):
+    """stock_warnings lets the app raise the over-used banner straight
+    from the save response, with no second call per ingredient."""
+    _, client = manager_client
+    chicken.current_stock = Decimal("2.00")
+    chicken.save(update_fields=["current_stock"])
+
+    response = client.patch(
+        f"/v1/prepared-dishes/{menu_item.id}/add-portions/", {"additional_quantity": 40}, format="json",
+    )
+
+    assert response.status_code == 200, response.data
+    warnings = response.data["stock_warnings"]
+    assert len(warnings) == 1, warnings
+    w = warnings[0]
+    assert w["ingredient_id"] == str(chicken.id)
+    assert w["ingredient_name"] == chicken.name
+    assert w["requested"] == "10.000"          # 0.25 * 40
+    assert w["available_before"] == "2.00"
+    assert w["current_stock"] == "-8.00"
+
+
+def test_add_portions_reports_no_warnings_when_stock_is_sufficient(
+    manager_client, menu_item, chicken, recipe
+):
+    """Empty array in the normal case - never null, never absent."""
+    _, client = manager_client
+    chicken.current_stock = Decimal("500.00")
+    chicken.save(update_fields=["current_stock"])
+
+    response = client.patch(
+        f"/v1/prepared-dishes/{menu_item.id}/add-portions/", {"additional_quantity": 4}, format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.data["stock_warnings"] == []
 
 
 def test_add_portions_without_recipe_does_not_touch_stock(manager_client, menu_item, chicken):
@@ -173,7 +222,11 @@ def test_add_portions_atomic_rollback_on_failure(manager_client, menu_item, chic
 
     with mock_patch(
         "apps.inventory.services.deduct_for_usage",
-        side_effect=[None, RuntimeError("simulated failure on second ingredient")],
+        # deduct_for_usage returns (movement, warning) since 2026-09-21,
+        # so the successful first call has to hand back a 2-tuple or
+        # add_portions fails unpacking it and this test passes for
+        # entirely the wrong reason.
+        side_effect=[(None, None), RuntimeError("simulated failure on second ingredient")],
     ):
         with pytest.raises(RuntimeError):
             from apps.menu import services as menu_services
@@ -240,5 +293,95 @@ def test_recipe_deduction_is_not_blocked_by_insufficient_stock(manager_client, m
 
     assert response.status_code == 200
     chicken.refresh_from_db()
-    assert chicken.current_stock == Decimal("0.00")  # 1 - (0.25 * 20) = -4, floored to 0
+    # 1 - (0.25 * 20) = -4. Negative since 2026-09-21; the point of this
+    # test is that the prep was NOT blocked, which still holds.
+    assert chicken.current_stock == Decimal("-4.00")
     assert StockMovement.objects.filter(ingredient=chicken, movement_type="USAGE", quantity=Decimal("5.00")).exists()
+
+
+def test_dish_is_auto_86ed_when_a_recipe_ingredient_hits_zero(
+    manager_client, menu_item, chicken, recipe
+):
+    """2026-09-21, per Shereena: a dish whose recipe needs an ingredient
+    at or below zero cannot be made, so it must stop being orderable on
+    every client at once - computed server-side from live stock rather
+    than each app deciding for itself."""
+    _, client = manager_client
+
+    chicken.current_stock = Decimal("100.00")
+    chicken.save(update_fields=["current_stock"])
+    listing = client.get("/v1/menu/all/")
+    row = [i for i in listing.data["results"] if i["id"] == menu_item.id][0]
+    assert row["is_available"] is True
+    assert row["unavailable_reason"] == ""
+
+    chicken.current_stock = Decimal("0.00")
+    chicken.save(update_fields=["current_stock"])
+
+    listing = client.get("/v1/menu/all/")
+    row = [i for i in listing.data["results"] if i["id"] == menu_item.id][0]
+    assert row["is_available"] is False
+    assert chicken.name in row["unavailable_reason"]
+
+
+def test_auto_86ed_dish_disappears_from_the_orderable_menu(
+    manager_client, menu_item, chicken, recipe
+):
+    """The queryset that feeds the customer QR menu and the order-taking
+    screen - i.e. every path that can put the dish on a bill."""
+    _, client = manager_client
+
+    chicken.current_stock = Decimal("100.00")
+    chicken.save(update_fields=["current_stock"])
+    available = client.get("/v1/menu/")
+    assert any(i["id"] == menu_item.id for i in available.data)
+
+    chicken.current_stock = Decimal("-1.00")
+    chicken.save(update_fields=["current_stock"])
+
+    available = client.get("/v1/menu/")
+    assert not any(i["id"] == menu_item.id for i in available.data)
+
+
+def test_restocking_brings_an_auto_86ed_dish_straight_back(
+    manager_client, menu_item, chicken, recipe
+):
+    """Self-healing is the whole reason this is computed rather than
+    stored - there is no flag to reset and no job to run."""
+    from apps.inventory.services import add_stock
+
+    _, client = manager_client
+    chicken.current_stock = Decimal("-5.00")
+    chicken.save(update_fields=["current_stock"])
+    assert not any(i["id"] == menu_item.id for i in client.get("/v1/menu/").data)
+
+    add_stock(chicken.id, Decimal("20.00"))
+
+    assert any(i["id"] == menu_item.id for i in client.get("/v1/menu/").data)
+
+
+def test_a_dish_with_no_recipe_is_never_auto_86ed(manager_client, menu_item, chicken):
+    """Nothing is known about what it consumes, so claiming it is out of
+    stock would be a guess. No `recipe` fixture here on purpose."""
+    _, client = manager_client
+    chicken.current_stock = Decimal("-50.00")
+    chicken.save(update_fields=["current_stock"])
+
+    listing = client.get("/v1/menu/all/")
+    row = [i for i in listing.data["results"] if i["id"] == menu_item.id][0]
+    assert row["is_available"] is True
+
+
+def test_manual_switch_still_wins_and_says_so(manager_client, menu_item, chicken, recipe):
+    """The stored toggle is still the manager's own override, and the
+    reason has to distinguish it from an out-of-stock 86."""
+    _, client = manager_client
+    chicken.current_stock = Decimal("100.00")
+    chicken.save(update_fields=["current_stock"])
+    menu_item.is_available = False
+    menu_item.save(update_fields=["is_available"])
+
+    listing = client.get("/v1/menu/all/")
+    row = [i for i in listing.data["results"] if i["id"] == menu_item.id][0]
+    assert row["is_available"] is False
+    assert row["unavailable_reason"] == "Turned off manually"

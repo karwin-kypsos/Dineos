@@ -71,6 +71,50 @@ class CategorySerializer(ImageUploadMixin, serializers.ModelSerializer):
 
 
 class MenuItemSerializer(ImageUploadMixin, serializers.ModelSerializer):
+    """2026-09-21, per Shereena: is_available is now the EFFECTIVE answer,
+    not just the stored toggle.
+
+    A dish whose recipe needs an ingredient at or below zero cannot be
+    made, so it must stop being sellable on every client at once. The
+    stored column stays the manual switch a manager flips by hand; what
+    goes out over the API is that AND "no recipe ingredient has run
+    out". Computing it here rather than writing the column keeps it
+    self-healing: restock the ingredient and the dish comes back with
+    nothing to repair, and no background job to run.
+
+    unavailable_reason says WHY, so the app can show "out of stock:
+    Chicken" rather than an unexplained grey row.
+
+    Set the `blocked_items` context (menu_item_id -> [ingredient names],
+    from apps.menu.services.out_of_stock_ingredients) to resolve a whole
+    page in one query. Without it each row falls back to its own lookup,
+    which is correct but N+1 - list views should always pass it.
+    """
+
+    is_available = serializers.SerializerMethodField()
+    unavailable_reason = serializers.SerializerMethodField()
+
+    def _blocking_ingredients(self, obj):
+        blocked = self.context.get("blocked_items")
+        if blocked is not None:
+            return blocked.get(obj.id, [])
+        from .services import out_of_stock_ingredients
+
+        return out_of_stock_ingredients([obj.id]).get(obj.id, [])
+
+    def get_is_available(self, obj):
+        if not obj.is_available:
+            return False
+        return not self._blocking_ingredients(obj)
+
+    def get_unavailable_reason(self, obj):
+        if not obj.is_available:
+            return "Turned off manually"
+        names = self._blocking_ingredients(obj)
+        if names:
+            return "Out of stock: " + ", ".join(sorted(names))
+        return ""
+
     category_name = serializers.CharField(source="category.name", read_only=True)
     portions_remaining_today = serializers.SerializerMethodField()
     # Overrides the model field's default=0 (which DRF would otherwise
@@ -102,6 +146,7 @@ class MenuItemSerializer(ImageUploadMixin, serializers.ModelSerializer):
             "image",
             "is_veg",
             "is_available",
+            "unavailable_reason",
             "is_active",
             "sort_order",
             "tracks_daily_portions",
@@ -173,12 +218,41 @@ class MenuItemSerializer(ImageUploadMixin, serializers.ModelSerializer):
 class MenuItemCustomerSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source="category.name", read_only=True)
     portions_remaining = serializers.SerializerMethodField()
+    # 2026-09-21: same effective-availability rule as the staff
+    # serializer. The sellable queryset already filters 86'd dishes out
+    # of this view, so in practice is_available is true for everything
+    # returned here - it is kept honest rather than hardcoded because
+    # this serializer is also used where the caller supplies its own
+    # queryset, and a stale true would be worse than useless.
+    is_available = serializers.SerializerMethodField()
+    unavailable_reason = serializers.SerializerMethodField()
+
+    def _blocking_ingredients(self, obj):
+        blocked = self.context.get("blocked_items")
+        if blocked is not None:
+            return blocked.get(obj.id, [])
+        from .services import out_of_stock_ingredients
+
+        return out_of_stock_ingredients([obj.id]).get(obj.id, [])
+
+    def get_is_available(self, obj):
+        if not obj.is_available:
+            return False
+        return not self._blocking_ingredients(obj)
+
+    def get_unavailable_reason(self, obj):
+        if not obj.is_available:
+            return "Turned off manually"
+        names = self._blocking_ingredients(obj)
+        if names:
+            return "Out of stock: " + ", ".join(sorted(names))
+        return ""
 
     class Meta:
         model = MenuItem
         fields = [
             "id", "category", "category_name", "name", "description", "price", "image_url", "is_veg",
-            "is_available", "tracks_daily_portions", "portions_remaining",
+            "is_available", "unavailable_reason", "tracks_daily_portions", "portions_remaining",
         ]
 
     def get_portions_remaining(self, obj):

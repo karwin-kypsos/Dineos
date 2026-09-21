@@ -48,6 +48,8 @@ def add_portions(menu_item_id, additional_quantity, recorded_by=None, deduction_
     (e.g. today's batch actually used more/less per portion than the
     recipe says) — the portion counter still increments by
     additional_quantity either way.
+
+    Returns (portion, stock_warnings).
     """
     from apps.inventory.models import RecipeItem
 
@@ -66,18 +68,27 @@ def add_portions(menu_item_id, additional_quantity, recorded_by=None, deduction_
 
     from apps.inventory.services import deduct_for_usage
 
+    # 2026-09-21: deduct_for_usage now returns (movement, warning), where
+    # warning is set when that deduction pushed the ingredient to zero or
+    # below. Collected here so the add-portions response can tell the app
+    # what went under without it making a second call per ingredient.
+    warnings = []
     if deduction_overrides is not None:
         for line in deduction_overrides:
-            deduct_for_usage(line["ingredient_id"], line["quantity"], recorded_by=recorded_by)
+            _, warning = deduct_for_usage(line["ingredient_id"], line["quantity"], recorded_by=recorded_by)
+            if warning:
+                warnings.append(warning)
     else:
         for recipe_item in RecipeItem.objects.filter(menu_item=menu_item).select_related("ingredient"):
-            deduct_for_usage(
+            _, warning = deduct_for_usage(
                 recipe_item.ingredient_id,
                 recipe_item.quantity_per_serving * additional_quantity,
                 recorded_by=recorded_by,
             )
+            if warning:
+                warnings.append(warning)
 
-    return portion
+    return portion, warnings
 
 
 def compute_prep_forecast(restaurant, branch=None, target_date=None, lookback_occurrences=4):
@@ -188,3 +199,32 @@ def generate_prep_forecast(restaurant, branch=None, target_date=None, lookback_o
             "reasoning": item.get("reasoning", ""),
         })
     return output, target_date
+
+
+def out_of_stock_ingredients(menu_item_ids):
+    """Which menu items are auto-86'd, and by what.
+
+    2026-09-21, per Shereena: a dish whose recipe needs an ingredient
+    that is at or below zero cannot actually be made, so it must stop
+    being sellable everywhere at once - cashier, customer QR menu and
+    KDS. Computed server-side rather than left to each client, because
+    stock is the source of truth and three clients computing their own
+    86 rule would disagree with each other.
+
+    One query for the whole page of items, returning
+    {menu_item_id: [ingredient names]} for the blocked ones only. Items
+    with no recipe are never blocked - nothing is known about what they
+    consume, so claiming they are out of stock would be a guess.
+    """
+    from apps.inventory.models import RecipeItem
+
+    blocked = {}
+    rows = (
+        RecipeItem.objects
+        .filter(menu_item_id__in=list(menu_item_ids), ingredient__current_stock__lte=0)
+        .select_related("ingredient")
+        .values_list("menu_item_id", "ingredient__name")
+    )
+    for menu_item_id, name in rows:
+        blocked.setdefault(menu_item_id, []).append(name)
+    return blocked

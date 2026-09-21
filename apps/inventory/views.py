@@ -17,6 +17,10 @@ from .serializers import (
     AddStockSerializer,
     AIInsightSerializer,
     IngredientSerializer,
+    ApprovePurchaseOrderSerializer,
+    ClosePurchaseOrderSerializer,
+    GoodsReceiptCreateSerializer,
+    GoodsReceiptSerializer,
     PurchaseOrderCreateSerializer,
     PurchaseOrderSerializer,
     RecipeItemSerializer,
@@ -189,7 +193,7 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
 
         needs_action = self.request.query_params.get("needs_action", "").strip().lower()
         if needs_action == "true":
-            qs = qs.filter(status=PurchaseOrder.Status.PENDING)
+            qs = qs.filter(status=PurchaseOrder.Status.PENDING_APPROVAL)
 
         is_emergency = self.request.query_params.get("is_emergency", "").strip().lower()
         if is_emergency == "true":
@@ -197,7 +201,19 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         elif is_emergency == "false":
             qs = qs.filter(is_emergency=False)
 
+        # 2026-09-21: the enum changed under existing clients, and an
+        # unrecognised value here falls through and returns EVERY po -
+        # so an app still sending "PENDING" would quietly get rejected
+        # and received orders mixed into its pending list, which looks
+        # like data rather than an error. Map the two renamed values so
+        # an un-updated client keeps getting correct results while the
+        # apps catch up.
+        _LEGACY_STATUS = {
+            "PENDING": PurchaseOrder.Status.PENDING_APPROVAL,
+            "RECEIVED": PurchaseOrder.Status.FULLY_RECEIVED,
+        }
         status_filter = self.request.query_params.get("status", "").strip().upper()
+        status_filter = _LEGACY_STATUS.get(status_filter, status_filter)
         if status_filter in PurchaseOrder.Status.values:
             qs = qs.filter(status=status_filter)
 
@@ -259,13 +275,37 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def approve(self, request, pk=None):
+        """Approve, optionally cutting individual lines (2026-09-21).
+
+        Body is optional: {"items": [{"line_id": 1, "approved_quantity":
+        "5.00"}], "note": "supplier short on flour"}. Any line left out
+        is approved at the full requested quantity, so an empty body is
+        still a plain "approve the lot".
+        """
         # get_object() first (same fix as OrderKitchenStatusView /
-        # TableViewSet.override_status) - approve_purchase_order() fetches by
-        # bare id with no tenant check, so without this an Admin/Manager
-        # could approve another restaurant's purchase order given its id.
+        # TableViewSet.override_status) - the service fetches by bare id
+        # with no tenant check, so without this an Admin/Manager could
+        # approve another restaurant's purchase order given its id.
         po_obj = self.get_object()
+        serializer = ApprovePurchaseOrderSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        by_id = {line.id: line for line in po_obj.lines.all()}
+        items = []
+        for entry in serializer.validated_data["items"]:
+            line = by_id.get(entry["line_id"])
+            if line is None:
+                return Response(
+                    {"items": f"Line {entry['line_id']} does not belong to this purchase order."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            items.append({"line": line, "approved_quantity": entry["approved_quantity"]})
+
         try:
-            po = services.approve_purchase_order(po_obj.id, approved_by=request.user)
+            po = services.approve_purchase_order(
+                po_obj.id, approved_by=request.user, items=items,
+                note=serializer.validated_data["note"],
+            )
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
         return Response(PurchaseOrderSerializer(po).data)
@@ -279,23 +319,69 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
             return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
         return Response(PurchaseOrderSerializer(po).data)
 
-    @action(detail=True, methods=["post"], url_path="mark-ordered")
-    def mark_ordered(self, request, pk=None):
+    @action(detail=True, methods=["post"], url_path="goods-receipts")
+    def goods_receipts(self, request, pk=None):
+        """Record one delivery. The ONLY endpoint that moves stock.
+
+        {"items": [{"line_id": 1, "received_quantity": "3.00", "notes":
+        ""}], "notes": "", "confirm_overdelivery": false}
+
+        Receiving more than was approved returns 409 unless
+        confirm_overdelivery is true - never silently clamped, never
+        silently accepted.
+        """
         po_obj = self.get_object()
+        serializer = GoodsReceiptCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        by_id = {line.id: line for line in po_obj.lines.all()}
+        items = []
+        for entry in serializer.validated_data["items"]:
+            line = by_id.get(entry["line_id"])
+            if line is None:
+                return Response(
+                    {"items": f"Line {entry['line_id']} does not belong to this purchase order."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            items.append({
+                "line": line,
+                "received_quantity": entry["received_quantity"],
+                "notes": entry["notes"],
+            })
+
         try:
-            po = services.mark_purchase_order_ordered(po_obj.id)
+            receipt = services.record_goods_receipt(
+                po_obj.id, items, received_by=request.user,
+                confirm_overdelivery=serializer.validated_data["confirm_overdelivery"],
+                notes=serializer.validated_data["notes"],
+            )
+        except services.OverDeliveryError as e:
+            return Response(
+                {"detail": str(e), "requires_confirmation": True},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except ValueError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
+        return Response(GoodsReceiptSerializer(receipt).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def close(self, request, pk=None):
+        """Give up on the outstanding balance of a short-shipped PO."""
+        po_obj = self.get_object()
+        serializer = ClosePurchaseOrderSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            po = services.close_purchase_order(
+                po_obj.id, reason=serializer.validated_data["reason"], closed_by=request.user,
+            )
         except ValueError as e:
             return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
         return Response(PurchaseOrderSerializer(po).data)
 
-    @action(detail=True, methods=["post"])
-    def receive(self, request, pk=None):
-        po_obj = self.get_object()
-        try:
-            po = services.receive_purchase_order(po_obj.id, recorded_by=request.user)
-        except ValueError as e:
-            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
-        return Response(PurchaseOrderSerializer(po).data)
+    @action(detail=True, methods=["get"])
+    def discrepancy(self, request, pk=None):
+        """Ordered vs approved vs received per line - what to chase."""
+        return Response(services.purchase_order_discrepancy(self.get_object()))
 
 
 class RecipeItemViewSet(viewsets.ModelViewSet):

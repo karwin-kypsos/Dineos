@@ -8,26 +8,60 @@ from django.utils import timezone
 
 from apps.notifications.services import notify_role
 
-from .models import AIInsight, Ingredient, PurchaseOrder, PurchaseOrderLine, StockMovement
+from .models import (
+    AIInsight,
+    GoodsReceipt,
+    GoodsReceiptLine,
+    Ingredient,
+    PurchaseOrder,
+    PurchaseOrderLine,
+    StockMovement,
+)
 
 
 class InsufficientStockError(Exception):
     pass
 
 
-def _notify_if_newly_low_stock(ingredient, was_low_stock):
-    """Fires once, right when stock crosses into LOW territory — not on
-    every subsequent wastage/usage entry while it stays low, so
-    Admin/Manager aren't spammed with the same alert repeatedly.
+def _notify_if_stock_level_dropped(ingredient, previous_status):
+    """Fire once, on the transition into a worse stock level.
 
-    2026-09-14, per Karwin: deliberately does NOT fire for `critical`
-    (stock at or below zero) — only `low` (below the reorder point but
-    still some on hand). Note this means a single large deduction that
-    takes an ingredient straight from healthy to zero skips the alert
-    entirely, since it never passes through `low`.
+    Keyed on the status BEFORE the deduction rather than a bare
+    "is it low" boolean, so each threshold announces itself exactly once
+    and staying at that level does not re-alert on every subsequent
+    wastage or sale.
+
+    History, because this has moved twice. Originally low and critical
+    both fired LOW_STOCK. On 2026-09-14 Karwin suppressed critical to
+    stop the double alert - but that left the worst case, running out
+    completely, silent, and a single large deduction from healthy
+    straight to zero produced nothing at all. On 2026-09-21 he asked for
+    a distinct CRITICAL_STOCK alert, which is what this now does:
+
+        healthy -> low       LOW_STOCK
+        healthy -> critical  CRITICAL_STOCK   (skipped low entirely)
+        low     -> critical  CRITICAL_STOCK
+        critical -> critical nothing
+        anything going UP    nothing (restocking is not an alert)
     """
-    if was_low_stock or ingredient.stock_status != "low":
+    current = ingredient.stock_status
+    if current == previous_status or current == "healthy":
         return
+    # Only ever alert on the way down. A restock that lands an ingredient
+    # back on "low" from "critical" is good news, not an alert.
+    RANK = {"healthy": 0, "low": 1, "critical": 2}
+    if RANK[current] <= RANK.get(previous_status, 0):
+        return
+
+    if current == "critical":
+        notify_role(
+            ["ADMIN", "MANAGER"], tenant=ingredient.restaurant, type="CRITICAL_STOCK",
+            title=f"Out of stock: {ingredient.name}",
+            body=f"{ingredient.name} has run out (minimum {ingredient.minimum_stock_level} {ingredient.unit}).",
+            data={"ingredient_id": str(ingredient.id)}, branch=ingredient.branch,
+        )
+        return
+
     notify_role(
         ["ADMIN", "MANAGER"], tenant=ingredient.restaurant, type="LOW_STOCK",
         title=f"Low stock: {ingredient.name}",
@@ -37,7 +71,15 @@ def _notify_if_newly_low_stock(ingredient, was_low_stock):
 
 
 @transaction.atomic
-def add_stock(ingredient_id, quantity, unit_cost=None, recorded_by=None):
+def add_stock(ingredient_id, quantity, unit_cost=None, recorded_by=None, adjustment_reason=""):
+    """Raise an ingredient's stock and log the movement.
+
+    2026-09-21: every caller now says WHY. A hand-entered correction and
+    a real delivery both raise stock, and without a reason on the row
+    they are indistinguishable afterwards - which is exactly the audit
+    gap the goods-receipt work is meant to close. record_goods_receipt
+    passes GOODS_RECEIPT; the manual endpoint makes the user choose.
+    """
     ingredient = Ingredient.objects.select_for_update().get(id=ingredient_id)
     ingredient.current_stock += quantity
     if unit_cost is not None:
@@ -46,20 +88,29 @@ def add_stock(ingredient_id, quantity, unit_cost=None, recorded_by=None):
     return StockMovement.objects.create(
         ingredient=ingredient, movement_type=StockMovement.MovementType.RESTOCK,
         quantity=quantity, unit_cost_at_time=unit_cost or ingredient.unit_cost, recorded_by=recorded_by,
+        adjustment_reason=adjustment_reason,
     )
 
 
 @transaction.atomic
 def record_wastage(ingredient_id, quantity, wastage_reason, reason="", recorded_by=None):
     ingredient = Ingredient.objects.select_for_update().get(id=ingredient_id)
-    if quantity > ingredient.current_stock:
+    # 2026-09-21: compare against max(stock, 0). Prep-log can now drive
+    # stock negative, and a bare `quantity > current_stock` would mean
+    # that once an ingredient sits at -8 EVERY wastage entry is refused
+    # (any positive amount exceeds -8), locking the ingredient out of
+    # wastage entirely until someone restocks. Wastage still rejects
+    # over-deduction as Karwin wants; it just measures against an empty
+    # shelf rather than against a debt.
+    on_hand = max(ingredient.current_stock, Decimal("0"))
+    if quantity > on_hand:
         raise InsufficientStockError(
-            f"Cannot record {quantity} {ingredient.unit} of wastage — only {ingredient.current_stock} in stock."
+            f"Cannot record {quantity} {ingredient.unit} of wastage — only {on_hand} in stock."
         )
-    was_low_stock = ingredient.is_low_stock
+    previous_status = ingredient.stock_status
     ingredient.current_stock -= quantity
     ingredient.save(update_fields=["current_stock"])
-    _notify_if_newly_low_stock(ingredient, was_low_stock)
+    _notify_if_stock_level_dropped(ingredient, previous_status)
     return StockMovement.objects.create(
         ingredient=ingredient, movement_type=StockMovement.MovementType.WASTAGE,
         quantity=quantity, wastage_reason=wastage_reason, reason=reason,
@@ -69,30 +120,56 @@ def record_wastage(ingredient_id, quantity, wastage_reason, reason="", recorded_
 
 @transaction.atomic
 def deduct_for_usage(ingredient_id, quantity, recorded_by=None):
-    """Used by the Daily Prep Log recipe deduction. Unlike record_wastage,
-    this deliberately does NOT block on insufficient stock: the Manager has
-    already physically prepared the dish by the time this runs, so refusing
-    to log it wouldn't undo that — it would just leave the prep log out of
-    sync with reality.
+    """Stock consumed by cooking - the Daily Prep Log's per-recipe deduction.
 
-    current_stock itself is floored at 0 rather than going negative (2026-08-31,
-    per Shereena's report — a negative balance was carrying over as a debt
-    onto the next restock, e.g. 25kg on hand minus a 30kg deduction left
-    -5kg, and adding 10kg back only brought it to 5kg instead of 10kg). The
-    StockMovement still records the full requested `quantity` as the usage
-    amount — that's what was actually consumed in reality — only the running
-    balance is clamped, so the audit trail stays accurate even when the
-    balance can't go any lower than zero.
+    2026-09-21: the zero clamp is GONE and stock is allowed to go
+    negative. History, because this has now flipped twice. It used to go
+    negative; on 2026-08-31 Shereena reported that as a bug (25 on hand
+    minus 30 left -5, and adding 10 back gave 5 rather than 10, reading
+    as a phantom debt) so it was floored at 0. But restock is additive,
+    which means flooring silently DISCARDS the overdraft: the balance
+    stops being the truth and never catches up. Per Shereena and Karwin
+    the clamp is removed - with additive restock the arithmetic
+    self-corrects, -8 + 10 = 2, which is genuinely what is on the shelf.
+
+    This path NEVER rejects, unlike record_wastage. The food is already
+    cooked by the time this is called, and refusing would leave
+    portions_remaining wrong and the dish unsellable on the POS.
+
+    Returns (movement, warning) - warning is a dict when this deduction
+    pushed the ingredient to zero or below, else None, so the caller can
+    surface it without a second query.
     """
     ingredient = Ingredient.objects.select_for_update().get(id=ingredient_id)
-    was_low_stock = ingredient.is_low_stock
-    ingredient.current_stock = max(ingredient.current_stock - quantity, Decimal("0"))
+    available_before = ingredient.current_stock
+    previous_status = ingredient.stock_status
+    ingredient.current_stock = ingredient.current_stock - quantity
     ingredient.save(update_fields=["current_stock"])
-    _notify_if_newly_low_stock(ingredient, was_low_stock)
-    return StockMovement.objects.create(
+    _notify_if_stock_level_dropped(ingredient, previous_status)
+
+    movement = StockMovement.objects.create(
         ingredient=ingredient, movement_type=StockMovement.MovementType.USAGE,
         quantity=quantity, unit_cost_at_time=ingredient.unit_cost, recorded_by=recorded_by,
     )
+    warning = None
+    if ingredient.current_stock <= 0:
+        # current_stock and available_before are quantised to the
+        # column's own 2 places. Recipe quantities carry 3 (0.125 kg is
+        # a legitimate per-serving amount), so the arithmetic yields
+        # "-8.000" in memory while GET /v1/inventory/ingredients/ says
+        # "-8.00" for the very same value - the app would render one
+        # number two ways. `requested` keeps its full precision because
+        # it is the real deduction, and rounding that WOULD misreport.
+        cents = Decimal("0.01")
+        warning = {
+            "ingredient_id": str(ingredient.id),
+            "ingredient_name": ingredient.name,
+            "unit": ingredient.unit,
+            "requested": str(quantity),
+            "available_before": str(available_before.quantize(cents)),
+            "current_stock": str(ingredient.current_stock.quantize(cents)),
+        }
+    return movement, warning
 
 
 @transaction.atomic
@@ -111,15 +188,29 @@ def create_purchase_order(
         )
 
     if is_emergency:
-        # Already physically bought — nothing left to approve/order for
-        # something that already happened. Same restock-and-mark-received
-        # logic as receive_purchase_order, just entered immediately.
-        for line in po.lines.select_related("ingredient"):
-            add_stock(line.ingredient_id, line.quantity_ordered, unit_cost=line.unit_cost, recorded_by=requested_by)
-            line.quantity_received = line.quantity_ordered
-            line.save(update_fields=["quantity_received"])
-        po.status = PurchaseOrder.Status.RECEIVED
-        po.save(update_fields=["status"])
+        # Already physically bought - nothing left to approve for something
+        # that already happened. 2026-09-21: this used to add stock
+        # directly, which was a second code path that could write stock
+        # and broke the one rule this whole feature rests on. It now goes
+        # through a real goods receipt like every other delivery, so the
+        # invariant holds with no exceptions and the emergency restock
+        # appears in receipt history rather than materialising from
+        # nowhere.
+        po.status = PurchaseOrder.Status.APPROVED
+        po.approved_by = requested_by
+        po.approved_at = timezone.now()
+        po.save(update_fields=["status", "approved_by", "approved_at"])
+        lines = list(po.lines.select_related("ingredient"))
+        for line in lines:
+            line.approved_quantity = line.quantity_ordered
+            line.save(update_fields=["approved_quantity"])
+        record_goods_receipt(
+            po.id,
+            [{"line": line, "received_quantity": line.quantity_ordered} for line in lines],
+            received_by=requested_by,
+            notes="Emergency purchase - goods already in hand at the time the request was raised.",
+        )
+        po.refresh_from_db()
     else:
         # 2026-09-10, per Shereena - Admin needs to know a Manager raised a
         # PO that needs approval. Skipped for emergency POs above since
@@ -154,17 +245,51 @@ def _notify_purchase_order_requester(po, type, title, body):
     ))
 
 
+class OverDeliveryError(Exception):
+    """Received more than was approved, without confirm_overdelivery set."""
+
+
 @transaction.atomic
-def approve_purchase_order(po_id, approved_by):
+def approve_purchase_order(po_id, approved_by, items=None, note=""):
+    """Approve a PO, optionally cutting individual lines down.
+
+    2026-09-21: approval is now per line. `items` is a list of
+    {"line": PurchaseOrderLine, "approved_quantity": Decimal}; any line
+    not mentioned is approved at the full requested quantity, which keeps
+    the old "approve the whole thing" call working as a no-argument call.
+    A quantity of 0 approves nothing for that line - legitimate when a
+    supplier cannot source one item at all.
+    """
     from django.utils import timezone
 
     po = PurchaseOrder.objects.select_for_update().get(id=po_id)
-    if po.status != PurchaseOrder.Status.PENDING:
+    if po.status != PurchaseOrder.Status.PENDING_APPROVAL:
         raise ValueError(f"Cannot approve a purchase order in {po.status} status.")
+
+    requested = {line.id: line for line in po.lines.select_for_update()}
+    approved = {}
+    for entry in items or []:
+        line = entry["line"]
+        if line.id not in requested:
+            raise ValueError("That line does not belong to this purchase order.")
+        qty = entry["approved_quantity"]
+        if qty < 0:
+            raise ValueError("An approved quantity cannot be negative.")
+        if qty > line.quantity_ordered:
+            raise ValueError(
+                f"Cannot approve {qty} of {line.ingredient.name} - only {line.quantity_ordered} was requested."
+            )
+        approved[line.id] = qty
+
+    for line_id, line in requested.items():
+        line.approved_quantity = approved.get(line_id, line.quantity_ordered)
+        line.save(update_fields=["approved_quantity"])
+
     po.status = PurchaseOrder.Status.APPROVED
     po.approved_by = approved_by
     po.approved_at = timezone.now()
-    po.save(update_fields=["status", "approved_by", "approved_at"])
+    po.approval_note = note or ""
+    po.save(update_fields=["status", "approved_by", "approved_at", "approval_note"])
     _notify_purchase_order_requester(
         po, "PURCHASE_ORDER_APPROVED", "Purchase order approved",
         f"Your purchase order ({po.supplier_name or 'no supplier set'}) was approved.",
@@ -177,7 +302,7 @@ def reject_purchase_order(po_id, rejected_by):
     from django.utils import timezone
 
     po = PurchaseOrder.objects.select_for_update().get(id=po_id)
-    if po.status != PurchaseOrder.Status.PENDING:
+    if po.status != PurchaseOrder.Status.PENDING_APPROVAL:
         raise ValueError(f"Cannot reject a purchase order in {po.status} status.")
     po.status = PurchaseOrder.Status.REJECTED
     po.approved_by = rejected_by
@@ -191,44 +316,130 @@ def reject_purchase_order(po_id, rejected_by):
 
 
 @transaction.atomic
-def mark_purchase_order_ordered(po_id):
+def record_goods_receipt(po_id, items, received_by=None, confirm_overdelivery=False, notes=""):
+    """Record one delivery against a PO. THE ONLY PATH THAT RAISES STOCK.
+
+    `items` is [{"line": PurchaseOrderLine, "received_quantity": Decimal,
+    "notes": str}]. Quantities are per-delivery, not running totals, and
+    accumulate onto PurchaseOrderLine.quantity_received.
+
+    Over-delivery (cumulative received beyond approved) is refused unless
+    confirm_overdelivery is set - never silently clamped and never
+    silently accepted, because both hide a real discrepancy with the
+    supplier.
+    """
     po = PurchaseOrder.objects.select_for_update().get(id=po_id)
-    if po.status != PurchaseOrder.Status.APPROVED:
-        raise ValueError(f"Cannot mark a purchase order in {po.status} status as ordered.")
-    po.status = PurchaseOrder.Status.ORDERED
+    if po.status not in (
+        PurchaseOrder.Status.APPROVED,
+        PurchaseOrder.Status.PARTIALLY_RECEIVED,
+        # FULLY_RECEIVED is allowed on purpose. A supplier who turns up
+        # with extra after the PO was already satisfied is a real thing,
+        # and refusing outright would leave stock that physically exists
+        # unrecordable. It is not a free pass: everything is already at
+        # or past its approved quantity by definition, so any such
+        # receipt trips the over-delivery guard below and needs
+        # confirm_overdelivery. CLOSED stays blocked - closing is a
+        # deliberate "we are done with this one" decision.
+        PurchaseOrder.Status.FULLY_RECEIVED,
+    ):
+        raise ValueError(f"Cannot receive against a purchase order in {po.status} status.")
+
+    lines = {line.id: line for line in po.lines.select_related("ingredient").select_for_update()}
+    if not items:
+        raise ValueError("A goods receipt needs at least one line.")
+
+    over = []
+    for entry in items:
+        line = lines.get(entry["line"].id)
+        if line is None:
+            raise ValueError("That line does not belong to this purchase order.")
+        qty = entry["received_quantity"]
+        if qty <= 0:
+            raise ValueError("A received quantity must be greater than zero.")
+        limit = line.approved_quantity if line.approved_quantity is not None else line.quantity_ordered
+        if line.quantity_received + qty > limit:
+            over.append(
+                f"{line.ingredient.name}: {line.quantity_received + qty} received vs {limit} approved"
+            )
+    if over and not confirm_overdelivery:
+        raise OverDeliveryError(
+            "More was received than approved for: " + "; ".join(over)
+            + ". Re-send with confirm_overdelivery true to accept it anyway."
+        )
+
+    receipt = GoodsReceipt.objects.create(purchase_order=po, received_by=received_by, notes=notes or "")
+    for entry in items:
+        line = lines[entry["line"].id]
+        qty = entry["received_quantity"]
+        GoodsReceiptLine.objects.create(
+            goods_receipt=receipt, purchase_order_line=line,
+            received_quantity=qty, notes=entry.get("notes", "") or "",
+        )
+        add_stock(
+            line.ingredient_id, qty, unit_cost=line.unit_cost, recorded_by=received_by,
+            adjustment_reason=StockMovement.AdjustmentReason.GOODS_RECEIPT,
+        )
+        line.quantity_received = line.quantity_received + qty
+        line.save(update_fields=["quantity_received"])
+
+    po.status = _settle_receipt_status(po)
     po.save(update_fields=["status"])
-    # 2026-09-10, per Shereena - Admin should also see when a Manager has
-    # actually placed the order with the supplier, not just when it's
-    # raised/approved.
-    transaction.on_commit(lambda: notify_role(
-        ["ADMIN"], tenant=po.restaurant, type="PURCHASE_ORDER_ORDERED",
-        title=f"Purchase order marked as ordered — {po.supplier_name or 'no supplier set'}",
-        body="The approved order has been placed with the supplier.",
-        data={"purchase_order_id": str(po.id)}, branch=po.branch,
-    ))
-    return po
+    return receipt
+
+
+def _settle_receipt_status(po):
+    """FULLY_RECEIVED once every line has its approved quantity in, else
+    PARTIALLY_RECEIVED. A line approved at 0 counts as satisfied - there
+    was never anything to deliver."""
+    for line in po.lines.all():
+        expected = line.approved_quantity if line.approved_quantity is not None else line.quantity_ordered
+        if line.quantity_received < expected:
+            return PurchaseOrder.Status.PARTIALLY_RECEIVED
+    return PurchaseOrder.Status.FULLY_RECEIVED
 
 
 @transaction.atomic
-def receive_purchase_order(po_id, recorded_by=None):
-    """Marks every line fully received and restocks each ingredient in one
-    atomic sweep — a partial/mixed-delivery receive can be added later by
-    accepting per-line quantities instead, but every line is always
-    all-or-nothing within this single transaction either way."""
+def close_purchase_order(po_id, reason, closed_by=None):
+    """Give up on the outstanding balance of a short-shipped PO."""
     po = PurchaseOrder.objects.select_for_update().get(id=po_id)
-    if po.status != PurchaseOrder.Status.ORDERED:
-        raise ValueError(f"Cannot receive a purchase order in {po.status} status.")
-
-    for line in po.lines.select_related("ingredient").select_for_update():
-        outstanding = line.quantity_ordered - line.quantity_received
-        if outstanding > 0:
-            add_stock(line.ingredient_id, outstanding, unit_cost=line.unit_cost, recorded_by=recorded_by)
-            line.quantity_received = line.quantity_ordered
-            line.save(update_fields=["quantity_received"])
-
-    po.status = PurchaseOrder.Status.RECEIVED
-    po.save(update_fields=["status"])
+    if po.status != PurchaseOrder.Status.PARTIALLY_RECEIVED:
+        raise ValueError(
+            f"Only a partially received purchase order can be closed - this one is {po.status}."
+        )
+    if not (reason or "").strip():
+        raise ValueError("A reason is required to close a short-shipped purchase order.")
+    po.status = PurchaseOrder.Status.CLOSED
+    po.closed_reason = reason.strip()
+    po.save(update_fields=["status", "closed_reason"])
     return po
+
+
+def purchase_order_discrepancy(po):
+    """Ordered vs approved vs received, per line - what to chase the
+    supplier about."""
+    lines = []
+    for line in po.lines.select_related("ingredient"):
+        approved = line.approved_quantity
+        expected = approved if approved is not None else line.quantity_ordered
+        lines.append({
+            "line_id": line.id,
+            "ingredient_id": str(line.ingredient_id),
+            "ingredient_name": line.ingredient.name,
+            "unit": line.ingredient.unit,
+            "quantity_ordered": line.quantity_ordered,
+            "approved_quantity": approved,
+            "quantity_received": line.quantity_received,
+            "outstanding": max(expected - line.quantity_received, Decimal("0")),
+            "over_received": max(line.quantity_received - expected, Decimal("0")),
+        })
+    return {
+        "purchase_order_id": str(po.id),
+        "status": po.status,
+        "approval_note": po.approval_note,
+        "closed_reason": po.closed_reason,
+        "lines": lines,
+        "fully_satisfied": all(row["outstanding"] == 0 for row in lines),
+    }
 
 
 def _usage_in_window(ingredient, start, end):
@@ -260,7 +471,12 @@ def compute_ingredient_stats(ingredient, window_days=7):
     if prior_daily_rate > 0:
         trend_pct = round(float((daily_rate - prior_daily_rate) / prior_daily_rate) * 100, 1)
 
-    days_until_stockout = float(ingredient.current_stock / daily_rate) if daily_rate > 0 else None
+    # 2026-09-21: floored at 0. Stock can now be negative, and a negative
+    # "days until stockout" is meaningless - already out is zero days away,
+    # not minus three.
+    days_until_stockout = (
+        max(float(ingredient.current_stock / daily_rate), 0.0) if daily_rate > 0 else None
+    )
 
     last_restock = (
         StockMovement.objects.filter(ingredient=ingredient, movement_type=StockMovement.MovementType.RESTOCK)

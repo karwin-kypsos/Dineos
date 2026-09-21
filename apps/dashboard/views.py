@@ -67,7 +67,7 @@ class AdminDashboardView(APIView):
         )
         tables = Table.objects.filter(restaurant=restaurant, is_active=True)
         ingredients = Ingredient.objects.filter(restaurant=restaurant, is_active=True)
-        pending_pos = PurchaseOrder.objects.filter(restaurant=restaurant, status=PurchaseOrder.Status.PENDING)
+        pending_pos = PurchaseOrder.objects.filter(restaurant=restaurant, status=PurchaseOrder.Status.PENDING_APPROVAL)
         staff = User.objects.filter(restaurant=restaurant, is_active=True)
         insights = AIInsight.objects.filter(restaurant=restaurant, is_dismissed=False)
 

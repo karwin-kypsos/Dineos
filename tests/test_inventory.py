@@ -253,12 +253,20 @@ def test_purchase_order_filter_by_status(manager_client, ingredient):
 
     assert response.status_code == 200
     results = response.data["results"] if isinstance(response.data, dict) else response.data
-    assert all(po["status"] == "PENDING" for po in results)
+    assert all(po["status"] == "PENDING_APPROVAL" for po in results)
     assert len(results) >= 1
 
+    # The enum was renamed on 2026-09-21. An app still sending the old
+    # value must keep getting the right rows, not every row - an
+    # unrecognised status falls through the filter entirely.
     response = client.get("/v1/inventory/purchase-orders/?status=RECEIVED")
     results = response.data["results"] if isinstance(response.data, dict) else response.data
-    assert all(po["status"] == "RECEIVED" for po in results)
+    assert all(po["status"] == "FULLY_RECEIVED" for po in results)
+
+    response = client.get("/v1/inventory/purchase-orders/?status=PENDING_APPROVAL")
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    assert all(po["status"] == "PENDING_APPROVAL" for po in results)
+    assert len(results) >= 1
 
 
 def test_purchase_order_date_range_filters_inclusive(manager_client, ingredient):
@@ -364,7 +372,7 @@ def test_purchase_order_needs_action_filter_and_branch_scoping(admin_client, ing
     response = admin_c.get("/v1/inventory/purchase-orders/?needs_action=true")
     results = response.data["results"] if isinstance(response.data, dict) else response.data
     assert response.status_code == 200
-    assert all(po["status"] == "PENDING" for po in results)
+    assert all(po["status"] == "PENDING_APPROVAL" for po in results)
     assert len(results) == 1
     assert results[0]["id"] == second.data["id"]
 
@@ -438,7 +446,7 @@ def test_emergency_purchase_order_is_received_immediately_and_restocks(manager_c
     )
 
     assert response.status_code == 201, response.data
-    assert response.data["status"] == "RECEIVED"
+    assert response.data["status"] == "FULLY_RECEIVED"
     assert response.data["is_emergency"] is True
     assert response.data["reason"] == "AI_ALERT"
     assert response.data["lines"][0]["quantity_received"] == "3.00"
@@ -457,7 +465,7 @@ def test_non_emergency_purchase_order_stays_pending(manager_client, ingredient):
     )
 
     assert response.status_code == 201, response.data
-    assert response.data["status"] == "PENDING"
+    assert response.data["status"] == "PENDING_APPROVAL"
     assert response.data["is_emergency"] is False
 
     ingredient.refresh_from_db()
@@ -465,37 +473,124 @@ def test_non_emergency_purchase_order_stays_pending(manager_client, ingredient):
 
 
 def test_full_purchase_order_lifecycle(admin_client, manager_client, ingredient):
+    """2026-09-21, rewritten for the goods-receipt flow: raise, approve,
+    receive. There is no longer a mark-ordered step."""
     admin, admin_c = admin_client
     _, manager_c = manager_client
 
     create = manager_c.post(
         "/v1/inventory/purchase-orders/",
-        {"supplier_name": "Fresh Farms", "lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "20.00", "unit_cost": "210.00"}]},
+        {"supplier_name": "Fresh Farms",
+         "lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "20.00", "unit_cost": "210.00"}]},
         format="json",
     )
     assert create.status_code == 201, create.data
     po_id = create.data["id"]
-    assert create.data["status"] == "PENDING"
+    assert create.data["status"] == "PENDING_APPROVAL"
+    line_id = create.data["lines"][0]["id"]
 
-    approve = admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/approve/")
-    assert approve.status_code == 200
+    approve = admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/approve/", {}, format="json")
+    assert approve.status_code == 200, approve.data
     assert approve.data["status"] == "APPROVED"
     assert approve.data["approved_by_name"] == admin.name
+    # Approving with no body approves everything at the requested amount.
+    assert approve.data["lines"][0]["approved_quantity"] == "20.00"
 
-    ordered = admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/mark-ordered/")
-    assert ordered.status_code == 200
-    assert ordered.data["status"] == "ORDERED"
+    ingredient.refresh_from_db()
+    assert ingredient.current_stock == Decimal("10.00"), "approval must not move stock"
 
-    received = admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/receive/")
-    assert received.status_code == 200
-    assert received.data["status"] == "RECEIVED"
-    assert received.data["lines"][0]["quantity_received"] == "20.00"
+    receipt = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"line_id": line_id, "received_quantity": "20.00"}]}, format="json",
+    )
+    assert receipt.status_code == 201, receipt.data
+    assert receipt.data["lines"][0]["received_quantity"] == "20.00"
+
+    detail = admin_c.get(f"/v1/inventory/purchase-orders/{po_id}/")
+    assert detail.data["status"] == "FULLY_RECEIVED"
+    assert detail.data["lines"][0]["quantity_received"] == "20.00"
+    assert len(detail.data["goods_receipts"]) == 1
 
     ingredient.refresh_from_db()
     assert ingredient.current_stock == Decimal("30.00")  # 10 initial + 20 received
 
 
-def test_cannot_receive_purchase_order_before_ordered(admin_client, manager_client, ingredient):
+def test_partial_deliveries_accumulate_and_then_complete(admin_client, manager_client, ingredient):
+    """The whole point of the rewrite: a supplier who short-ships and
+    sends the rest later produces two receipts against one PO, and the
+    line's received quantity accumulates rather than being overwritten."""
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+
+    create = manager_c.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "10.00"}]}, format="json",
+    )
+    po_id = create.data["id"]
+    line_id = create.data["lines"][0]["id"]
+    admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/approve/", {}, format="json")
+
+    first = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"line_id": line_id, "received_quantity": "4.00"}]}, format="json",
+    )
+    assert first.status_code == 201
+    mid = admin_c.get(f"/v1/inventory/purchase-orders/{po_id}/")
+    assert mid.data["status"] == "PARTIALLY_RECEIVED"
+    assert mid.data["lines"][0]["quantity_received"] == "4.00"
+    ingredient.refresh_from_db()
+    assert ingredient.current_stock == Decimal("14.00")
+
+    second = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"line_id": line_id, "received_quantity": "6.00"}]}, format="json",
+    )
+    assert second.status_code == 201
+    done = admin_c.get(f"/v1/inventory/purchase-orders/{po_id}/")
+    assert done.data["status"] == "FULLY_RECEIVED"
+    assert done.data["lines"][0]["quantity_received"] == "10.00", "cumulative, not overwritten"
+    assert len(done.data["goods_receipts"]) == 2
+    ingredient.refresh_from_db()
+    assert ingredient.current_stock == Decimal("20.00")
+
+
+def test_approving_less_than_requested_caps_what_can_be_received(admin_client, manager_client, ingredient):
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+
+    create = manager_c.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "10.00"}]}, format="json",
+    )
+    po_id = create.data["id"]
+    line_id = create.data["lines"][0]["id"]
+
+    approve = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/approve/",
+        {"items": [{"line_id": line_id, "approved_quantity": "6.00"}], "note": "supplier short"},
+        format="json",
+    )
+    assert approve.status_code == 200, approve.data
+    assert approve.data["lines"][0]["approved_quantity"] == "6.00"
+    assert approve.data["approval_note"] == "supplier short"
+
+    # 6 is fine; the 7th unit is an over-delivery against the APPROVED
+    # amount even though 10 was originally requested.
+    ok = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"line_id": line_id, "received_quantity": "6.00"}]}, format="json",
+    )
+    assert ok.status_code == 201
+    over = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"line_id": line_id, "received_quantity": "1.00"}]}, format="json",
+    )
+    assert over.status_code == 409
+    assert over.data["requires_confirmation"] is True
+
+
+def test_over_delivery_is_refused_then_accepted_on_confirmation(admin_client, manager_client, ingredient):
+    """Never silently clamped, never silently accepted."""
     _, admin_c = admin_client
     _, manager_c = manager_client
 
@@ -504,10 +599,175 @@ def test_cannot_receive_purchase_order_before_ordered(admin_client, manager_clie
         {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00"}]}, format="json",
     )
     po_id = create.data["id"]
+    line_id = create.data["lines"][0]["id"]
+    admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/approve/", {}, format="json")
 
-    response = admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/receive/")
+    refused = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"line_id": line_id, "received_quantity": "8.00"}]}, format="json",
+    )
+    assert refused.status_code == 409
+    assert refused.data["requires_confirmation"] is True
+    ingredient.refresh_from_db()
+    assert ingredient.current_stock == Decimal("10.00"), "a refused receipt must not move stock"
+
+    accepted = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"line_id": line_id, "received_quantity": "8.00"}], "confirm_overdelivery": True},
+        format="json",
+    )
+    assert accepted.status_code == 201
+    ingredient.refresh_from_db()
+    assert ingredient.current_stock == Decimal("18.00"), "the full 8 is taken, not clamped to 5"
+
+
+def test_short_shipped_po_can_be_closed_with_a_reason(admin_client, manager_client, ingredient):
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+
+    create = manager_c.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "10.00"}]}, format="json",
+    )
+    po_id = create.data["id"]
+    line_id = create.data["lines"][0]["id"]
+    admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/approve/", {}, format="json")
+
+    # Cannot close before anything has been received.
+    too_early = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/close/", {"reason": "giving up"}, format="json")
+    assert too_early.status_code == 409
+
+    admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"line_id": line_id, "received_quantity": "4.00"}]}, format="json",
+    )
+    closed = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/close/",
+        {"reason": "supplier cannot source the rest"}, format="json",
+    )
+    assert closed.status_code == 200, closed.data
+    assert closed.data["status"] == "CLOSED"
+    assert closed.data["closed_reason"] == "supplier cannot source the rest"
+
+
+def test_discrepancy_report_shows_ordered_approved_received(admin_client, manager_client, ingredient):
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+
+    create = manager_c.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "10.00"}]}, format="json",
+    )
+    po_id = create.data["id"]
+    line_id = create.data["lines"][0]["id"]
+    admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/approve/",
+        {"items": [{"line_id": line_id, "approved_quantity": "8.00"}]}, format="json",
+    )
+    admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"line_id": line_id, "received_quantity": "3.00"}]}, format="json",
+    )
+
+    report = admin_c.get(f"/v1/inventory/purchase-orders/{po_id}/discrepancy/")
+    assert report.status_code == 200, report.data
+    row = report.data["lines"][0]
+    assert row["quantity_ordered"] == Decimal("10.00")
+    assert row["approved_quantity"] == Decimal("8.00")
+    assert row["quantity_received"] == Decimal("3.00")
+    assert row["outstanding"] == Decimal("5.00")
+    assert row["over_received"] == Decimal("0")
+    assert report.data["fully_satisfied"] is False
+
+
+def test_emergency_purchase_goes_through_a_real_goods_receipt(manager_client, ingredient):
+    """The single-stock-path rule has no exceptions. An emergency
+    purchase still restocks immediately, but it does so by creating a
+    genuine goods receipt rather than writing stock directly."""
+    _, manager_c = manager_client
+
+    create = manager_c.post(
+        "/v1/inventory/purchase-orders/",
+        {"is_emergency": True,
+         "lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "7.00"}]},
+        format="json",
+    )
+    assert create.status_code == 201, create.data
+    po_id = create.data["id"]
+
+    detail = manager_c.get(f"/v1/inventory/purchase-orders/{po_id}/")
+    assert detail.data["status"] == "FULLY_RECEIVED"
+    assert len(detail.data["goods_receipts"]) == 1, "the restock must be a real receipt, not a bare stock write"
+    assert detail.data["goods_receipts"][0]["lines"][0]["received_quantity"] == "7.00"
+    assert detail.data["lines"][0]["approved_quantity"] == "7.00"
+
+    ingredient.refresh_from_db()
+    assert ingredient.current_stock == Decimal("17.00")
+
+
+def test_stock_cannot_be_received_before_approval(admin_client, manager_client, ingredient):
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+
+    create = manager_c.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00"}]}, format="json",
+    )
+    po_id = create.data["id"]
+    line_id = create.data["lines"][0]["id"]
+
+    response = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"line_id": line_id, "received_quantity": "5.00"}]}, format="json",
+    )
 
     assert response.status_code == 409
+    ingredient.refresh_from_db()
+    assert ingredient.current_stock == Decimal("10.00")
+
+
+def test_goods_receipt_rejects_a_line_from_another_purchase_order(admin_client, manager_client, ingredient):
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+
+    a = manager_c.post("/v1/inventory/purchase-orders/",
+                       {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00"}]}, format="json")
+    b = manager_c.post("/v1/inventory/purchase-orders/",
+                       {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00"}]}, format="json")
+    admin_c.post(f"/v1/inventory/purchase-orders/{a.data['id']}/approve/", {}, format="json")
+
+    response = admin_c.post(
+        f"/v1/inventory/purchase-orders/{a.data['id']}/goods-receipts/",
+        {"items": [{"line_id": b.data["lines"][0]["id"], "received_quantity": "1.00"}]}, format="json",
+    )
+    assert response.status_code == 404
+
+
+def test_goods_receipt_is_tagged_as_such_in_stock_history(admin_client, manager_client, ingredient):
+    """A delivery and a hand-typed correction both raise stock. The
+    movement row has to say which it was, or the audit trail is useless."""
+    from apps.inventory.models import StockMovement
+
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+
+    create = manager_c.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00"}]}, format="json",
+    )
+    po_id = create.data["id"]
+    line_id = create.data["lines"][0]["id"]
+    admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/approve/", {}, format="json")
+    admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"line_id": line_id, "received_quantity": "5.00"}]}, format="json",
+    )
+
+    movement = StockMovement.objects.filter(
+        ingredient=ingredient, movement_type=StockMovement.MovementType.RESTOCK,
+    ).latest("recorded_at")
+    assert movement.adjustment_reason == StockMovement.AdjustmentReason.GOODS_RECEIPT
 
 
 def test_purchase_order_rejects_ingredient_from_other_restaurant(manager_client):

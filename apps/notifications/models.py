@@ -8,6 +8,12 @@ class Notification(models.Model):
         BILL_REQUESTED = "BILL_REQUESTED", "Bill Requested"
         PAYMENT_CONFIRMED = "PAYMENT_CONFIRMED", "Payment Confirmed"
         LOW_STOCK = "LOW_STOCK", "Low Stock"
+        # 2026-09-21, per Karwin: hitting zero used to produce NO alert at
+        # all. The 14 Sep change suppressed critical to stop double-alerting,
+        # but that left running out entirely - the most urgent case - silent.
+        # Separate type rather than reusing LOW_STOCK so the app can style
+        # and sort it differently.
+        CRITICAL_STOCK = "CRITICAL_STOCK", "Critical Stock"
         STAFF_ADDED = "STAFF_ADDED", "Staff Added"
         PREP_LOGGED = "PREP_LOGGED", "Prep Logged"
         # 2026-09-10, per Shereena - the Purchase Order approval workflow

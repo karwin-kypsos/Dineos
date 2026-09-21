@@ -2,7 +2,16 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
-from .models import AIInsight, Ingredient, PurchaseOrder, PurchaseOrderLine, RecipeItem, StockMovement
+from .models import (
+    AIInsight,
+    GoodsReceipt,
+    GoodsReceiptLine,
+    Ingredient,
+    PurchaseOrder,
+    PurchaseOrderLine,
+    RecipeItem,
+    StockMovement,
+)
 
 
 class IngredientSerializer(serializers.ModelSerializer):
@@ -86,8 +95,11 @@ class PurchaseOrderLineSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PurchaseOrderLine
-        fields = ["id", "ingredient", "ingredient_name", "unit", "quantity_ordered", "quantity_received", "unit_cost"]
-        read_only_fields = ["id", "quantity_received"]
+        fields = [
+            "id", "ingredient", "ingredient_name", "unit",
+            "quantity_ordered", "approved_quantity", "quantity_received", "unit_cost",
+        ]
+        read_only_fields = ["id", "approved_quantity", "quantity_received"]
 
 
 class PurchaseOrderLineInputSerializer(serializers.Serializer):
@@ -96,8 +108,63 @@ class PurchaseOrderLineInputSerializer(serializers.Serializer):
     unit_cost = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
 
 
+class GoodsReceiptLineSerializer(serializers.ModelSerializer):
+    ingredient_name = serializers.CharField(source="purchase_order_line.ingredient.name", read_only=True)
+    unit = serializers.CharField(source="purchase_order_line.ingredient.unit", read_only=True)
+
+    class Meta:
+        model = GoodsReceiptLine
+        fields = ["id", "purchase_order_line", "ingredient_name", "unit", "received_quantity", "notes"]
+        read_only_fields = fields
+
+
+class GoodsReceiptSerializer(serializers.ModelSerializer):
+    lines = GoodsReceiptLineSerializer(many=True, read_only=True)
+    received_by_name = serializers.CharField(source="received_by.name", read_only=True)
+
+    class Meta:
+        model = GoodsReceipt
+        fields = ["id", "purchase_order", "received_by", "received_by_name", "received_at", "notes", "lines"]
+        read_only_fields = fields
+
+
+class ApprovePurchaseOrderLineSerializer(serializers.Serializer):
+    line_id = serializers.IntegerField()
+    approved_quantity = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal("0"))
+
+
+class ApprovePurchaseOrderSerializer(serializers.Serializer):
+    """Every line is optional - anything omitted is approved at the full
+    requested quantity, so an unconditional approval is an empty body."""
+
+    items = ApprovePurchaseOrderLineSerializer(many=True, required=False, default=list)
+    note = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class GoodsReceiptLineInputSerializer(serializers.Serializer):
+    line_id = serializers.IntegerField()
+    received_quantity = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal("0.01"))
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class GoodsReceiptCreateSerializer(serializers.Serializer):
+    items = GoodsReceiptLineInputSerializer(many=True)
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+    confirm_overdelivery = serializers.BooleanField(required=False, default=False)
+
+    def validate_items(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one line is required.")
+        return value
+
+
+class ClosePurchaseOrderSerializer(serializers.Serializer):
+    reason = serializers.CharField()
+
+
 class PurchaseOrderSerializer(serializers.ModelSerializer):
     lines = PurchaseOrderLineSerializer(many=True, read_only=True)
+    goods_receipts = GoodsReceiptSerializer(many=True, read_only=True)
     requested_by_name = serializers.CharField(source="requested_by.name", read_only=True)
     approved_by_name = serializers.CharField(source="approved_by.name", read_only=True)
     estimated_total = serializers.SerializerMethodField()
@@ -110,7 +177,8 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         fields = [
             "id", "branch", "status", "reason", "is_emergency", "supplier_name", "supplier_notes",
             "requested_by", "requested_by_name", "approved_by", "approved_by_name",
-            "approved_at", "created_at", "lines", "estimated_total",
+            "approved_at", "approval_note", "closed_reason", "created_at", "lines",
+            "estimated_total", "goods_receipts",
         ]
         read_only_fields = fields
 

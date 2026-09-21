@@ -486,12 +486,16 @@ def test_purchase_order_marked_ordered_notifies_admin(django_capture_on_commit_c
         lines=[{"ingredient": ingredient, "quantity_ordered": Decimal("10.00")}],
         requested_by=manager_user,
     )
-    inventory_services.approve_purchase_order(po.id, approved_by=admin_user)
-
     with django_capture_on_commit_callbacks(execute=True):
-        inventory_services.mark_purchase_order_ordered(po.id)
+        inventory_services.approve_purchase_order(po.id, approved_by=admin_user)
 
-    assert Notification.objects.filter(recipient=admin_user, type="PURCHASE_ORDER_ORDERED").exists()
+    # 2026-09-21: PURCHASE_ORDER_ORDERED no longer fires, because the
+    # ORDERED state it announced no longer exists - the spec's flow goes
+    # approve -> receive with no separate "placed with the supplier"
+    # step. The requester still hears that their PO was approved, which
+    # is the notification that actually mattered to them.
+    assert Notification.objects.filter(recipient=manager_user, type="PURCHASE_ORDER_APPROVED").exists()
+    assert not Notification.objects.filter(type="PURCHASE_ORDER_ORDERED").exists()
 
 
 def test_paying_a_bill_clears_the_bill_requested_alert(cashier_client, table, menu_item, branch):
@@ -552,3 +556,94 @@ def test_manager_override_close_also_clears_the_bill_requested_alert(
 
     alert.refresh_from_db()
     assert alert.is_read is True
+
+
+def _stock_ingredient(restaurant, start, minimum=Decimal("5.00")):
+    return Ingredient.objects.create(
+        restaurant=restaurant, name=f"Ing {start}", unit="KG",
+        current_stock=start, minimum_stock_level=minimum,
+    )
+
+
+def test_running_out_completely_now_raises_a_critical_alert(restaurant, admin_client, manager_client, django_capture_on_commit_callbacks):
+    """2026-09-21, per Karwin. Hitting zero used to produce NO alert at
+    all: the 14 Sep change suppressed `critical` to stop double-alerting,
+    which left the single most urgent case silent."""
+    from apps.inventory import services as inventory_services
+
+    ingredient = _stock_ingredient(restaurant, Decimal("3.00"))  # already low
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.record_wastage(
+            ingredient.id, Decimal("3.00"), wastage_reason="SPOILED",
+        )
+
+    assert Notification.objects.filter(type="CRITICAL_STOCK").exists()
+    note = Notification.objects.filter(type="CRITICAL_STOCK").first()
+    assert "Out of stock" in note.title
+
+
+def test_healthy_straight_to_zero_still_alerts(restaurant, admin_client, manager_client, django_capture_on_commit_callbacks):
+    """The gap the old logic left widest: one big deduction from healthy
+    past `low` to zero never passed through `low`, so it alerted nothing."""
+    from apps.inventory import services as inventory_services
+
+    ingredient = _stock_ingredient(restaurant, Decimal("40.00"))
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.record_wastage(
+            ingredient.id, Decimal("40.00"), wastage_reason="SPOILED",
+        )
+
+    assert Notification.objects.filter(type="CRITICAL_STOCK").exists()
+    assert not Notification.objects.filter(type="LOW_STOCK").exists(), "it never passed through low"
+
+
+def test_crossing_into_low_still_raises_only_a_low_alert(restaurant, admin_client, manager_client, django_capture_on_commit_callbacks):
+    from apps.inventory import services as inventory_services
+
+    ingredient = _stock_ingredient(restaurant, Decimal("40.00"))
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.record_wastage(
+            ingredient.id, Decimal("36.00"), wastage_reason="SPOILED",
+        )
+
+    assert Notification.objects.filter(type="LOW_STOCK").exists()
+    assert not Notification.objects.filter(type="CRITICAL_STOCK").exists()
+
+
+def test_each_threshold_announces_itself_once(restaurant, admin_client, manager_client, django_capture_on_commit_callbacks):
+    """Healthy -> low -> critical must produce exactly one of each, and
+    staying critical must not keep alerting."""
+    from apps.inventory import services as inventory_services
+
+    ingredient = _stock_ingredient(restaurant, Decimal("40.00"))
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.record_wastage(ingredient.id, Decimal("36.00"), wastage_reason="SPOILED")
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.record_wastage(ingredient.id, Decimal("2.00"), wastage_reason="SPOILED")
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.record_wastage(ingredient.id, Decimal("1.00"), wastage_reason="SPOILED")
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.deduct_for_usage(ingredient.id, Decimal("1.00"))
+
+    low = Notification.objects.filter(type="LOW_STOCK").count()
+    critical = Notification.objects.filter(type="CRITICAL_STOCK").count()
+    recipients = Notification.objects.filter(type="LOW_STOCK").values_list("recipient_id", flat=True)
+    # One per recipient (Admin + Manager), not one per deduction.
+    assert low == len(set(recipients)), f"low alert repeated: {low} for {len(set(recipients))} recipients"
+    assert critical == len(set(recipients)), f"critical alert repeated: {critical}"
+
+
+def test_restocking_back_up_does_not_alert(restaurant, admin_client, manager_client, django_capture_on_commit_callbacks):
+    """Going the other way is good news. A restock that lifts an
+    ingredient from critical back to low must not fire a low alert."""
+    from apps.inventory import services as inventory_services
+
+    ingredient = _stock_ingredient(restaurant, Decimal("1.00"))
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.record_wastage(ingredient.id, Decimal("1.00"), wastage_reason="SPOILED")
+    Notification.objects.all().delete()
+
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.add_stock(ingredient.id, Decimal("2.00"))  # critical -> low
+
+    assert not Notification.objects.filter(type__in=["LOW_STOCK", "CRITICAL_STOCK"]).exists()

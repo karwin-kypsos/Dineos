@@ -86,8 +86,8 @@ def test_dashboard_low_stock_and_pending_po_counts(admin_client, restaurant):
     Ingredient.objects.create(
         restaurant=restaurant, name="Sugar", unit="KG", current_stock=Decimal("20.00"), minimum_stock_level=Decimal("5.00"),
     )
-    PurchaseOrder.objects.create(restaurant=restaurant, status=PurchaseOrder.Status.PENDING)
-    PurchaseOrder.objects.create(restaurant=restaurant, status=PurchaseOrder.Status.RECEIVED)
+    PurchaseOrder.objects.create(restaurant=restaurant, status=PurchaseOrder.Status.PENDING_APPROVAL)
+    PurchaseOrder.objects.create(restaurant=restaurant, status=PurchaseOrder.Status.FULLY_RECEIVED)
 
     response = client.get("/v1/admin/dashboard/")
 

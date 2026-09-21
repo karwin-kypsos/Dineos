@@ -92,7 +92,24 @@ def _available_today_queryset(restaurant, branch=None):
         .exclude(prepared_portions__date=today, prepared_portions__portions_remaining__gt=0)
         .values_list("id", flat=True)
     )
+    # 2026-09-21, per Shereena: auto-86. A dish whose recipe needs an
+    # ingredient at or below zero cannot be made, so it must not be
+    # orderable - this queryset feeds the customer QR menu and the
+    # Server/Cashier order-taking screen, i.e. every path that can put
+    # the dish on a bill. Computed from live stock rather than a stored
+    # flag, so restocking brings the dish back with nothing to reset.
+    # Items with no recipe are never excluded: nothing is known about
+    # what they consume, so 86ing them would be a guess.
+    from .services import out_of_stock_ingredients
+
     qs = MenuItem.objects.filter(category__restaurant=restaurant, is_available=True, is_active=True)
+    blocked_ids = list(
+        out_of_stock_ingredients(
+            MenuItem.objects.filter(category__restaurant=restaurant).values_list("id", flat=True)
+        ).keys()
+    )
+    if blocked_ids:
+        qs = qs.exclude(id__in=blocked_ids)
     if branch is not None:
         # 2026-09-14 fix, per Shereena's explicit report and re-test across
         # every role: the "legacy" branch-less-category-is-shared-
@@ -363,7 +380,7 @@ class AddPortionsView(APIView):
             if any(o["ingredient_id"] not in valid_ids for o in overrides):
                 return Response({"deduction_overrides": "Ingredient not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        portion = services.add_portions(
+        portion, stock_warnings = services.add_portions(
             dish_id, serializer.validated_data["additional_quantity"],
             recorded_by=request.user, deduction_overrides=overrides,
         )
@@ -388,4 +405,11 @@ class AddPortionsView(APIView):
                         "portions_remaining": portion.portions_remaining,
                     },
                 )
-        return Response(PreparedPortionSerializer(portion).data)
+        # 2026-09-21, per Shereena: stock_warnings lists every ingredient
+        # this prep pushed to zero or below, so the app can raise the
+        # over-used banner straight from the save response instead of
+        # re-querying each ingredient. Always present, empty in the
+        # normal case - never null.
+        data = PreparedPortionSerializer(portion).data
+        data["stock_warnings"] = stock_warnings
+        return Response(data)
