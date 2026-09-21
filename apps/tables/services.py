@@ -143,6 +143,19 @@ def close_session(session, reason, closed_by=None):
     table.status = Table.Status.AVAILABLE
     table.save(update_fields=["status"])
 
+    # 2026-09-21, per Shereena: the "Bill requested — Table N" alert stayed
+    # sitting in the Cashier/Manager list after the bill was paid. Once the
+    # session is over the alert is stale, so clear it here rather than in
+    # pay_bill — this is the one point BOTH closes funnel through, so a
+    # manager force-closing a table clears it too, not just a payment.
+    # Marked read rather than deleted: the alert stops demanding attention
+    # but the record of what happened survives.
+    from apps.notifications.models import Notification
+
+    Notification.objects.filter(
+        type="BILL_REQUESTED", table=table, is_read=False,
+    ).update(is_read=True)
+
     transaction.on_commit(
         lambda: _broadcast(
             restaurant,

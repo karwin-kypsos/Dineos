@@ -492,3 +492,63 @@ def test_purchase_order_marked_ordered_notifies_admin(django_capture_on_commit_c
         inventory_services.mark_purchase_order_ordered(po.id)
 
     assert Notification.objects.filter(recipient=admin_user, type="PURCHASE_ORDER_ORDERED").exists()
+
+
+def test_paying_a_bill_clears_the_bill_requested_alert(cashier_client, table, menu_item, branch):
+    """2026-09-21, per Shereena: the "Bill requested" alert stayed in the
+    Cashier's list after the bill was paid. Once the session is closed the
+    alert is stale and should stop demanding attention."""
+    from apps.billing import services as billing_services
+    from apps.orders import services as order_services
+    from apps.tables import services as table_services
+
+    cashier_user, _ = cashier_client
+    cashier_user.branch = branch
+    cashier_user.save(update_fields=["branch"])
+    table.branch = branch
+    table.save(update_fields=["branch"])
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    table_services.request_bill(session.id)
+    table_services._notify_bill_requested(session, table.restaurant)
+
+    alert = Notification.objects.filter(recipient=cashier_user, type="BILL_REQUESTED").first()
+    assert alert is not None and alert.is_read is False
+
+    billing_services.pay_bill(session.id, "CASH", cashier_user)
+
+    alert.refresh_from_db()
+    assert alert.is_read is True, "bill-requested alert should be dismissed once paid"
+
+
+def test_manager_override_close_also_clears_the_bill_requested_alert(
+    cashier_client, manager_client, table, menu_item, branch
+):
+    """Same clearing applies when a Manager force-closes the table instead
+    of it being paid - the alert is equally stale either way."""
+    from apps.orders import services as order_services
+    from apps.tables import services as table_services
+    from apps.tables.models import TableSession
+
+    cashier_user, _ = cashier_client
+    manager_user, _ = manager_client
+    cashier_user.branch = branch
+    cashier_user.save(update_fields=["branch"])
+    table.branch = branch
+    table.save(update_fields=["branch"])
+
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    table_services.request_bill(session.id)
+    table_services._notify_bill_requested(session, table.restaurant)
+
+    alert = Notification.objects.filter(recipient=cashier_user, type="BILL_REQUESTED").first()
+    assert alert is not None and alert.is_read is False
+
+    table_services.close_session(
+        session, reason=TableSession.CloseReason.MANAGER_OVERRIDE, closed_by=manager_user,
+    )
+
+    alert.refresh_from_db()
+    assert alert.is_read is True

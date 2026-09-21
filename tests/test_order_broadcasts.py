@@ -98,3 +98,32 @@ def test_takeaway_status_changed_reaches_cashiers_group(
     assert len(calls) == 1
     assert f"cashiers_{restaurant.id}" in calls[0]
     assert f"servers_{restaurant.id}" in calls[0]
+
+
+def test_takeaway_payment_broadcasts_payment_confirmed(cashier_client, branch, menu_item, settings):
+    """2026-09-21, per Shereena's "dashboard revenue stays stale after a
+    payment": dine-in payments always fired a live payment_confirmed
+    event, but takeaway ones only sent a notification - so a screen
+    refreshing on payment events never heard about takeaway revenue."""
+    from unittest.mock import patch
+
+    from apps.billing import services as billing_services
+    from apps.orders import services as order_services
+
+    cashier_user, _ = cashier_client
+    cashier_user.branch = branch
+    cashier_user.save(update_fields=["branch"])
+
+    order = order_services.place_takeaway_order(
+        cashier_user.restaurant, branch, [{"menu_item_id": menu_item.id, "quantity": 1}],
+        placed_by=cashier_user,
+    )
+
+    with patch("apps.billing.services.async_to_sync") as mock_async:
+        bill = billing_services.pay_takeaway_bill(order.id, "CASH", cashier_user)
+        billing_services._broadcast_takeaway_payment_confirmed(bill, order, cashier_user.restaurant)
+
+    sent_groups = [c.args[0] for c in mock_async.return_value.call_args_list]
+    payloads = [c.args[1] for c in mock_async.return_value.call_args_list]
+    assert any(g == f"cashiers_{cashier_user.restaurant.id}" for g in sent_groups)
+    assert any(p.get("type") == "payment_confirmed" and p.get("order_id") == str(order.id) for p in payloads)

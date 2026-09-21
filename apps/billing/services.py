@@ -221,7 +221,34 @@ def pay_takeaway_bill(order_id, payment_method, processed_by, amount_received=No
     )
 
     transaction.on_commit(lambda: _notify_takeaway_payment_confirmed(bill, root, restaurant))
+    transaction.on_commit(lambda: _broadcast_takeaway_payment_confirmed(bill, root, restaurant))
     return bill
+
+
+def _broadcast_takeaway_payment_confirmed(bill, order, restaurant):
+    """2026-09-21, per Shereena's "dashboard revenue stays stale after a
+    payment": dine-in payments have always fired a live payment_confirmed
+    event, but takeaway ones only ever sent a notification — so a screen
+    refreshing on payment events simply never heard about takeaway
+    revenue. Same event name and shape as the dine-in one, with order_id
+    where that has session_id.
+    """
+    if not restaurant.realtime_enabled:
+        return
+
+    channel_layer = get_channel_layer()
+    if channel_layer is None:
+        return
+    payload = {
+        "type": "payment_confirmed",
+        "bill_id": str(bill.id),
+        "session_id": None,
+        "order_id": str(order.id),
+        "table_id": None,
+        "total_amount": str(bill.total_amount),
+    }
+    for group in (f"cashiers_{restaurant.id}", f"managers_{restaurant.id}"):
+        async_to_sync(channel_layer.group_send)(group, payload)
 
 
 def _notify_takeaway_payment_confirmed(bill, order, restaurant):

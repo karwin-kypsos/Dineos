@@ -326,3 +326,76 @@ def test_order_level_status_endpoint_still_works_unchanged(kds_client, table, me
     order.refresh_from_db()
     assert order.status == "READY"
     assert order.items.first().status == "READY"
+
+
+def test_serving_one_order_does_not_touch_other_tables_orders(
+    server_client, restaurant, branch, menu_item
+):
+    """2026-09-21, per Shereena: "mark Table 8 Served and the other tables'
+    orders also change to Served or disappear". She could not reproduce it
+    on retest; this pins the actual behaviour down so it can't regress
+    silently. Note the 'disappear' half is a separate, by-design thing -
+    see test_my_orders_excludes_collected_and_served_by_design below."""
+    from apps.orders import services as order_services
+    from apps.tables import services as table_services
+    from apps.tables.models import Table
+
+    user, _ = server_client
+    user.branch = branch
+    user.save(update_fields=["branch"])
+
+    orders = {}
+    for number in ("1", "2", "3", "8"):
+        t = Table.objects.create(restaurant=restaurant, branch=branch, table_number=number)
+        session, _ = table_services.get_or_create_active_session(t.id)
+        order = order_services.place_order(
+            session.id, [{"menu_item_id": menu_item.id, "quantity": 1}], placed_by=user,
+        )
+        for step in ("ACCEPTED", "PREPARING", "READY"):
+            order_services.advance_kitchen_status(order.id, step)
+        order_services.mark_collected(order.id)
+        orders[number] = order
+
+    for number, order in orders.items():
+        order.refresh_from_db()
+        assert order.status == "COLLECTED", f"table {number} should be COLLECTED"
+
+    order_services.mark_served(orders["8"].id)
+
+    orders["8"].refresh_from_db()
+    assert orders["8"].status == "SERVED"
+    for number in ("1", "2", "3"):
+        orders[number].refresh_from_db()
+        assert orders[number].status == "COLLECTED", (
+            f"table {number} changed to {orders[number].status} when table 8 was served"
+        )
+
+
+def test_my_orders_excludes_collected_and_served_by_design(server_client, restaurant, branch, menu_item):
+    """The 'orders disappear from the list' half of the same report. This
+    is the documented behaviour of My Orders - it shows only live work
+    (NEW/ACCEPTED/PREPARING/READY). An order vanishes the moment it is
+    COLLECTED, which is a step BEFORE serving, so it is not caused by
+    serving a different table."""
+    from apps.orders import services as order_services
+    from apps.tables import services as table_services
+    from apps.tables.models import Table
+
+    user, client = server_client
+    user.branch = branch
+    user.save(update_fields=["branch"])
+
+    t = Table.objects.create(restaurant=restaurant, branch=branch, table_number="21")
+    session, _ = table_services.get_or_create_active_session(t.id)
+    order = order_services.place_order(
+        session.id, [{"menu_item_id": menu_item.id, "quantity": 1}], placed_by=user,
+    )
+
+    assert any(o["id"] == str(order.id) for o in client.get("/v1/orders/mine/").data)
+
+    for step in ("ACCEPTED", "PREPARING", "READY"):
+        order_services.advance_kitchen_status(order.id, step)
+    assert any(o["id"] == str(order.id) for o in client.get("/v1/orders/mine/").data)
+
+    order_services.mark_collected(order.id)
+    assert not any(o["id"] == str(order.id) for o in client.get("/v1/orders/mine/").data)
