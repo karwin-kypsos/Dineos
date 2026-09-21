@@ -193,16 +193,45 @@ def test_table_list_excludes_branch_less_legacy_tables_for_server(restaurant, br
     assert str(legacy_table.id) not in ids
 
 
-def test_table_list_still_includes_branch_less_tables_for_manager(restaurant, branch, manager_client):
-    _, client = manager_client
+def test_table_list_excludes_branch_less_legacy_tables_for_manager(restaurant, branch, manager_client):
+    """2026-09-21, per Karwin. A Manager assigned to a branch used to ALSO
+    see branch-less legacy tables, which meant one stray table appeared in
+    every branch at once - the cross-branch leakage Shereena kept
+    reporting. Servers were already strict; everyone with a branch is now.
+
+    Note the previous version of this test asserted the opposite and
+    passed for the wrong reason: the manager fixture has no branch, so the
+    branch-scoping block never ran at all. Hence the explicit assignment
+    below - without it this test proves nothing either way."""
+    user, client = manager_client
+    user.branch = branch
+    user.save(update_fields=["branch"])
+
     legacy_table = Table.objects.create(restaurant=restaurant, branch=None, table_number="Legacy2", capacity=4)
+    own_table = Table.objects.create(restaurant=restaurant, branch=branch, table_number="Own2", capacity=4)
 
     response = client.get("/v1/tables/")
 
     assert response.status_code == 200
     results = response.data["results"] if isinstance(response.data, dict) else response.data
     ids = {t["id"] for t in results}
-    assert str(legacy_table.id) in ids
+    assert str(own_table.id) in ids
+    assert str(legacy_table.id) not in ids
+
+
+def test_branch_less_tables_stay_visible_to_a_branch_less_admin(restaurant, branch, admin_client):
+    """The other half of the same change: strays must not become
+    unreachable. An Admin has no branch of their own, so the branch
+    scoping is skipped for them entirely and they can still see - and
+    reassign - a table left behind from before Branch existed."""
+    _, client = admin_client
+    legacy_table = Table.objects.create(restaurant=restaurant, branch=None, table_number="Legacy3", capacity=4)
+
+    response = client.get("/v1/tables/")
+
+    assert response.status_code == 200
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    assert str(legacy_table.id) in {t["id"] for t in results}
 
 
 def test_assign_next_server_prefers_the_server_who_placed_the_order(restaurant, branch):

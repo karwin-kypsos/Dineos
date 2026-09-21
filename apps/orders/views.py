@@ -307,12 +307,18 @@ class ReadyOrdersView(APIView):
 
 
 class MyOrdersView(APIView):
-    """Server's own 'My Orders' screen — every order across every active
-    status (NEW/ACCEPTED/PREPARING/READY) for just the tables assigned to
-    the calling server, unlike Active/Ready Orders above which are
-    branch-wide across every server. Dine-in only — assigned_server lives
-    on TableSession, which takeaway orders don't have (round-robin
+    """Server's own 'My Orders' screen — every order still needing this
+    server's attention (NEW/ACCEPTED/PREPARING/READY/COLLECTED) for just
+    the tables assigned to them, unlike Active/Ready Orders above which
+    are branch-wide across every server. Dine-in only — assigned_server
+    lives on TableSession, which takeaway orders don't have (round-robin
     assignment is dine-in only, see apps.tables.services.assign_next_server).
+
+    COLLECTED is included as of 2026-09-21 (per Karwin, after Shereena's
+    "orders disappear from the list"): an order used to drop off this
+    screen the moment it was collected, which is one step BEFORE it is
+    served — so a server carrying the food to the table had already lost
+    sight of it. SERVED is still excluded: that is the end of the job.
     """
 
     permission_classes = [IsAnyStaff]
@@ -322,7 +328,7 @@ class MyOrdersView(APIView):
             Order.objects.filter(
                 table__restaurant=request.tenant,
                 session__assigned_server=request.user,
-                status__in=["NEW", "ACCEPTED", "PREPARING", "READY"],
+                status__in=["NEW", "ACCEPTED", "PREPARING", "READY", "COLLECTED"],
             )
             .select_related("table")
             .prefetch_related("items")

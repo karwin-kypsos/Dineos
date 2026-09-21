@@ -334,8 +334,8 @@ def test_serving_one_order_does_not_touch_other_tables_orders(
     """2026-09-21, per Shereena: "mark Table 8 Served and the other tables'
     orders also change to Served or disappear". She could not reproduce it
     on retest; this pins the actual behaviour down so it can't regress
-    silently. Note the 'disappear' half is a separate, by-design thing -
-    see test_my_orders_excludes_collected_and_served_by_design below."""
+    silently. Note the 'disappear' half is a separate thing - see
+    test_my_orders_keeps_collected_but_drops_served below."""
     from apps.orders import services as order_services
     from apps.tables import services as table_services
     from apps.tables.models import Table
@@ -369,14 +369,19 @@ def test_serving_one_order_does_not_touch_other_tables_orders(
         assert orders[number].status == "COLLECTED", (
             f"table {number} changed to {orders[number].status} when table 8 was served"
         )
+        statuses = sorted({i.status for i in orders[number].items.all()})
+        assert statuses == ["READY"], (
+            f"table {number}'s items became {statuses} when table 8 was served"
+        )
 
 
-def test_my_orders_excludes_collected_and_served_by_design(server_client, restaurant, branch, menu_item):
-    """The 'orders disappear from the list' half of the same report. This
-    is the documented behaviour of My Orders - it shows only live work
-    (NEW/ACCEPTED/PREPARING/READY). An order vanishes the moment it is
-    COLLECTED, which is a step BEFORE serving, so it is not caused by
-    serving a different table."""
+def test_my_orders_keeps_collected_but_drops_served(server_client, restaurant, branch, menu_item):
+    """The 'orders disappear from the list' half of Shereena's report.
+    Until 2026-09-21 My Orders showed only NEW/ACCEPTED/PREPARING/READY,
+    so an order vanished the moment it was COLLECTED - one step BEFORE
+    serving - which is what made serving one table look like it had hidden
+    the others. Per Karwin it now keeps COLLECTED orders: the server is
+    still carrying that food. SERVED is still dropped; the job is done."""
     from apps.orders import services as order_services
     from apps.tables import services as table_services
     from apps.tables.models import Table
@@ -391,11 +396,16 @@ def test_my_orders_excludes_collected_and_served_by_design(server_client, restau
         session.id, [{"menu_item_id": menu_item.id, "quantity": 1}], placed_by=user,
     )
 
-    assert any(o["id"] == str(order.id) for o in client.get("/v1/orders/mine/").data)
+    def listed():
+        return any(o["id"] == str(order.id) for o in client.get("/v1/orders/mine/").data)
 
+    assert listed()
     for step in ("ACCEPTED", "PREPARING", "READY"):
         order_services.advance_kitchen_status(order.id, step)
-    assert any(o["id"] == str(order.id) for o in client.get("/v1/orders/mine/").data)
+    assert listed()
 
     order_services.mark_collected(order.id)
-    assert not any(o["id"] == str(order.id) for o in client.get("/v1/orders/mine/").data)
+    assert listed(), "a collected order is still in the server's hands"
+
+    order_services.mark_served(order.id)
+    assert not listed(), "a served order is finished and should drop off"

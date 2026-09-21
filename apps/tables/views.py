@@ -33,19 +33,22 @@ class TableViewSet(viewsets.ReadOnlyModelViewSet):
         # (restaurant_slug, table_number) together, so no tenant to filter by.
         if tenant is not None:
             qs = qs.filter(restaurant=tenant)
-            # Staff requests scope further to their own branch once they
-            # have one; branch-less legacy tables still see everything
-            # restaurant-wide for Admin/Manager (oversight/cleanup of old
-            # single-branch data) — but a Server should never see a table
-            # outside their own branch, legacy or not, so that inclusion is
-            # deliberately skipped for them below.
+            # Staff requests scope to their own branch once they have one.
+            #
+            # 2026-09-21, per Karwin: Admin/Manager/Cashier used to ALSO see
+            # branch-less legacy tables here, on the theory that someone
+            # should be able to clean up old single-branch data. In practice
+            # a branch-less table showed up in every branch at once, which
+            # is exactly the cross-branch leakage Shereena kept reporting —
+            # the same fallback the Menu endpoints dropped on 2026-09-14,
+            # and Servers were already excluded from it. Strict for everyone
+            # now: a branch sees only tables assigned to it. An Admin has no
+            # branch of their own, so they still see the whole restaurant
+            # (this block is skipped for them) and can reassign strays.
             user_branch_id = getattr(self.request.user, "branch_id", None)
             role = getattr(self.request.user, "role", None)
             if user_branch_id is not None:
-                if role == "SERVER":
-                    qs = qs.filter(branch_id=user_branch_id)
-                else:
-                    qs = qs.filter(models.Q(branch_id=user_branch_id) | models.Q(branch__isnull=True))
+                qs = qs.filter(branch_id=user_branch_id)
             # A Server only ever sees their own assigned tables plus
             # whatever's currently free — never another server's occupied
             # table. Admin/Manager/Cashier are unaffected (full visibility).

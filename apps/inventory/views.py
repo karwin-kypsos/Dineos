@@ -25,9 +25,13 @@ from .serializers import (
 
 
 def _branch_scoped(qs, request):
+    # 2026-09-21, per Karwin: no branch-less-is-shared fallback, same
+    # strictness the Menu endpoints took on 2026-09-14. An ingredient left
+    # with branch=None predates Branch existing and was appearing in every
+    # branch's stock list at once.
     branch = getattr(request.user, "branch", None)
     if branch is not None:
-        qs = qs.filter(dj_models.Q(branch=branch) | dj_models.Q(branch__isnull=True))
+        qs = qs.filter(branch=branch)
     return qs
 
 
@@ -135,9 +139,8 @@ class WastageLogView(APIView):
 
         branch = getattr(request.user, "branch", None)
         if branch is not None:
-            movements = movements.filter(
-                dj_models.Q(ingredient__branch=branch) | dj_models.Q(ingredient__branch__isnull=True)
-            )
+            # Strict since 2026-09-21 — see _branch_scoped above.
+            movements = movements.filter(ingredient__branch=branch)
 
         breakdown_by_reason = {reason: Decimal("0") for reason in StockMovement.WastageReason.values}
         total_cost = Decimal("0")

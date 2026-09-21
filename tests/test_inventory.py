@@ -537,3 +537,84 @@ def test_recipe_item_links_menu_item_to_ingredient(manager_client, menu_item, in
 
     assert response.status_code == 201, response.data
     assert response.data["ingredient_name"] == "Chicken"
+
+
+def test_ingredient_list_excludes_branch_less_legacy_rows_for_a_branched_user(
+    manager_client, restaurant, branch
+):
+    """2026-09-21, per Karwin: the branch-less-is-shared fallback is gone
+    from Inventory too, the same way it left the Menu endpoints on
+    2026-09-14. An ingredient left with branch=None predates Branch
+    existing, and was showing up in every branch's stock list at once."""
+    user, client = manager_client
+    user.branch = branch
+    user.save(update_fields=["branch"])
+
+    legacy = Ingredient.objects.create(
+        restaurant=restaurant, branch=None, name="Legacy Flour", unit="KG",
+        current_stock=Decimal("5.00"), unit_cost=Decimal("40.00"), minimum_stock_level=Decimal("1.00"),
+    )
+    own = Ingredient.objects.create(
+        restaurant=restaurant, branch=branch, name="Branch Flour", unit="KG",
+        current_stock=Decimal("5.00"), unit_cost=Decimal("40.00"), minimum_stock_level=Decimal("1.00"),
+    )
+
+    response = client.get("/v1/inventory/ingredients/")
+
+    assert response.status_code == 200
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    names = {r["id"] for r in results}
+    assert str(own.id) in names
+    assert str(legacy.id) not in names
+
+
+def test_branch_less_ingredients_stay_visible_to_a_branch_less_admin(admin_client, restaurant):
+    """The other half: strays must not become unreachable. An Admin has no
+    branch, so the scoping is skipped and they can still find and reassign
+    a pre-Branch ingredient."""
+    _, client = admin_client
+    legacy = Ingredient.objects.create(
+        restaurant=restaurant, branch=None, name="Legacy Salt", unit="KG",
+        current_stock=Decimal("5.00"), unit_cost=Decimal("10.00"), minimum_stock_level=Decimal("1.00"),
+    )
+
+    response = client.get("/v1/inventory/ingredients/")
+
+    assert response.status_code == 200
+    results = response.data["results"] if isinstance(response.data, dict) else response.data
+    assert str(legacy.id) in {r["id"] for r in results}
+
+
+def test_wastage_report_excludes_branch_less_ingredients_for_a_branched_user(
+    manager_client, restaurant, branch
+):
+    """Same strictness on the wastage report, which scopes through the
+    ingredient's branch rather than its own."""
+    from django.utils import timezone
+
+    user, client = manager_client
+    user.branch = branch
+    user.save(update_fields=["branch"])
+
+    legacy = Ingredient.objects.create(
+        restaurant=restaurant, branch=None, name="Legacy Oil", unit="L",
+        current_stock=Decimal("9.00"), unit_cost=Decimal("100.00"), minimum_stock_level=Decimal("1.00"),
+    )
+    own = Ingredient.objects.create(
+        restaurant=restaurant, branch=branch, name="Branch Oil", unit="L",
+        current_stock=Decimal("9.00"), unit_cost=Decimal("100.00"), minimum_stock_level=Decimal("1.00"),
+    )
+    for ing in (legacy, own):
+        StockMovement.objects.create(
+            ingredient=ing, movement_type=StockMovement.MovementType.WASTAGE,
+            quantity=Decimal("1.00"), unit_cost_at_time=Decimal("100.00"),
+            wastage_reason=StockMovement.WastageReason.SPOILED,
+            recorded_at=timezone.now(),
+        )
+
+    response = client.get("/v1/inventory/wastage/")
+
+    assert response.status_code == 200, response.data
+    names = {e["ingredient_name"] for e in response.data["entries"]}
+    assert "Branch Oil" in names
+    assert "Legacy Oil" not in names

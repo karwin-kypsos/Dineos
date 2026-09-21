@@ -319,7 +319,9 @@ def generate_ai_insights(restaurant, branch=None):
 
     qs = Ingredient.objects.filter(restaurant=restaurant, is_active=True)
     if branch is not None:
-        qs = qs.filter(dj_models.Q(branch=branch) | dj_models.Q(branch__isnull=True))
+        # Strict since 2026-09-21, per Karwin — a branch-less ingredient no
+        # longer gets flagged into every branch's insight feed at once.
+        qs = qs.filter(branch=branch)
 
     flagged = [stats for stats in (compute_ingredient_stats(i) for i in qs) if _worth_flagging(stats["ingredient"], stats)]
     if not flagged:

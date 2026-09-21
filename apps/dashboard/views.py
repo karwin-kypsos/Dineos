@@ -83,7 +83,9 @@ class AdminDashboardView(APIView):
             ingredients = ingredients.filter(branch_id=branch_id)
             pending_pos = pending_pos.filter(branch_id=branch_id)
             staff = staff.filter(branch_id=branch_id)
-            insights = insights.filter(Q(branch_id=branch_id) | Q(branch__isnull=True))
+            # Strict since 2026-09-21, per Karwin: a branch-less insight
+            # used to surface on every branch's dashboard at once.
+            insights = insights.filter(branch_id=branch_id)
 
         today_revenue = bills_today.aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
         low_stock_count = sum(1 for ingredient in ingredients if ingredient.is_low_stock)
