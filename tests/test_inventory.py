@@ -673,11 +673,15 @@ def test_discrepancy_report_shows_ordered_approved_received(admin_client, manage
     report = admin_c.get(f"/v1/inventory/purchase-orders/{po_id}/discrepancy/")
     assert report.status_code == 200, report.data
     row = report.data["lines"][0]
-    assert row["quantity_ordered"] == Decimal("10.00")
-    assert row["approved_quantity"] == Decimal("8.00")
-    assert row["quantity_received"] == Decimal("3.00")
-    assert row["outstanding"] == Decimal("5.00")
-    assert row["over_received"] == Decimal("0")
+    # Decimal STRINGS, matching the PO line serializer and every other
+    # quantity in this API - a Decimal in a plain dict renders as a JSON
+    # float, which had this endpoint saying 20.0 where the PO itself says
+    # "20.00" for the same value.
+    assert row["quantity_ordered"] == "10.00"
+    assert row["approved_quantity"] == "8.00"
+    assert row["quantity_received"] == "3.00"
+    assert row["outstanding"] == "5.00"
+    assert row["over_received"] == "0.00"
     assert report.data["fully_satisfied"] is False
 
 

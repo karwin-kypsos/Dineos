@@ -421,16 +421,24 @@ def purchase_order_discrepancy(po):
     for line in po.lines.select_related("ingredient"):
         approved = line.approved_quantity
         expected = approved if approved is not None else line.quantity_ordered
+        # Quantities go out as decimal STRINGS, matching the PO line
+        # serializer and every other quantity in this API. Returned from a
+        # plain dict, a Decimal renders as a JSON float - so this endpoint
+        # said 20.0 where the PO itself says "20.00" for the very same
+        # value, and floats are the wrong carrier for quantities anyway.
         lines.append({
             "line_id": line.id,
             "ingredient_id": str(line.ingredient_id),
             "ingredient_name": line.ingredient.name,
             "unit": line.ingredient.unit,
-            "quantity_ordered": line.quantity_ordered,
-            "approved_quantity": approved,
-            "quantity_received": line.quantity_received,
-            "outstanding": max(expected - line.quantity_received, Decimal("0")),
-            "over_received": max(line.quantity_received - expected, Decimal("0")),
+            "quantity_ordered": str(line.quantity_ordered),
+            "approved_quantity": str(approved) if approved is not None else None,
+            "quantity_received": str(line.quantity_received),
+            # Quantised, so the string does not depend on which side of
+            # max() won - the zero literal would otherwise render "0"
+            # while a real gap renders "5.00".
+            "outstanding": str(max(expected - line.quantity_received, Decimal("0")).quantize(Decimal("0.01"))),
+            "over_received": str(max(line.quantity_received - expected, Decimal("0")).quantize(Decimal("0.01"))),
         })
     return {
         "purchase_order_id": str(po.id),
@@ -438,7 +446,7 @@ def purchase_order_discrepancy(po):
         "approval_note": po.approval_note,
         "closed_reason": po.closed_reason,
         "lines": lines,
-        "fully_satisfied": all(row["outstanding"] == 0 for row in lines),
+        "fully_satisfied": all(Decimal(row["outstanding"]) == 0 for row in lines),
     }
 
 
