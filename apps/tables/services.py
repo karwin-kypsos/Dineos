@@ -3,6 +3,8 @@ from channels.layers import get_channel_layer
 from django.db import transaction
 from django.utils import timezone
 
+from apps.websockets.groups import staff_groups
+
 from .models import Table, TableSession
 
 
@@ -19,6 +21,21 @@ def get_or_create_active_session(table_id):
     session = TableSession.objects.create(table=table, status=TableSession.Status.ACTIVE)
     table.status = Table.Status.OCCUPIED
     table.save(update_fields=["status"])
+
+    # 2026-09-21, per Shereena's "Table Overview remains stale after
+    # real-time events": closing a session has always announced the table
+    # going AVAILABLE, but opening one announced nothing at all - so a
+    # customer scanning the QR turned the table OCCUPIED with no staff
+    # screen hearing about it. Same event, same groups, other direction.
+    restaurant = table.restaurant
+    transaction.on_commit(
+        lambda: _broadcast(
+            restaurant,
+            [f"staff_all_{restaurant.id}", f"table_{table.id}"],
+            "table_status_changed",
+            {"table_id": str(table.id), "status": table.status},
+        )
+    )
     return session, True
 
 
@@ -99,7 +116,7 @@ def request_bill(session_id):
     transaction.on_commit(
         lambda: _broadcast(
             restaurant,
-            [f"cashiers_{restaurant.id}", f"managers_{restaurant.id}"],
+            staff_groups(restaurant.id, ["cashiers", "managers"]),
             "table_bill_requested",
             {"session_id": str(session.id), "table_id": str(session.table_id), "table_number": session.table.table_number},
         )

@@ -18,13 +18,27 @@ def _role_groups(role, restaurant_id):
 
 class _BroadcastConsumer(AsyncWebsocketConsumer):
     """Shared forwarding body — every event handler just relays the event
-    dict (minus the Channels "type" key) to the socket as JSON, matching the
-    sibling project's dispatch-by-method-name convention.
+    dict to the socket as JSON, matching the sibling project's
+    dispatch-by-method-name convention.
     """
 
     async def _forward(self, event):
-        payload = {k: v for k, v in event.items() if k != "type"}
-        await self.send(text_data=json.dumps(payload))
+        """Relay the event dict to the socket as JSON.
+
+        The Channels "type" key is kept, not stripped (2026-09-21). It
+        carries the event name, and without it four of the commonest
+        events - order_new, order_status_changed, order_collected,
+        order_served - arrive with byte-identical key sets, because they
+        all send _order_payload(order). A client had no way to tell a new
+        order from a status change. The "connected" frame already carried
+        "type", so this also makes the protocol consistent: every frame
+        now says what it is. Purely additive - no client could have been
+        relying on a key that was never sent.
+        """
+        # Dunder keys are the channel layer's own internals (channels_redis
+        # routes with __asgi_channel__) and are never part of the contract.
+        frame = {k: v for k, v in event.items() if not k.startswith("__")}
+        await self.send(text_data=json.dumps(frame))
 
     # Event name -> handler method name is Channels' standard convention:
     # a group_send with {"type": "order_new"} dispatches to self.order_new().

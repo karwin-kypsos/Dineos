@@ -115,3 +115,103 @@ async def test_kitchen_consumer_accepts_valid_key():
     handshake = await communicator.receive_from()
     assert json.loads(handshake)["type"] == "connected"
     await communicator.disconnect()
+
+
+@database_sync_to_async
+def _create_staff(restaurant, role, email):
+    from apps.authentication.models import User
+
+    return User.objects.create_user(
+        email=email, password="Pass@1234", name=role.title(), role=role, restaurant=restaurant
+    )
+
+
+async def _staff_socket(user):
+    from rest_framework_simplejwt.tokens import AccessToken
+
+    from apps.websockets.consumers import StaffConsumer
+    from apps.websockets.middleware import JWTAuthMiddleware
+
+    token = await database_sync_to_async(lambda: str(AccessToken.for_user(user)))()
+    app = JWTAuthMiddleware(StaffConsumer.as_asgi())
+    communicator = WebsocketCommunicator(app, f"/ws/staff/?token={token}")
+    connected, _ = await communicator.connect()
+    assert connected is True
+    handshake = json.loads(await communicator.receive_from())
+    assert handshake["type"] == "connected"
+    return communicator
+
+
+@pytest.mark.asyncio
+async def test_broadcast_frames_carry_their_event_name():
+    """2026-09-21: the event name used to be stripped before sending, so
+    order_new / order_status_changed / order_collected / order_served —
+    which all send the identical _order_payload — were indistinguishable
+    on the wire. Every frame must now say what it is.
+    """
+    restaurant = await _create_restaurant()
+    server = await _create_staff(restaurant, "SERVER", "ws-server@ws-test.demo")
+    socket = await _staff_socket(server)
+
+    channel_layer = get_channel_layer()
+    for event_name in ("order_new", "order_status_changed", "order_collected", "order_served"):
+        await channel_layer.group_send(
+            f"servers_{restaurant.id}", {"type": event_name, "order_id": "abc", "status": "READY"}
+        )
+        frame = json.loads(await socket.receive_from())
+        assert frame["type"] == event_name, frame
+        assert frame["order_id"] == "abc"
+
+    await socket.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_manager_receives_one_copy_of_a_cashier_and_manager_event():
+    """2026-09-21, seen live in production: a Manager joins servers_,
+    cashiers_ AND managers_, so a broadcast naming two of those groups
+    delivered the same frame twice — a dashboard counting per event
+    double-counted for Managers and Admins only.
+    """
+    from apps.websockets.groups import staff_groups
+
+    restaurant = await _create_restaurant()
+    manager = await _create_staff(restaurant, "MANAGER", "ws-manager@ws-test.demo")
+    socket = await _staff_socket(manager)
+
+    channel_layer = get_channel_layer()
+    for group in staff_groups(restaurant.id, ["cashiers", "managers"]):
+        await channel_layer.group_send(group, {"type": "payment_confirmed", "bill_id": "b1"})
+
+    frame = json.loads(await socket.receive_from())
+    assert frame["type"] == "payment_confirmed"
+    assert await socket.receive_nothing(timeout=0.5), "manager got the same event twice"
+
+    await socket.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_collapsed_groups_still_reach_every_intended_role():
+    """The collapse must never narrow the audience: servers + cashiers has
+    to still reach a plain SERVER and a plain CASHIER, once each.
+    """
+    from apps.websockets.groups import staff_groups
+
+    restaurant = await _create_restaurant()
+    server = await _create_staff(restaurant, "SERVER", "ws-server2@ws-test.demo")
+    cashier = await _create_staff(restaurant, "CASHIER", "ws-cashier2@ws-test.demo")
+    manager = await _create_staff(restaurant, "MANAGER", "ws-manager2@ws-test.demo")
+    sockets = {
+        "SERVER": await _staff_socket(server),
+        "CASHIER": await _staff_socket(cashier),
+        "MANAGER": await _staff_socket(manager),
+    }
+
+    channel_layer = get_channel_layer()
+    for group in staff_groups(restaurant.id, ["servers", "cashiers"]):
+        await channel_layer.group_send(group, {"type": "order_status_changed", "order_id": "o1"})
+
+    for role, socket in sockets.items():
+        frame = json.loads(await socket.receive_from())
+        assert frame["type"] == "order_status_changed", (role, frame)
+        assert await socket.receive_nothing(timeout=0.5), f"{role} got it twice"
+        await socket.disconnect()

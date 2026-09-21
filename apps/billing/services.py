@@ -10,6 +10,7 @@ from django.utils import timezone
 from apps.orders.models import Order
 from apps.tables.models import Table, TableSession
 from apps.tables.services import close_session
+from apps.websockets.groups import staff_groups
 
 from .models import Bill, CashierShift
 
@@ -247,7 +248,7 @@ def _broadcast_takeaway_payment_confirmed(bill, order, restaurant):
         "table_id": None,
         "total_amount": str(bill.total_amount),
     }
-    for group in (f"cashiers_{restaurant.id}", f"managers_{restaurant.id}"):
+    for group in staff_groups(restaurant.id, ["cashiers", "managers"]):
         async_to_sync(channel_layer.group_send)(group, payload)
 
 
@@ -303,7 +304,8 @@ def _broadcast_payment_confirmed(bill, session):
         "table_id": str(session.table_id),
         "total_amount": str(bill.total_amount),
     }
-    for group in (f"cashiers_{restaurant.id}", f"managers_{restaurant.id}", f"table_session_{session.id}"):
+    groups = staff_groups(restaurant.id, ["cashiers", "managers"]) + [f"table_session_{session.id}"]
+    for group in groups:
         async_to_sync(channel_layer.group_send)(group, payload)
 
 

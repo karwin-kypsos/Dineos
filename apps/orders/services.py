@@ -7,6 +7,7 @@ from django.utils import timezone
 from apps.menu.models import MenuItem
 from apps.menu.services import decrement_portions
 from apps.tables.models import TableSession
+from apps.websockets.groups import staff_groups
 from core.exceptions import (
     InvalidStatusTransitionError,
     MenuItemNotFoundError,
@@ -501,7 +502,8 @@ def _broadcast_order_placed(order, restaurant, portion_updates, zero_hits):
 
 
 def _broadcast_status_changed(order, restaurant):
-    groups = [f"kitchen_{restaurant.id}", f"servers_{restaurant.id}"]
+    audience = ["servers"]
+    groups = [f"kitchen_{restaurant.id}"]
     if order.session_id:
         groups.append(f"table_session_{order.session_id}")
     elif order.order_type == Order.OrderType.TAKEAWAY:
@@ -509,7 +511,8 @@ def _broadcast_status_changed(order, restaurant):
         # (2026-08-28, per Shereena: "this also face in cashier", same gap
         # as the Server realtime feed), so the Cashier group needs it
         # directly, the way table_session_ carries it for dine-in.
-        groups.append(f"cashiers_{restaurant.id}")
+        audience.append("cashiers")
+    groups += staff_groups(restaurant.id, audience)
     _broadcast(restaurant, groups, "order_status_changed", _order_payload(order))
 
 
@@ -531,9 +534,11 @@ def _item_payload(item, order):
 
 
 def _broadcast_item_status_changed(item, order, restaurant):
-    groups = [f"kitchen_{restaurant.id}", f"servers_{restaurant.id}"]
+    audience = ["servers"]
+    groups = [f"kitchen_{restaurant.id}"]
     if order.session_id:
         groups.append(f"table_session_{order.session_id}")
     elif order.order_type == Order.OrderType.TAKEAWAY:
-        groups.append(f"cashiers_{restaurant.id}")
+        audience.append("cashiers")
+    groups += staff_groups(restaurant.id, audience)
     _broadcast(restaurant, groups, "order_item_status_changed", _item_payload(item, order))
