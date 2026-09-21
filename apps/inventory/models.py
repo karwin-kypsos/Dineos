@@ -150,6 +150,9 @@ class PurchaseOrderLine(models.Model):
 
     class Meta:
         db_table = "purchase_order_lines"
+        # Stable line order on a purchase order, same reasoning as
+        # OrderItem - a PO's lines should not reshuffle between views.
+        ordering = ["id"]
 
     def __str__(self):
         return f"{self.quantity_ordered} {self.ingredient.unit} of {self.ingredient.name}"
@@ -166,6 +169,10 @@ class RecipeItem(models.Model):
 
     class Meta:
         db_table = "recipe_items"
+        # Same paginated-but-unordered bug as KDSDevice (see kitchen.models)
+        # - this one just never warned, because the warning only fires when
+        # the paginator sees the queryset directly.
+        ordering = ["menu_item_id", "id"]
         constraints = [
             models.UniqueConstraint(fields=["menu_item", "ingredient"], name="one_recipe_line_per_item_ingredient")
         ]

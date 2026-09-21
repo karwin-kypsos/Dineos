@@ -100,6 +100,12 @@ class OrderItem(models.Model):
 
     class Meta:
         db_table = "order_items"
+        # Not paginated (items are nested inside an order), but without an
+        # explicit order the same order's lines can come back shuffled
+        # between requests - a bill or KDS card listing the same dishes in
+        # a different order each time it is opened. Insertion order is the
+        # order they were added to the basket.
+        ordering = ["id"]
 
     @property
     def line_total(self):

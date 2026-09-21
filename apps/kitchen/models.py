@@ -20,6 +20,12 @@ class KDSDevice(models.Model):
 
     class Meta:
         db_table = "kds_devices"
+        # 2026-09-21: this list is paginated (PAGE_SIZE 20, global), and an
+        # unordered queryset lets Postgres return rows in any order per
+        # query - so a device could appear on two pages or on neither.
+        # Django was already warning about exactly this
+        # (UnorderedObjectListWarning on the Kitchen Devices screen).
+        ordering = ["label", "id"]
 
     def __str__(self):
         return self.label

@@ -553,3 +553,45 @@ def test_razorpay_client_qr_code_payload_shape(settings):
             "type": "upi_qr", "name": "Table 5 bill", "usage": "single_use",
             "fixed_amount": True, "payment_amount": 15000,
         }
+
+
+def test_qr_code_product_not_enabled_gives_an_actionable_message(settings):
+    """2026-09-21. Razorpay answers 'The requested URL was not found on the
+    server' when the QR Codes PRODUCT is not enabled on the account —
+    which reads like a broken URL on our side and sent us looking in the
+    wrong place once already. Confirmed live against Razorpay's own API:
+    GET /v1/payments/qr_codes returns that same message while /v1/orders
+    works on the same credentials. The error must name the real cause."""
+    settings.RAZORPAY_KEY_ID = "rzp_test_fake"
+    settings.RAZORPAY_KEY_SECRET = "fake_secret"
+    from core.razorpay_client import RazorpayUnavailableError, create_qr_code
+
+    with patch("razorpay.Client") as MockClient:
+        MockClient.return_value.qrcode.create.side_effect = Exception(
+            "The requested URL was not found on the server."
+        )
+        with pytest.raises(RazorpayUnavailableError) as exc:
+            create_qr_code(Decimal("150.00"), name="Table 5 bill")
+
+    message = str(exc.value)
+    assert "not enabled on this account" in message
+    assert "Razorpay" in message
+    # Must not leave the reader thinking our own URL is wrong.
+    assert "requested URL was not found" not in message
+
+
+def test_other_qr_failures_still_surface_their_real_error(settings):
+    """The friendly message is only for that one specific case — every
+    other failure must still report what actually went wrong, not be
+    swallowed into a misleading 'not enabled'."""
+    settings.RAZORPAY_KEY_ID = "rzp_test_fake"
+    settings.RAZORPAY_KEY_SECRET = "fake_secret"
+    from core.razorpay_client import RazorpayUnavailableError, create_qr_code
+
+    with patch("razorpay.Client") as MockClient:
+        MockClient.return_value.qrcode.create.side_effect = Exception("Amount exceeds maximum")
+        with pytest.raises(RazorpayUnavailableError) as exc:
+            create_qr_code(Decimal("150.00"), name="Table 5 bill")
+
+    assert "Amount exceeds maximum" in str(exc.value)
+    assert "not enabled" not in str(exc.value)

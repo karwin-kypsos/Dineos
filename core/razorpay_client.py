@@ -69,6 +69,21 @@ def create_qr_code(amount_rupees, name):
         })
     except Exception as e:
         logger.exception("Razorpay QR code creation failed")
+        # 2026-09-21: Razorpay answers "The requested URL was not found on
+        # the server" when the QR Codes PRODUCT is not enabled on the
+        # account - nothing to do with our URL, but that is exactly what
+        # it reads like to whoever sees it, and it sent us looking in the
+        # wrong place once already. Confirmed live against Razorpay's own
+        # API: GET /v1/payments/qr_codes returns the same message, while
+        # /v1/orders works fine on the same credentials. Say what it
+        # actually means and who can fix it.
+        if "requested url was not found" in str(e).lower():
+            raise RazorpayUnavailableError(
+                "Razorpay QR Codes are not enabled on this account yet. This is an "
+                "account setting on Razorpay's side, not a problem with the bill or "
+                "the app - ask Razorpay to enable the QR Codes product, then try "
+                "again. Card/UPI via 'Pay via Razorpay' is unaffected and still works."
+            ) from e
         raise RazorpayUnavailableError(f"Razorpay QR code creation failed: {e}") from e
 
 
