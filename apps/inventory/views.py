@@ -94,6 +94,7 @@ class IngredientViewSet(viewsets.ModelViewSet):
         services.add_stock(
             ingredient.id, serializer.validated_data["quantity"],
             unit_cost=serializer.validated_data.get("unit_cost"), recorded_by=request.user,
+            adjustment_reason=serializer.validated_data["adjustment_reason"],
         )
         ingredient.refresh_from_db()
         return Response(IngredientSerializer(ingredient).data)
@@ -277,7 +278,7 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     def approve(self, request, pk=None):
         """Approve, optionally cutting individual lines (2026-09-21).
 
-        Body is optional: {"items": [{"line_id": 1, "approved_quantity":
+        Body is optional: {"items": [{"item_id": 1, "approved_quantity":
         "5.00"}], "note": "supplier short on flour"}. Any line left out
         is approved at the full requested quantity, so an empty body is
         still a plain "approve the lot".
@@ -293,10 +294,10 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         by_id = {line.id: line for line in po_obj.lines.all()}
         items = []
         for entry in serializer.validated_data["items"]:
-            line = by_id.get(entry["line_id"])
+            line = by_id.get(entry["item_id"])
             if line is None:
                 return Response(
-                    {"items": f"Line {entry['line_id']} does not belong to this purchase order."},
+                    {"items": f"Line {entry['item_id']} does not belong to this purchase order."},
                     status=status.HTTP_404_NOT_FOUND,
                 )
             items.append({"line": line, "approved_quantity": entry["approved_quantity"]})
@@ -323,7 +324,7 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     def goods_receipts(self, request, pk=None):
         """Record one delivery. The ONLY endpoint that moves stock.
 
-        {"items": [{"line_id": 1, "received_quantity": "3.00", "notes":
+        {"items": [{"item_id": 1, "received_quantity": "3.00", "notes":
         ""}], "notes": "", "confirm_overdelivery": false}
 
         Receiving more than was approved returns 409 unless
@@ -337,10 +338,10 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
         by_id = {line.id: line for line in po_obj.lines.all()}
         items = []
         for entry in serializer.validated_data["items"]:
-            line = by_id.get(entry["line_id"])
+            line = by_id.get(entry["item_id"])
             if line is None:
                 return Response(
-                    {"items": f"Line {entry['line_id']} does not belong to this purchase order."},
+                    {"items": f"Line {entry['item_id']} does not belong to this purchase order."},
                     status=status.HTTP_404_NOT_FOUND,
                 )
             items.append({

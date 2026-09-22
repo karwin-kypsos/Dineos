@@ -98,13 +98,64 @@ def test_add_stock_increments_current_stock(manager_client, ingredient):
     _, client = manager_client
 
     response = client.patch(
-        f"/v1/inventory/ingredients/{ingredient.id}/add-stock/", {"quantity": "5.00"}, format="json",
+        f"/v1/inventory/ingredients/{ingredient.id}/add-stock/",
+        {"quantity": "5.00", "adjustment_reason": "STOCK_COUNT_CORRECTION"}, format="json",
     )
 
     assert response.status_code == 200, response.data
     ingredient.refresh_from_db()
     assert ingredient.current_stock == Decimal("15.00")
-    assert StockMovement.objects.filter(ingredient=ingredient, movement_type="RESTOCK", quantity=Decimal("5.00")).exists()
+    movement = StockMovement.objects.filter(
+        ingredient=ingredient, movement_type="RESTOCK", quantity=Decimal("5.00"),
+    ).latest("recorded_at")
+    assert movement.adjustment_reason == "STOCK_COUNT_CORRECTION"
+
+
+def test_add_stock_now_requires_a_reason(manager_client, ingredient):
+    """2026-09-21, per the goods-receipt spec: a manual stock-in must say
+    why. A hand-typed correction and a real delivery both raise stock,
+    and without a reason on the row they cannot be told apart afterwards
+    - which is the audit gap the whole feature exists to close.
+
+    This is a BREAKING change to the endpoint: a caller that omits it
+    now gets 400 rather than silently recording an unlabelled restock.
+    """
+    _, client = manager_client
+
+    response = client.patch(
+        f"/v1/inventory/ingredients/{ingredient.id}/add-stock/", {"quantity": "5.00"}, format="json",
+    )
+
+    assert response.status_code == 400
+    assert "adjustment_reason" in response.data
+    ingredient.refresh_from_db()
+    assert ingredient.current_stock == Decimal("10.00"), "a rejected call must not move stock"
+
+
+def test_add_stock_cannot_masquerade_as_a_goods_receipt(manager_client, ingredient):
+    """GOODS_RECEIPT is set by record_goods_receipt itself and is not on
+    offer here - otherwise a manual edit could dress itself up as a real
+    delivery, which defeats the point of tagging them apart."""
+    _, client = manager_client
+
+    response = client.patch(
+        f"/v1/inventory/ingredients/{ingredient.id}/add-stock/",
+        {"quantity": "5.00", "adjustment_reason": "GOODS_RECEIPT"}, format="json",
+    )
+
+    assert response.status_code == 400
+    ingredient.refresh_from_db()
+    assert ingredient.current_stock == Decimal("10.00")
+
+
+def test_every_manual_reason_is_accepted(manager_client, ingredient):
+    _, client = manager_client
+    for reason in ("STOCK_COUNT_CORRECTION", "WASTAGE", "OPENING_STOCK"):
+        response = client.patch(
+            f"/v1/inventory/ingredients/{ingredient.id}/add-stock/",
+            {"quantity": "1.00", "adjustment_reason": reason}, format="json",
+        )
+        assert response.status_code == 200, (reason, response.data)
 
 
 def test_record_wastage_decrements_stock(manager_client, ingredient):
@@ -501,7 +552,7 @@ def test_full_purchase_order_lifecycle(admin_client, manager_client, ingredient)
 
     receipt = admin_c.post(
         f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
-        {"items": [{"line_id": line_id, "received_quantity": "20.00"}]}, format="json",
+        {"items": [{"item_id": line_id, "received_quantity": "20.00"}]}, format="json",
     )
     assert receipt.status_code == 201, receipt.data
     assert receipt.data["lines"][0]["received_quantity"] == "20.00"
@@ -532,7 +583,7 @@ def test_partial_deliveries_accumulate_and_then_complete(admin_client, manager_c
 
     first = admin_c.post(
         f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
-        {"items": [{"line_id": line_id, "received_quantity": "4.00"}]}, format="json",
+        {"items": [{"item_id": line_id, "received_quantity": "4.00"}]}, format="json",
     )
     assert first.status_code == 201
     mid = admin_c.get(f"/v1/inventory/purchase-orders/{po_id}/")
@@ -543,7 +594,7 @@ def test_partial_deliveries_accumulate_and_then_complete(admin_client, manager_c
 
     second = admin_c.post(
         f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
-        {"items": [{"line_id": line_id, "received_quantity": "6.00"}]}, format="json",
+        {"items": [{"item_id": line_id, "received_quantity": "6.00"}]}, format="json",
     )
     assert second.status_code == 201
     done = admin_c.get(f"/v1/inventory/purchase-orders/{po_id}/")
@@ -567,7 +618,7 @@ def test_approving_less_than_requested_caps_what_can_be_received(admin_client, m
 
     approve = admin_c.post(
         f"/v1/inventory/purchase-orders/{po_id}/approve/",
-        {"items": [{"line_id": line_id, "approved_quantity": "6.00"}], "note": "supplier short"},
+        {"items": [{"item_id": line_id, "approved_quantity": "6.00"}], "note": "supplier short"},
         format="json",
     )
     assert approve.status_code == 200, approve.data
@@ -578,12 +629,12 @@ def test_approving_less_than_requested_caps_what_can_be_received(admin_client, m
     # amount even though 10 was originally requested.
     ok = admin_c.post(
         f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
-        {"items": [{"line_id": line_id, "received_quantity": "6.00"}]}, format="json",
+        {"items": [{"item_id": line_id, "received_quantity": "6.00"}]}, format="json",
     )
     assert ok.status_code == 201
     over = admin_c.post(
         f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
-        {"items": [{"line_id": line_id, "received_quantity": "1.00"}]}, format="json",
+        {"items": [{"item_id": line_id, "received_quantity": "1.00"}]}, format="json",
     )
     assert over.status_code == 409
     assert over.data["requires_confirmation"] is True
@@ -604,7 +655,7 @@ def test_over_delivery_is_refused_then_accepted_on_confirmation(admin_client, ma
 
     refused = admin_c.post(
         f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
-        {"items": [{"line_id": line_id, "received_quantity": "8.00"}]}, format="json",
+        {"items": [{"item_id": line_id, "received_quantity": "8.00"}]}, format="json",
     )
     assert refused.status_code == 409
     assert refused.data["requires_confirmation"] is True
@@ -613,7 +664,7 @@ def test_over_delivery_is_refused_then_accepted_on_confirmation(admin_client, ma
 
     accepted = admin_c.post(
         f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
-        {"items": [{"line_id": line_id, "received_quantity": "8.00"}], "confirm_overdelivery": True},
+        {"items": [{"item_id": line_id, "received_quantity": "8.00"}], "confirm_overdelivery": True},
         format="json",
     )
     assert accepted.status_code == 201
@@ -640,7 +691,7 @@ def test_short_shipped_po_can_be_closed_with_a_reason(admin_client, manager_clie
 
     admin_c.post(
         f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
-        {"items": [{"line_id": line_id, "received_quantity": "4.00"}]}, format="json",
+        {"items": [{"item_id": line_id, "received_quantity": "4.00"}]}, format="json",
     )
     closed = admin_c.post(
         f"/v1/inventory/purchase-orders/{po_id}/close/",
@@ -663,11 +714,11 @@ def test_discrepancy_report_shows_ordered_approved_received(admin_client, manage
     line_id = create.data["lines"][0]["id"]
     admin_c.post(
         f"/v1/inventory/purchase-orders/{po_id}/approve/",
-        {"items": [{"line_id": line_id, "approved_quantity": "8.00"}]}, format="json",
+        {"items": [{"item_id": line_id, "approved_quantity": "8.00"}]}, format="json",
     )
     admin_c.post(
         f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
-        {"items": [{"line_id": line_id, "received_quantity": "3.00"}]}, format="json",
+        {"items": [{"item_id": line_id, "received_quantity": "3.00"}]}, format="json",
     )
 
     report = admin_c.get(f"/v1/inventory/purchase-orders/{po_id}/discrepancy/")
@@ -723,7 +774,7 @@ def test_stock_cannot_be_received_before_approval(admin_client, manager_client, 
 
     response = admin_c.post(
         f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
-        {"items": [{"line_id": line_id, "received_quantity": "5.00"}]}, format="json",
+        {"items": [{"item_id": line_id, "received_quantity": "5.00"}]}, format="json",
     )
 
     assert response.status_code == 409
@@ -743,7 +794,7 @@ def test_goods_receipt_rejects_a_line_from_another_purchase_order(admin_client, 
 
     response = admin_c.post(
         f"/v1/inventory/purchase-orders/{a.data['id']}/goods-receipts/",
-        {"items": [{"line_id": b.data["lines"][0]["id"], "received_quantity": "1.00"}]}, format="json",
+        {"items": [{"item_id": b.data["lines"][0]["id"], "received_quantity": "1.00"}]}, format="json",
     )
     assert response.status_code == 404
 
@@ -765,7 +816,7 @@ def test_goods_receipt_is_tagged_as_such_in_stock_history(admin_client, manager_
     admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/approve/", {}, format="json")
     admin_c.post(
         f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
-        {"items": [{"line_id": line_id, "received_quantity": "5.00"}]}, format="json",
+        {"items": [{"item_id": line_id, "received_quantity": "5.00"}]}, format="json",
     )
 
     movement = StockMovement.objects.filter(
@@ -882,3 +933,90 @@ def test_wastage_report_excludes_branch_less_ingredients_for_a_branched_user(
     names = {e["ingredient_name"] for e in response.data["entries"]}
     assert "Branch Oil" in names
     assert "Legacy Oil" not in names
+
+
+def test_approve_and_receive_accept_the_spec_name_item_id(admin_client, manager_client, ingredient):
+    """2026-09-21: the spec calls this item_id and that is canonical -
+    the Flutter models are built against it."""
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+
+    create = manager_c.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00"}]}, format="json",
+    )
+    po_id = create.data["id"]
+    item_id = create.data["lines"][0]["id"]
+
+    approve = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/approve/",
+        {"items": [{"item_id": item_id, "approved_quantity": "5.00"}]}, format="json",
+    )
+    assert approve.status_code == 200, approve.data
+
+    receipt = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"item_id": item_id, "received_quantity": "5.00"}]}, format="json",
+    )
+    assert receipt.status_code == 201, receipt.data
+
+
+def test_line_id_still_works_as_an_alias(admin_client, manager_client, ingredient):
+    """The first live payloads I sent the frontend used line_id. Silently
+    breaking something already handed over is worse than one alias."""
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+
+    create = manager_c.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00"}]}, format="json",
+    )
+    po_id = create.data["id"]
+    line_id = create.data["lines"][0]["id"]
+
+    admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/approve/", {}, format="json")
+    receipt = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"line_id": line_id, "received_quantity": "5.00"}]}, format="json",
+    )
+    assert receipt.status_code == 201, receipt.data
+
+
+def test_a_line_reference_with_neither_name_is_rejected(admin_client, manager_client, ingredient):
+    """Neither given is an error, not a guess."""
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+
+    create = manager_c.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00"}]}, format="json",
+    )
+    po_id = create.data["id"]
+    admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/approve/", {}, format="json")
+
+    response = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"received_quantity": "5.00"}]}, format="json",
+    )
+    assert response.status_code == 400
+
+
+def test_conflicting_item_id_and_line_id_is_rejected(admin_client, manager_client, ingredient):
+    """Both given but disagreeing is ambiguous - refuse rather than pick."""
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+
+    create = manager_c.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "5.00"}]}, format="json",
+    )
+    po_id = create.data["id"]
+    line_id = create.data["lines"][0]["id"]
+    admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/approve/", {}, format="json")
+
+    response = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"item_id": line_id, "line_id": line_id + 999, "received_quantity": "5.00"}]},
+        format="json",
+    )
+    assert response.status_code == 400

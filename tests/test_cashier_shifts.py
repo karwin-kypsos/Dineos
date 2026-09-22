@@ -776,3 +776,39 @@ def test_cashier_endpoints_require_billing_enabled(cashier_client, restaurant):
     response = client.post("/v1/cashier/shifts/open/")
 
     assert response.status_code == 403
+
+
+def test_a_bill_paid_at_the_exact_window_end_is_still_counted(cashier_client, table, menu_item):
+    """2026-09-21. The shift window's upper bound was STRICT (paid_at <
+    window_end) while MySalesView passes window_end = now(). A bill whose
+    paid_at lands on the same clock tick as that now() therefore fell
+    outside its own shift - the cashier takes a payment, opens My Sales,
+    and the bill they just took is missing until the next refresh.
+
+    That is also what made
+    test_my_sales_scopes_to_current_shift_not_calendar_day flaky: it
+    passes or fails purely on whether two timestamps collide, which on a
+    coarse clock they often do.
+
+    This pins the boundary deterministically instead of racing for it.
+    """
+    from apps.billing import services as billing_services
+    from apps.billing.models import Bill
+
+    cashier_user, client = cashier_client
+    client.post("/v1/cashier/shifts/open/")
+    bill = _pay(cashier_user, table, menu_item, quantity=1, method="CARD")
+
+    bill.refresh_from_db()
+    shift = billing_services.get_current_shift(cashier_user)
+
+    report = billing_services.daily_collections(
+        table.restaurant,
+        window_start=shift.opened_at,
+        window_end=bill.paid_at,          # the exact collision case
+        cashier=cashier_user,
+    )
+
+    assert len(report["bills"]) == 1, (
+        "a bill paid at exactly the window end must be counted - it is inside its own shift"
+    )

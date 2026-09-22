@@ -660,6 +660,18 @@ def daily_collections(
     branch (2026-08-27, per the Billing dashboard branch-scoped API spec)
     restricts every figure to just that branch's bills.
     """
+    # 2026-09-21: the upper bound is INCLUSIVE for a shift window and
+    # exclusive for a calendar day, and the difference matters.
+    # A calendar day ends at midnight of the next day, so a bill stamped
+    # exactly 00:00:00.000000 belongs to the NEXT day - strict < is right.
+    # A shift window ends at now(), and nothing can be paid in the future,
+    # so a bill stamped exactly now() is inside its own shift. With strict
+    # < it fell outside: the cashier took a payment, opened My Sales, and
+    # the bill they had just taken was missing until the next refresh.
+    # It needs the two timestamps to collide, which on a coarse clock they
+    # regularly do - that is also what made
+    # test_my_sales_scopes_to_current_shift_not_calendar_day flaky.
+    end_inclusive = window_start is not None and window_end is not None
     if window_start is not None and window_end is not None:
         day_start, day_end = window_start, window_end
         # A shift has no natural "previous day" — compare against the
@@ -687,8 +699,9 @@ def daily_collections(
     if branch is not None:
         scoped_bills_qs = scoped_bills_qs.filter(branch=branch)
 
+    end_filter = {"paid_at__lte": day_end} if end_inclusive else {"paid_at__lt": day_end}
     bills = list(
-        scoped_bills_qs.filter(paid_at__gte=day_start, paid_at__lt=day_end).select_related(
+        scoped_bills_qs.filter(paid_at__gte=day_start, **end_filter).select_related(
             "session__table", "order", "processed_by"
         ).prefetch_related("session__orders__items", "order__items")
     )

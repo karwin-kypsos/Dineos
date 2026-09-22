@@ -79,8 +79,25 @@ class StockMovementSerializer(serializers.ModelSerializer):
 
 
 class AddStockSerializer(serializers.Serializer):
+    """Manual stock-in. 2026-09-21: adjustment_reason is now REQUIRED.
+
+    Per the goods-receipt spec - a hand-typed correction and a real
+    delivery both raise stock, and without a reason on the row they are
+    indistinguishable afterwards, which is the audit gap the whole
+    feature exists to close. GOODS_RECEIPT is deliberately NOT offered
+    here: it is set by record_goods_receipt itself, and letting a caller
+    claim it would let a manual edit masquerade as a delivery.
+    """
+
+    _MANUAL_REASONS = [
+        (StockMovement.AdjustmentReason.STOCK_COUNT_CORRECTION, "Stock count correction"),
+        (StockMovement.AdjustmentReason.WASTAGE, "Wastage"),
+        (StockMovement.AdjustmentReason.OPENING_STOCK, "Opening stock"),
+    ]
+
     quantity = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal("0.01"))
     unit_cost = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    adjustment_reason = serializers.ChoiceField(choices=_MANUAL_REASONS)
 
 
 class RecordWastageSerializer(serializers.Serializer):
@@ -128,8 +145,33 @@ class GoodsReceiptSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class ApprovePurchaseOrderLineSerializer(serializers.Serializer):
-    line_id = serializers.IntegerField()
+class _POLineRefSerializer(serializers.Serializer):
+    """Identifies one line of a purchase order.
+
+    2026-09-21: the spec calls this item_id, which is the canonical name
+    and what the Flutter models are built against. line_id is accepted
+    as an alias because the first live payloads I sent over used it, and
+    silently breaking something already handed to the frontend is worse
+    than carrying one alias. Exactly one of the two must be given -
+    supplying both, or neither, is an error rather than a guess.
+    """
+
+    item_id = serializers.IntegerField(required=False)
+    line_id = serializers.IntegerField(required=False)
+
+    def validate(self, attrs):
+        item_id, line_id = attrs.get("item_id"), attrs.get("line_id")
+        if item_id is None and line_id is None:
+            raise serializers.ValidationError("item_id is required.")
+        if item_id is not None and line_id is not None and item_id != line_id:
+            raise serializers.ValidationError(
+                "item_id and line_id disagree - send item_id alone."
+            )
+        attrs["item_id"] = item_id if item_id is not None else line_id
+        return attrs
+
+
+class ApprovePurchaseOrderLineSerializer(_POLineRefSerializer):
     approved_quantity = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal("0"))
 
 
@@ -141,8 +183,7 @@ class ApprovePurchaseOrderSerializer(serializers.Serializer):
     note = serializers.CharField(required=False, allow_blank=True, default="")
 
 
-class GoodsReceiptLineInputSerializer(serializers.Serializer):
-    line_id = serializers.IntegerField()
+class GoodsReceiptLineInputSerializer(_POLineRefSerializer):
     received_quantity = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal("0.01"))
     notes = serializers.CharField(required=False, allow_blank=True, default="")
 
