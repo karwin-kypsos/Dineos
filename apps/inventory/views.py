@@ -231,6 +231,27 @@ class WastageLogView(APIView):
             # Strict since 2026-09-21 — see _branch_scoped above.
             movements = movements.filter(ingredient__branch=branch)
 
+        # 2026-09-22: money and quantities go out as decimal STRINGS, and
+        # timestamps carry the local +05:30 offset.
+        #
+        # This view hand-builds a plain dict rather than going through a
+        # serializer, and that changed the wire format in two ways nobody
+        # had noticed:
+        #   - a raw Decimal in a plain dict never reaches DecimalField, so
+        #     DRF's encoder fell back to float() - total_cost came out as
+        #     55.0 and every breakdown value as 10.0, while every
+        #     serializer-backed endpoint in this API returns "55.00".
+        #     Same defect as estimated_total on the purchase order.
+        #   - a raw datetime likewise skips DateTimeField, whose
+        #     enforce_timezone() is what applies TIME_ZONE. So recorded_at
+        #     came out as "...894689Z" (UTC) while every serializer-backed
+        #     timestamp reads "...+05:30". Two formats in one API, decided
+        #     by an implementation detail the client cannot see.
+        cents = Decimal("0.01")
+
+        def money(value):
+            return str(value.quantize(cents))
+
         breakdown_by_reason = {reason: Decimal("0") for reason in StockMovement.WastageReason.values}
         total_cost = Decimal("0")
         entries = []
@@ -243,18 +264,20 @@ class WastageLogView(APIView):
                 "ingredient_id": str(m.ingredient_id),
                 "ingredient_name": m.ingredient.name,
                 "unit": m.ingredient.unit,
-                "quantity": m.quantity,
+                "quantity": money(m.quantity),
                 "wastage_reason": m.wastage_reason,
                 "reason": m.reason,
-                "cost": cost,
-                "recorded_at": m.recorded_at,
+                "cost": money(cost),
+                "recorded_at": timezone.localtime(m.recorded_at).isoformat(),
                 "recorded_by_name": m.recorded_by.name if m.recorded_by else None,
             })
 
         return Response({
             "date": target_date.isoformat(),
-            "total_cost": total_cost,
-            "breakdown_by_reason": breakdown_by_reason,
+            "total_cost": money(total_cost),
+            # Every reason is always present, including OTHER, and a reason
+            # with nothing against it reads "0.00" rather than being absent.
+            "breakdown_by_reason": {k: money(v) for k, v in breakdown_by_reason.items()},
             "entries": entries,
         })
 

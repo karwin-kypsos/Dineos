@@ -1269,3 +1269,68 @@ def test_discrepancy_carries_item_id_matching_the_request_key(admin_client, mana
     row = report.data["lines"][0]
     assert row["item_id"] == item_id
     assert row["line_id"] == item_id
+
+
+def test_wastage_summary_returns_decimal_strings_and_local_timestamps(manager_client, ingredient):
+    """2026-09-22. This view hand-builds a plain dict instead of going
+    through a serializer, and that quietly changed the wire format twice.
+
+    A raw Decimal never reaches DecimalField, so DRF's encoder fell back
+    to float() - total_cost came out as 55.0 while every
+    serializer-backed endpoint returns "55.00". A raw datetime likewise
+    skips DateTimeField, whose enforce_timezone() is what applies
+    TIME_ZONE, so recorded_at came out in UTC with a Z while every other
+    timestamp in this API carries +05:30. Two formats in one API,
+    decided by an implementation detail no client can see.
+
+    Renders to JSON deliberately - response.data still holds the raw
+    Decimal, so asserting there cannot catch either problem.
+    """
+    import json
+
+    from rest_framework.renderers import JSONRenderer
+
+    _, client = manager_client
+    client.patch(
+        f"/v1/inventory/ingredients/{ingredient.id}/add-stock/",
+        {"quantity": "20.00", "unit_cost": "10.00", "adjustment_reason": "OPENING_STOCK"}, format="json",
+    )
+    client.patch(
+        f"/v1/inventory/ingredients/{ingredient.id}/record-wastage/",
+        {"quantity": "1.50", "wastage_reason": "OTHER", "reason": "probe"}, format="json",
+    )
+
+    wire = json.loads(JSONRenderer().render(client.get("/v1/inventory/wastage/").data))
+
+    assert isinstance(wire["total_cost"], str), f"money must not be a float, got {wire['total_cost']!r}"
+    assert wire["total_cost"] == "15.00"
+
+    breakdown = wire["breakdown_by_reason"]
+    # OTHER has always been accepted; this pins that it is always present
+    # in the breakdown too, alongside the other three.
+    assert set(breakdown) == {"SPOILED", "OVER_PREPPED", "RETURNED", "OTHER"}
+    assert breakdown["OTHER"] == "15.00"
+    assert breakdown["SPOILED"] == "0.00", "an unused reason reads 0.00, not absent and not 0"
+    assert all(isinstance(v, str) for v in breakdown.values())
+
+    entry = wire["entries"][0]
+    assert entry["quantity"] == "1.50"
+    assert entry["cost"] == "15.00"
+    assert isinstance(entry["quantity"], str) and isinstance(entry["cost"], str)
+    # Local offset, matching every serializer-backed timestamp.
+    assert "+05:30" in entry["recorded_at"], entry["recorded_at"]
+    assert not entry["recorded_at"].endswith("Z")
+
+
+def test_every_wastage_reason_including_other_is_accepted(manager_client, ingredient):
+    _, client = manager_client
+    client.patch(
+        f"/v1/inventory/ingredients/{ingredient.id}/add-stock/",
+        {"quantity": "50.00", "unit_cost": "10.00", "adjustment_reason": "OPENING_STOCK"}, format="json",
+    )
+    for reason in ("SPOILED", "OVER_PREPPED", "RETURNED", "OTHER"):
+        response = client.patch(
+            f"/v1/inventory/ingredients/{ingredient.id}/record-wastage/",
+            {"quantity": "1.00", "wastage_reason": reason}, format="json",
+        )
+        assert response.status_code == 200, (reason, response.data)
