@@ -246,7 +246,17 @@ def _notify_purchase_order_requester(po, type, title, body):
 
 
 class OverDeliveryError(Exception):
-    """Received more than was approved, without confirm_overdelivery set."""
+    """Received more than was approved, without confirm_overdelivery set.
+
+    2026-09-22: carries `lines`, the offending rows as structured data,
+    not just a sentence. The message alone meant a client could tell
+    THAT something over-delivered but not WHICH row or by how much
+    without parsing English out of `detail`.
+    """
+
+    def __init__(self, message, lines=None):
+        super().__init__(message)
+        self.lines = lines or []
 
 
 @transaction.atomic
@@ -349,6 +359,8 @@ def record_goods_receipt(po_id, items, received_by=None, confirm_overdelivery=Fa
         raise ValueError("A goods receipt needs at least one line.")
 
     over = []
+    over_rows = []
+    cents = Decimal("0.01")
     for entry in items:
         line = lines.get(entry["line"].id)
         if line is None:
@@ -357,14 +369,27 @@ def record_goods_receipt(po_id, items, received_by=None, confirm_overdelivery=Fa
         if qty <= 0:
             raise ValueError("A received quantity must be greater than zero.")
         limit = line.approved_quantity if line.approved_quantity is not None else line.quantity_ordered
-        if line.quantity_received + qty > limit:
-            over.append(
-                f"{line.ingredient.name}: {line.quantity_received + qty} received vs {limit} approved"
-            )
+        attempted = line.quantity_received + qty
+        if attempted > limit:
+            over.append(f"{line.ingredient.name}: {attempted} received vs {limit} approved")
+            # Structured alongside the sentence, so the client can point
+            # at the exact row and amount instead of parsing prose.
+            over_rows.append({
+                "item_id": line.id,
+                "line_id": line.id,
+                "ingredient_id": str(line.ingredient_id),
+                "ingredient_name": line.ingredient.name,
+                "unit": line.ingredient.unit,
+                "already_received": str(line.quantity_received.quantize(cents)),
+                "attempted": str(attempted.quantize(cents)),
+                "approved": str(limit.quantize(cents)),
+                "excess": str((attempted - limit).quantize(cents)),
+            })
     if over and not confirm_overdelivery:
         raise OverDeliveryError(
             "More was received than approved for: " + "; ".join(over)
-            + ". Re-send with confirm_overdelivery true to accept it anyway."
+            + ". Re-send with confirm_overdelivery true to accept it anyway.",
+            lines=over_rows,
         )
 
     receipt = GoodsReceipt.objects.create(purchase_order=po, received_by=received_by, notes=notes or "")
@@ -439,6 +464,12 @@ def purchase_order_discrepancy(po):
         # said 20.0 where the PO itself says "20.00" for the very same
         # value, and floats are the wrong carrier for quantities anyway.
         lines.append({
+            # item_id is canonical and matches the REQUEST key used by
+            # approve and goods-receipts; line_id stays because it is
+            # what earlier payloads handed to the frontend carried.
+            # Same value, both present, so neither side has to remember
+            # which direction it is going.
+            "item_id": line.id,
             "line_id": line.id,
             "ingredient_id": str(line.ingredient_id),
             "ingredient_name": line.ingredient.name,

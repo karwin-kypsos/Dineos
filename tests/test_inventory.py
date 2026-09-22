@@ -1165,3 +1165,107 @@ def test_estimated_total_is_a_decimal_string_like_every_other_money_field(manage
     )
     # The sibling quantity it has to agree with.
     assert isinstance(on_the_wire["lines"][0]["quantity_ordered"], str)
+
+
+def test_over_delivery_409_names_the_exact_row_and_amount(admin_client, manager_client, ingredient):
+    """2026-09-22. The 409 used to carry only a sentence, so a client
+    could tell THAT something over-delivered but not WHICH row or by how
+    much without parsing English out of detail."""
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+
+    create = manager_c.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "10.00"}]}, format="json",
+    )
+    po_id = create.data["id"]
+    item_id = create.data["lines"][0]["id"]
+    admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/approve/",
+        {"items": [{"item_id": item_id, "approved_quantity": "8.00"}]}, format="json",
+    )
+    admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"item_id": item_id, "received_quantity": "5.00"}]}, format="json",
+    )
+
+    response = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"item_id": item_id, "received_quantity": "6.00"}]}, format="json",
+    )
+
+    assert response.status_code == 409
+    assert response.data["requires_confirmation"] is True
+    rows = response.data["over_delivered"]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["item_id"] == item_id
+    assert row["line_id"] == item_id
+    assert row["ingredient_name"] == ingredient.name
+    assert row["already_received"] == "5.00"
+    assert row["attempted"] == "11.00"   # 5 already + 6 now
+    assert row["approved"] == "8.00"
+    assert row["excess"] == "3.00"       # 11 - 8
+
+    ingredient.refresh_from_db()
+    assert ingredient.current_stock == Decimal("15.00"), "the refused receipt must not move stock"
+
+
+def test_over_delivery_reports_every_offending_line(admin_client, manager_client, ingredient, restaurant):
+    """Multiple bad lines each get their own entry, not one merged blob."""
+    from apps.inventory.models import Ingredient
+
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+    second = Ingredient.objects.create(
+        restaurant=restaurant, name="Second Item", unit="L",
+        current_stock=Decimal("0.00"), minimum_stock_level=Decimal("1.00"),
+    )
+
+    create = manager_c.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [
+            {"ingredient": str(ingredient.id), "quantity_ordered": "5.00"},
+            {"ingredient": str(second.id), "quantity_ordered": "5.00"},
+        ]}, format="json",
+    )
+    po_id = create.data["id"]
+    a, b = [l["id"] for l in create.data["lines"]]
+    admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/approve/", {}, format="json")
+
+    response = admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [
+            {"item_id": a, "received_quantity": "9.00"},
+            {"item_id": b, "received_quantity": "7.00"},
+        ]}, format="json",
+    )
+
+    assert response.status_code == 409
+    rows = {r["item_id"]: r for r in response.data["over_delivered"]}
+    assert set(rows) == {a, b}
+    assert rows[a]["excess"] == "4.00"   # 9 vs 5
+    assert rows[b]["excess"] == "2.00"   # 7 vs 5
+
+
+def test_discrepancy_carries_item_id_matching_the_request_key(admin_client, manager_client, ingredient):
+    """The response said line_id while requests take item_id. Both are
+    present now, same value, so neither side has to remember which
+    direction it is going."""
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+
+    create = manager_c.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "10.00"}]}, format="json",
+    )
+    po_id = create.data["id"]
+    item_id = create.data["lines"][0]["id"]
+    admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/approve/", {}, format="json")
+
+    report = admin_c.get(f"/v1/inventory/purchase-orders/{po_id}/discrepancy/")
+
+    assert report.status_code == 200
+    row = report.data["lines"][0]
+    assert row["item_id"] == item_id
+    assert row["line_id"] == item_id

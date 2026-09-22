@@ -441,8 +441,10 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
                 notes=serializer.validated_data["notes"],
             )
         except services.OverDeliveryError as e:
+            # over_delivered names the exact rows and amounts, so the UI
+            # can highlight the offending line rather than parse `detail`.
             return Response(
-                {"detail": str(e), "requires_confirmation": True},
+                {"detail": str(e), "requires_confirmation": True, "over_delivered": e.lines},
                 status=status.HTTP_409_CONFLICT,
             )
         except ValueError as e:
