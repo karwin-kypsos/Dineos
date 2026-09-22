@@ -1,7 +1,14 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from .views import AIInsightViewSet, IngredientViewSet, PurchaseOrderViewSet, RecipeItemViewSet, WastageLogView
+from .views import (
+    AIInsightViewSet,
+    IngredientViewSet,
+    PurchaseOrderViewSet,
+    RecipeItemViewSet,
+    StockAdditionListView,
+    WastageLogView,
+)
 
 router = DefaultRouter()
 router.register("ingredients", IngredientViewSet, basename="ingredient")
@@ -11,4 +18,5 @@ router.register("ai-insights", AIInsightViewSet, basename="ai-insight")
 
 urlpatterns = [
     path("wastage/", WastageLogView.as_view(), name="wastage-log"),
+    path("stock-additions/", StockAdditionListView.as_view(), name="stock-additions"),
 ] + router.urls

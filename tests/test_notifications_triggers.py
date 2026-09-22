@@ -647,3 +647,113 @@ def test_restocking_back_up_does_not_alert(restaurant, admin_client, manager_cli
         inventory_services.add_stock(ingredient.id, Decimal("2.00"))  # critical -> low
 
     assert not Notification.objects.filter(type__in=["LOW_STOCK", "CRITICAL_STOCK"]).exists()
+
+
+def test_closing_a_short_shipped_po_notifies_admin_with_the_reason(
+    restaurant, admin_client, manager_client, django_capture_on_commit_callbacks
+):
+    """2026-09-22, per Karwin. The reason typed at close time is the whole
+    point of this alert - it is the short-shipment explanation nobody
+    sees otherwise - so it has to reach the body, not just the title."""
+    from apps.inventory import services as inventory_services
+
+    manager_user, _ = manager_client
+    admin_user, _ = admin_client
+    ingredient = Ingredient.objects.create(
+        restaurant=restaurant, name="Saffron", unit="G",
+        current_stock=Decimal("10.00"), minimum_stock_level=Decimal("2.00"),
+    )
+    po = inventory_services.create_purchase_order(
+        restaurant=restaurant, branch=None,
+        lines=[{"ingredient": ingredient, "quantity_ordered": Decimal("10.00")}],
+        supplier_name="Kesar Traders", requested_by=manager_user,
+    )
+    inventory_services.approve_purchase_order(po.id, approved_by=admin_user)
+    line = po.lines.first()
+    inventory_services.record_goods_receipt(
+        po.id, [{"line": line, "received_quantity": Decimal("4.00")}], received_by=admin_user,
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.close_purchase_order(
+            po.id, reason="Supplier discontinued the item", closed_by=admin_user,
+        )
+
+    notes = Notification.objects.filter(type="PURCHASE_ORDER_CLOSED")
+    assert notes.exists()
+    note = notes.filter(recipient=admin_user).first()
+    assert note is not None, "the Admin must receive it"
+    assert "Kesar Traders" in note.title
+    assert note.body == "Supplier discontinued the item"
+    assert note.data["purchase_order_id"] == str(po.id)
+
+
+def test_receiving_goods_never_notifies(
+    restaurant, admin_client, manager_client, django_capture_on_commit_callbacks
+):
+    """Explicitly confirmed with Karwin: PARTIALLY_RECEIVED and
+    FULLY_RECEIVED stay silent. A delivery arriving is routine; alerting
+    on it would bury the one PO alert that matters."""
+    from apps.inventory import services as inventory_services
+
+    manager_user, _ = manager_client
+    admin_user, _ = admin_client
+    ingredient = Ingredient.objects.create(
+        restaurant=restaurant, name="Cardamom", unit="G",
+        current_stock=Decimal("10.00"), minimum_stock_level=Decimal("2.00"),
+    )
+    po = inventory_services.create_purchase_order(
+        restaurant=restaurant, branch=None,
+        lines=[{"ingredient": ingredient, "quantity_ordered": Decimal("10.00")}],
+        requested_by=manager_user,
+    )
+    inventory_services.approve_purchase_order(po.id, approved_by=admin_user)
+    line = po.lines.first()
+
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.record_goods_receipt(
+            po.id, [{"line": line, "received_quantity": Decimal("4.00")}], received_by=admin_user,
+        )
+    po.refresh_from_db()
+    assert po.status == "PARTIALLY_RECEIVED"
+    assert not Notification.objects.filter(type="PURCHASE_ORDER_CLOSED").exists()
+
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.record_goods_receipt(
+            po.id, [{"line": line, "received_quantity": Decimal("6.00")}], received_by=admin_user,
+        )
+    po.refresh_from_db()
+    assert po.status == "FULLY_RECEIVED"
+    assert not Notification.objects.filter(type="PURCHASE_ORDER_CLOSED").exists()
+
+
+def test_close_notification_fires_exactly_once(
+    restaurant, admin_client, manager_client, django_capture_on_commit_callbacks
+):
+    """A second close attempt is refused, so the alert cannot be doubled
+    by a double-tap."""
+    from apps.inventory import services as inventory_services
+
+    manager_user, _ = manager_client
+    admin_user, _ = admin_client
+    ingredient = Ingredient.objects.create(
+        restaurant=restaurant, name="Cloves", unit="G",
+        current_stock=Decimal("10.00"), minimum_stock_level=Decimal("2.00"),
+    )
+    po = inventory_services.create_purchase_order(
+        restaurant=restaurant, branch=None,
+        lines=[{"ingredient": ingredient, "quantity_ordered": Decimal("10.00")}],
+        requested_by=manager_user,
+    )
+    inventory_services.approve_purchase_order(po.id, approved_by=admin_user)
+    inventory_services.record_goods_receipt(
+        po.id, [{"line": po.lines.first(), "received_quantity": Decimal("4.00")}], received_by=admin_user,
+    )
+
+    with django_capture_on_commit_callbacks(execute=True):
+        inventory_services.close_purchase_order(po.id, reason="first", closed_by=admin_user)
+    with django_capture_on_commit_callbacks(execute=True):
+        with pytest.raises(ValueError):
+            inventory_services.close_purchase_order(po.id, reason="second", closed_by=admin_user)
+
+    assert Notification.objects.filter(type="PURCHASE_ORDER_CLOSED").count() == 1

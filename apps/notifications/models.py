@@ -23,6 +23,13 @@ class Notification(models.Model):
         PURCHASE_ORDER_APPROVED = "PURCHASE_ORDER_APPROVED", "Purchase Order Approved"
         PURCHASE_ORDER_REJECTED = "PURCHASE_ORDER_REJECTED", "Purchase Order Rejected"
         PURCHASE_ORDER_ORDERED = "PURCHASE_ORDER_ORDERED", "Purchase Order Ordered"
+        # 2026-09-22, per Karwin: a short-shipped PO being written off is
+        # the one PO transition worth interrupting someone for - the reason
+        # typed at close time IS the value (discontinued item, supplier
+        # cannot source the rest), and nobody sees it unless told.
+        # Deliberately NOT fired for PARTIALLY_RECEIVED or FULLY_RECEIVED:
+        # a delivery arriving is routine and would just be noise.
+        PURCHASE_ORDER_CLOSED = "PURCHASE_ORDER_CLOSED", "Purchase Order Closed"
 
     recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="notifications")
     branch = models.ForeignKey(

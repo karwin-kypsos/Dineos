@@ -106,6 +106,37 @@ class RecordWastageSerializer(serializers.Serializer):
     reason = serializers.CharField(required=False, allow_blank=True, default="")
 
 
+class StockAdditionSerializer(serializers.ModelSerializer):
+    """One manual stock-in, for the audit list (2026-09-22, per Karwin).
+
+    Field names follow his spec rather than the column names underneath:
+    the model calls them adjustment_reason / unit_cost_at_time /
+    recorded_by / recorded_at, which are right for a movement row but
+    read oddly on an audit screen.
+    """
+
+    ingredient_name = serializers.CharField(source="ingredient.name", read_only=True)
+    unit = serializers.CharField(source="ingredient.unit", read_only=True)
+    branch = serializers.PrimaryKeyRelatedField(source="ingredient.branch", read_only=True)
+    branch_name = serializers.CharField(source="ingredient.branch.name", read_only=True, default=None)
+    reason = serializers.CharField(source="adjustment_reason", read_only=True)
+    unit_cost = serializers.DecimalField(
+        source="unit_cost_at_time", max_digits=10, decimal_places=2, read_only=True
+    )
+    performed_by = serializers.PrimaryKeyRelatedField(source="recorded_by", read_only=True)
+    performed_by_name = serializers.CharField(source="recorded_by.name", read_only=True, default=None)
+    created_at = serializers.DateTimeField(source="recorded_at", read_only=True)
+
+    class Meta:
+        model = StockMovement
+        fields = [
+            "id", "ingredient", "ingredient_name", "unit", "quantity", "reason",
+            "unit_cost", "performed_by", "performed_by_name", "branch", "branch_name",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
 class PurchaseOrderLineSerializer(serializers.ModelSerializer):
     ingredient_name = serializers.CharField(source="ingredient.name", read_only=True)
     unit = serializers.CharField(source="ingredient.unit", read_only=True)

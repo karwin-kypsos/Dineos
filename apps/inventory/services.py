@@ -411,6 +411,18 @@ def close_purchase_order(po_id, reason, closed_by=None):
     po.status = PurchaseOrder.Status.CLOSED
     po.closed_reason = reason.strip()
     po.save(update_fields=["status", "closed_reason"])
+
+    # 2026-09-22, per Karwin. Fires exactly once, here, on a successful
+    # close - never on a partial or full receipt, which stay silent
+    # (record_goods_receipt sends nothing at all, by design). The reason
+    # goes in the body because the reason is the whole point: it is the
+    # short-shipment explanation nobody sees otherwise.
+    transaction.on_commit(lambda: notify_role(
+        ["ADMIN"], tenant=po.restaurant, type="PURCHASE_ORDER_CLOSED",
+        title=f"Purchase order closed — {po.supplier_name or 'no supplier set'}",
+        body=po.closed_reason,
+        data={"purchase_order_id": str(po.id)}, branch=po.branch,
+    ))
     return po
 
 

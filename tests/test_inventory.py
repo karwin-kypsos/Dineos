@@ -1020,3 +1020,116 @@ def test_conflicting_item_id_and_line_id_is_rejected(admin_client, manager_clien
         format="json",
     )
     assert response.status_code == 400
+
+
+def test_stock_additions_lists_manual_adds_only(admin_client, manager_client, ingredient, branch):
+    """2026-09-22, per Karwin: the audit list is the mirror of the wastage
+    log. Goods-receipt additions are deliberately excluded - those
+    already have full traceability through the purchase order, and
+    mixing them in would bury the hand-entered ones this exists to
+    surface."""
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+
+    manager_c.patch(
+        f"/v1/inventory/ingredients/{ingredient.id}/add-stock/",
+        {"quantity": "4.00", "unit_cost": "12.00", "adjustment_reason": "STOCK_COUNT_CORRECTION"},
+        format="json",
+    )
+
+    create = manager_c.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "6.00"}]}, format="json",
+    )
+    po_id, item_id = create.data["id"], create.data["lines"][0]["id"]
+    admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/approve/", {}, format="json")
+    admin_c.post(
+        f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+        {"items": [{"item_id": item_id, "received_quantity": "6.00"}]}, format="json",
+    )
+
+    response = admin_c.get("/v1/inventory/stock-additions/")
+
+    assert response.status_code == 200, response.data
+    assert "count" in response.data and "results" in response.data, "must paginate like other lists"
+    rows = response.data["results"]
+    quantities = [r["quantity"] for r in rows]
+    assert "4.00" in quantities, "the manual add must be listed"
+    assert "6.00" not in quantities, "the goods-receipt add must NOT be listed"
+
+    row = [r for r in rows if r["quantity"] == "4.00"][0]
+    assert row["ingredient_name"] == ingredient.name
+    assert row["unit"] == ingredient.unit
+    assert row["reason"] == "STOCK_COUNT_CORRECTION"
+    assert row["unit_cost"] == "12.00"
+    assert row["performed_by_name"] is not None
+    assert "created_at" in row
+
+
+def test_stock_additions_filters(admin_client, manager_client, ingredient, restaurant):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.inventory.models import Ingredient
+
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+    other = Ingredient.objects.create(
+        restaurant=restaurant, name="Filter Probe", unit="L",
+        current_stock=Decimal("1.00"), minimum_stock_level=Decimal("1.00"),
+    )
+
+    manager_c.patch(f"/v1/inventory/ingredients/{ingredient.id}/add-stock/",
+                    {"quantity": "2.00", "adjustment_reason": "OPENING_STOCK"}, format="json")
+    manager_c.patch(f"/v1/inventory/ingredients/{other.id}/add-stock/",
+                    {"quantity": "3.00", "adjustment_reason": "STOCK_COUNT_CORRECTION"}, format="json")
+
+    by_reason = admin_c.get("/v1/inventory/stock-additions/?reason=OPENING_STOCK")
+    assert {r["reason"] for r in by_reason.data["results"]} == {"OPENING_STOCK"}
+
+    by_ingredient = admin_c.get(f"/v1/inventory/stock-additions/?ingredient={other.id}")
+    # Response.data holds the real UUID object - it only becomes a
+    # string once rendered to JSON, so compare as UUIDs here.
+    assert {str(r["ingredient"]) for r in by_ingredient.data["results"]} == {str(other.id)}
+
+    today = timezone.localdate().isoformat()
+    in_range = admin_c.get(f"/v1/inventory/stock-additions/?date_from={today}&date_to={today}")
+    assert len(in_range.data["results"]) >= 2
+
+    past = (timezone.localdate() - timedelta(days=5)).isoformat()
+    out_of_range = admin_c.get(f"/v1/inventory/stock-additions/?date_from={past}&date_to={past}")
+    assert out_of_range.data["results"] == []
+
+    # A malformed ingredient id returns nothing rather than everything -
+    # the failure mode that matters on an audit endpoint.
+    assert admin_c.get("/v1/inventory/stock-additions/?ingredient=not-a-uuid").data["results"] == []
+
+
+def test_stock_additions_are_branch_scoped(manager_client, restaurant, branch, ingredient):
+    """Same scoping as the rest of inventory since 2026-09-21: a user with
+    a branch sees only their own branch's rows."""
+    from apps.inventory.models import Ingredient
+    from apps.restaurant.models import Branch
+
+    user, client = manager_client
+    user.branch = branch
+    user.save(update_fields=["branch"])
+
+    other_branch = Branch.objects.create(restaurant=restaurant, name="Far Branch")
+    mine = Ingredient.objects.create(
+        restaurant=restaurant, branch=branch, name="Mine", unit="KG",
+        current_stock=Decimal("1.00"), minimum_stock_level=Decimal("1.00"),
+    )
+    theirs = Ingredient.objects.create(
+        restaurant=restaurant, branch=other_branch, name="Theirs", unit="KG",
+        current_stock=Decimal("1.00"), minimum_stock_level=Decimal("1.00"),
+    )
+    from apps.inventory.services import add_stock
+
+    add_stock(mine.id, Decimal("1.00"), adjustment_reason="OPENING_STOCK")
+    add_stock(theirs.id, Decimal("1.00"), adjustment_reason="OPENING_STOCK")
+
+    names = {r["ingredient_name"] for r in client.get("/v1/inventory/stock-additions/").data["results"]}
+    assert "Mine" in names
+    assert "Theirs" not in names

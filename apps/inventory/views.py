@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.db import models as dj_models
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -25,6 +25,7 @@ from .serializers import (
     PurchaseOrderSerializer,
     RecipeItemSerializer,
     RecordWastageSerializer,
+    StockAdditionSerializer,
 )
 
 
@@ -114,6 +115,89 @@ class IngredientViewSet(viewsets.ModelViewSet):
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         ingredient.refresh_from_db()
         return Response(IngredientSerializer(ingredient).data)
+
+
+class StockAdditionListView(generics.ListAPIView):
+    """Audit trail of MANUAL stock additions (2026-09-22, per Karwin) -
+    the mirror of the wastage log, pointing the other way.
+
+    Deliberately excludes goods-receipt additions: those already have
+    full traceability through the purchase order, and mixing them in
+    would bury the hand-entered ones this exists to surface.
+
+    HONEST CAVEAT, and it is in the docs too: rows created before
+    2026-09-21 have a blank reason. Until then add_stock recorded no
+    reason at all, and the same function served both the manual endpoint
+    AND the old PO receive path - so for those historical rows there is
+    no way to tell a manual correction from a PO delivery. They are
+    included rather than hidden, because an audit list that silently
+    drops history is worse than one that shows an unlabelled row. Filter
+    ?reason= to see only the labelled ones.
+
+    Paginated normally (count/next/previous/results), unlike the wastage
+    log, which returns a single day's totals as one object.
+    """
+
+    serializer_class = StockAdditionSerializer
+    permission_classes = [IsAdminOrManager]
+
+    def get_queryset(self):
+        qs = (
+            StockMovement.objects
+            .filter(
+                ingredient__restaurant=self.request.tenant,
+                movement_type=StockMovement.MovementType.RESTOCK,
+            )
+            .exclude(adjustment_reason=StockMovement.AdjustmentReason.GOODS_RECEIPT)
+            .select_related("ingredient", "ingredient__branch", "recorded_by")
+            .order_by("-recorded_at", "-id")
+        )
+
+        # Branch: implicit for a user pinned to one, explicit ?branch= for
+        # an Admin (who has none) - same convention as the rest of this
+        # module since 2026-09-21, no branch-less fallback.
+        branch = getattr(self.request.user, "branch", None)
+        if branch is not None:
+            qs = qs.filter(ingredient__branch=branch)
+        branch_id = self.request.query_params.get("branch")
+        if branch_id:
+            try:
+                uuid.UUID(branch_id)
+                qs = qs.filter(ingredient__branch_id=branch_id)
+            except ValueError:
+                pass  # malformed id ignored, same convention as elsewhere
+
+        ingredient_id = self.request.query_params.get("ingredient")
+        if ingredient_id:
+            try:
+                uuid.UUID(ingredient_id)
+                qs = qs.filter(ingredient_id=ingredient_id)
+            except ValueError:
+                return qs.none()
+
+        reason = self.request.query_params.get("reason", "").strip().upper()
+        if reason in StockMovement.AdjustmentReason.values:
+            qs = qs.filter(adjustment_reason=reason)
+
+        # Inclusive calendar dates, same as the purchase-order history
+        # range filter.
+        date_from = self.request.query_params.get("date_from")
+        if date_from:
+            try:
+                qs = qs.filter(
+                    recorded_at__date__gte=timezone.datetime.strptime(date_from, "%Y-%m-%d").date()
+                )
+            except ValueError:
+                pass
+        date_to = self.request.query_params.get("date_to")
+        if date_to:
+            try:
+                qs = qs.filter(
+                    recorded_at__date__lte=timezone.datetime.strptime(date_to, "%Y-%m-%d").date()
+                )
+            except ValueError:
+                pass
+        return qs
 
 
 class WastageLogView(APIView):
