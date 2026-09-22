@@ -242,7 +242,18 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
     estimated_total = serializers.SerializerMethodField()
 
     def get_estimated_total(self, obj):
-        return sum((line.quantity_ordered * (line.unit_cost or Decimal("0")) for line in obj.lines.all()), Decimal("0"))
+        # 2026-09-22: returned as a decimal STRING, like every other money
+        # and quantity field in this API. A raw Decimal from a
+        # SerializerMethodField bypasses DecimalField, so DRF's JSON
+        # encoder fell back to float(obj) and this came off the wire as
+        # 2100.0 while the very same object reported quantity_ordered as
+        # "20.00" - one object, two representations of money, and a float
+        # at that. Caught on the live wire, not in review.
+        total = sum(
+            (line.quantity_ordered * (line.unit_cost or Decimal("0")) for line in obj.lines.all()),
+            Decimal("0"),
+        )
+        return str(total.quantize(Decimal("0.01")))
 
     class Meta:
         model = PurchaseOrder

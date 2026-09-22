@@ -1133,3 +1133,35 @@ def test_stock_additions_are_branch_scoped(manager_client, restaurant, branch, i
     names = {r["ingredient_name"] for r in client.get("/v1/inventory/stock-additions/").data["results"]}
     assert "Mine" in names
     assert "Theirs" not in names
+
+
+def test_estimated_total_is_a_decimal_string_like_every_other_money_field(manager_client, ingredient):
+    """2026-09-22. estimated_total came off the wire as a bare float
+    (2100.0) while the same response reported quantity_ordered as
+    "20.00" - one object, two representations of money.
+
+    Cause: a SerializerMethodField returning a raw Decimal bypasses
+    DecimalField, so DRF's JSON encoder falls back to float(obj) and
+    COERCE_DECIMAL_TO_STRING never applies. Asserting on response.data
+    hides it, because that holds the pre-render Decimal - so this test
+    renders to JSON and inspects the actual bytes.
+    """
+    import json
+
+    from rest_framework.renderers import JSONRenderer
+
+    _, client = manager_client
+    response = client.post(
+        "/v1/inventory/purchase-orders/",
+        {"lines": [{"ingredient": str(ingredient.id), "quantity_ordered": "20.00", "unit_cost": "105.00"}]},
+        format="json",
+    )
+    assert response.status_code == 201, response.data
+
+    on_the_wire = json.loads(JSONRenderer().render(response.data))
+    assert on_the_wire["estimated_total"] == "2100.00"
+    assert isinstance(on_the_wire["estimated_total"], str), (
+        f"money must not be a float on the wire, got {type(on_the_wire['estimated_total']).__name__}"
+    )
+    # The sibling quantity it has to agree with.
+    assert isinstance(on_the_wire["lines"][0]["quantity_ordered"], str)
