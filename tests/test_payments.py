@@ -595,3 +595,43 @@ def test_other_qr_failures_still_surface_their_real_error(settings):
 
     assert "Amount exceeds maximum" in str(exc.value)
     assert "not enabled" not in str(exc.value)
+
+
+def test_payment_amount_is_a_string_plus_integer_paise(cashier_client, table, menu_item, settings):
+    """2026-09-23. amount came back as a bare float (315.0) while every
+    other money field in this API is a decimal string - and the client
+    then multiplied it by 100 itself for Razorpay. Float money through a
+    x100 conversion is exactly where rounding bites, and it is the
+    payer's money.
+
+    amount is now a decimal string for display, and amount_paise is the
+    integer Razorpay Checkout actually wants, so the client never does
+    that arithmetic at all.
+    """
+    import json
+
+    from rest_framework.renderers import JSONRenderer
+
+    from apps.orders import services as order_services
+    from apps.tables import services as table_services
+
+    settings.RAZORPAY_KEY_ID = "rzp_test_fake"
+    settings.RAZORPAY_KEY_SECRET = "fake_secret"
+    _, client = cashier_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 2}])
+
+    with patch("razorpay.Client") as MockClient:
+        MockClient.return_value.order.create.return_value = {"id": "order_fake123"}
+        response = client.post(
+            "/v1/payments/razorpay/create-order/",
+            {"session_id": str(session.id), "payment_method": "ONLINE"}, format="json",
+        )
+
+    assert response.status_code == 201, response.data
+    wire = json.loads(JSONRenderer().render(response.data))
+    assert isinstance(wire["amount"], str), f"money must not be a float, got {wire['amount']!r}"
+    assert "." in wire["amount"] and len(wire["amount"].split(".")[1]) == 2
+    assert isinstance(wire["amount_paise"], int), wire["amount_paise"]
+    # The two must describe the same money.
+    assert wire["amount_paise"] == int(round(float(wire["amount"]) * 100))

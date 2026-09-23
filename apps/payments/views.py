@@ -1,5 +1,6 @@
 import json
 import logging
+from decimal import Decimal
 
 from django.conf import settings
 from django.shortcuts import get_object_or_404
@@ -115,7 +116,10 @@ class CreateRazorpayOrderView(APIView):
             {
                 "payment_attempt": PaymentAttemptSerializer(attempt).data,
                 "razorpay_order_id": razorpay_order["id"],
-                "amount": amount,
+                # See the amount/amount_paise note below - decimal string for
+                # display, integer paise for Razorpay Checkout.
+                "amount": str(amount.quantize(Decimal("0.01"))),
+                "amount_paise": int(amount * 100),
                 "currency": "INR",
                 "key_id": settings.RAZORPAY_KEY_ID,
             },
@@ -185,7 +189,8 @@ class CreateRazorpayQrCodeView(APIView):
                 "payment_attempt": PaymentAttemptSerializer(attempt).data,
                 "razorpay_qr_code_id": qr_code["id"],
                 "image_url": qr_code["image_url"],
-                "amount": amount,
+                "amount": str(amount.quantize(Decimal("0.01"))),
+                "amount_paise": int(amount * 100),
                 "currency": "INR",
             },
             status=201,
@@ -243,7 +248,14 @@ class CreateCustomerRazorpayOrderView(APIView):
             initiated_by=None,
         )
         return Response(
-            {"razorpay_order_id": razorpay_order["id"], "amount": amount, "currency": "INR",
+            # amount is a decimal STRING like every other money field in this
+            # API; amount_paise is the integer Razorpay Checkout actually wants.
+            # It used to be a bare float (315.0) that the client multiplied by
+            # 100 itself - float money through a x100 conversion is exactly
+            # where rounding bites, and it is the payer's money.
+            {"razorpay_order_id": razorpay_order["id"],
+             "amount": str(amount.quantize(Decimal("0.01"))),
+             "amount_paise": int(amount * 100), "currency": "INR",
              "key_id": settings.RAZORPAY_KEY_ID},
             status=201,
         )
