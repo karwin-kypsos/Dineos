@@ -24,12 +24,28 @@ class OrderItemSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
     total_amount = serializers.SerializerMethodField()
+    # 2026-09-23, option (c): present ONLY on the create-order response,
+    # listing dishes that were already auto-86'd when the order was
+    # placed. Absent on every read of an existing order - it describes a
+    # moment, not a property of the order, and re-deriving it later would
+    # report today's stock against yesterday's order.
+    unavailable_items = serializers.SerializerMethodField()
     payment_status = serializers.SerializerMethodField()
+
+    def get_unavailable_items(self, obj):
+        return getattr(obj, "unavailable_items", [])
     table_number = serializers.SerializerMethodField()
     order_source = serializers.SerializerMethodField()
 
     def get_total_amount(self, obj):
-        return sum((item.line_total for item in obj.items.all()), Decimal("0"))
+        # 2026-09-23: decimal STRING, matching unit_price and line_total on
+        # the very same object. A SerializerMethodField returning a raw
+        # Decimal never reaches DecimalField, so DRF's encoder fell back to
+        # float() and this came off the wire as 300.0 while its own items
+        # reported "150.00" and "300.00". Same defect as estimated_total on
+        # the purchase order and the wastage summary totals.
+        total = sum((item.line_total for item in obj.items.all()), Decimal("0"))
+        return str(total.quantize(Decimal("0.01")))
 
     def get_table_number(self, obj):
         # Raw table_number (e.g. "5"), not a display string — takeaway
@@ -87,6 +103,7 @@ class OrderSerializer(serializers.ModelSerializer):
             "notes",
             "items",
             "total_amount",
+            "unavailable_items",
             "placed_at",
             "accepted_at",
             "preparing_at",

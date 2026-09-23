@@ -148,6 +148,40 @@ def _finalize_new_order(order, restaurant, portion_updates, zero_hits):
         transaction.on_commit(lambda: _broadcast_order_placed(order, restaurant, portion_updates, zero_hits))
 
 
+def unavailable_items_at_order_time(menu_item_ids):
+    """Which of these dishes were ALREADY auto-86'd before this order.
+
+    2026-09-23, option (c) per Karwin. The menu hides an 86'd dish, but
+    order placement never refused one - so an app whose menu loaded
+    before an ingredient ran out, or two customers ordering at the same
+    moment, could still get it through. Refusing outright was the other
+    option and was rejected: stock counts drift from reality, so a hard
+    block can turn away an order the kitchen could actually cook. This
+    flags it instead and lets a human decide.
+
+    Evaluated BEFORE the order's own deduction runs, deliberately.
+    Afterwards, whoever takes the last portion would always trip the
+    warning, which would train people to ignore it. This only fires when
+    the dish was already unsellable when they ordered.
+    """
+    from apps.menu.services import out_of_stock_ingredients
+    from apps.menu.models import MenuItem
+
+    blocked = out_of_stock_ingredients(list(menu_item_ids))
+    if not blocked:
+        return []
+    names = dict(MenuItem.objects.filter(id__in=list(blocked)).values_list("id", "name"))
+    return [
+        {
+            "menu_item": menu_item_id,
+            "menu_item_name": names.get(menu_item_id, ""),
+            "reason": "Out of stock: " + ", ".join(sorted(ingredients)),
+            "out_of_stock_ingredients": sorted(ingredients),
+        }
+        for menu_item_id, ingredients in sorted(blocked.items())
+    ]
+
+
 @transaction.atomic
 def place_order(session_id, items, placed_by=None, notes=""):
     session = TableSession.objects.select_for_update().get(id=session_id)
@@ -164,6 +198,12 @@ def place_order(session_id, items, placed_by=None, notes=""):
     order = Order.objects.create(
         order_type=Order.OrderType.DINE_IN, session=session, table=session.table, branch=session.table.branch,
         round_number=round_number, placed_by=placed_by, notes=notes,
+    )
+
+    # Captured BEFORE _create_order_items, which is what deducts stock -
+    # see unavailable_items_at_order_time for why the order matters.
+    order.unavailable_items = unavailable_items_at_order_time(
+        [i["menu_item_id"] for i in items]
     )
 
     zero_hits, portion_updates = _create_order_items(order, items, restaurant)

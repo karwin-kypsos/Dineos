@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from .models import Table, TableSession
@@ -73,11 +75,16 @@ class TableSessionDetailSerializer(serializers.ModelSerializer):
         return OrderSerializer(obj.orders.all().order_by("round_number"), many=True).data
 
     def get_running_total(self, obj):
-        total = 0
+        # 2026-09-23: every money field on this serializer is a decimal
+        # STRING now. This is the customer's own bill preview - what they
+        # are told they owe - and it was going out as float: 300.0, 15.0,
+        # 315.0. Floats are the wrong carrier for money anywhere, and
+        # worst of all on the screen where someone decides what to pay.
+        total = Decimal("0")
         for order in obj.orders.exclude(status="CANCELLED").prefetch_related("items"):
             for item in order.items.all():
                 total += item.unit_price * item.quantity
-        return total
+        return str(total.quantize(Decimal("0.01")))
 
     def _totals(self, obj):
         # subtotal/tax_amount/service_charge/total_amount (2026-08-27, per
@@ -97,16 +104,16 @@ class TableSessionDetailSerializer(serializers.ModelSerializer):
         return obj._tax_totals_cache
 
     def get_subtotal(self, obj):
-        return self._totals(obj)[0]
+        return str(self._totals(obj)[0].quantize(Decimal("0.01")))
 
     def get_tax_amount(self, obj):
-        return self._totals(obj)[1]
+        return str(self._totals(obj)[1].quantize(Decimal("0.01")))
 
     def get_service_charge(self, obj):
-        return self._totals(obj)[2]
+        return str(self._totals(obj)[2].quantize(Decimal("0.01")))
 
     def get_total_amount(self, obj):
-        return self._totals(obj)[3]
+        return str(self._totals(obj)[3].quantize(Decimal("0.01")))
 
 
 class QRLandingSerializer(serializers.Serializer):

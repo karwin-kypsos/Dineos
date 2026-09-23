@@ -330,3 +330,42 @@ def test_server_cannot_widen_branch_via_query_param(restaurant, branch):
     assert response.status_code == 200
     results = response.data["results"] if isinstance(response.data, dict) else response.data
     assert results == []
+
+
+def test_customer_bill_preview_returns_money_as_decimal_strings(api_client, table, menu_item):
+    """2026-09-23. The customer's own bill preview - the screen where
+    someone decides what to pay - was emitting money as JSON floats:
+    subtotal 300.0, tax_amount 15.0, total_amount 315.0, and every
+    order's total_amount 300.0 while its own items reported "150.00".
+
+    Same defect family as estimated_total on the purchase order and the
+    wastage summary: a SerializerMethodField returning a raw Decimal
+    never reaches DecimalField, so DRF's encoder falls back to float().
+
+    Rendered to JSON deliberately - response.data still holds the raw
+    Decimal, which is exactly why none of the existing tests caught it.
+    """
+    import json
+
+    from rest_framework.renderers import JSONRenderer
+
+    from apps.orders import services as order_services
+
+    session, _ = services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 2}])
+
+    response = api_client.get(f"/v1/tables/{table.id}/session/")
+    assert response.status_code == 200
+    wire = json.loads(JSONRenderer().render(response.data))
+
+    for field in ("running_total", "subtotal", "tax_amount", "service_charge", "total_amount"):
+        assert isinstance(wire[field], str), (
+            f"{field} must be a decimal string, got {wire[field]!r}"
+        )
+        assert "." in wire[field] and len(wire[field].split(".")[1]) == 2, wire[field]
+
+    order = wire["orders"][0]
+    assert isinstance(order["total_amount"], str), order["total_amount"]
+    # Must agree with the item strings it is the sum of.
+    assert isinstance(order["items"][0]["line_total"], str)
+    assert order["total_amount"] == order["items"][0]["line_total"]

@@ -385,3 +385,78 @@ def test_manual_switch_still_wins_and_says_so(manager_client, menu_item, chicken
     row = [i for i in listing.data["results"] if i["id"] == menu_item.id][0]
     assert row["is_available"] is False
     assert row["unavailable_reason"] == "Turned off manually"
+
+
+def test_ordering_an_auto_86ed_dish_is_accepted_but_flagged(api_client, table, menu_item, chicken, recipe):
+    """2026-09-23, option (c) per Karwin. The menu hides an 86'd dish, but
+    order placement never refused one - an app whose menu loaded before
+    the ingredient ran out could still get it through.
+
+    Refusing outright was considered and rejected: stock counts drift
+    from reality, so a hard block can turn away an order the kitchen
+    could actually cook. The order goes through and carries a flag
+    instead, so a human decides.
+    """
+    from apps.orders import services as order_services
+    from apps.tables import services as table_services
+
+    chicken.current_stock = Decimal("0.00")
+    chicken.save(update_fields=["current_stock"])
+    session, _ = table_services.get_or_create_active_session(table.id)
+
+    response = api_client.post(
+        "/v1/orders/",
+        {"session_id": str(session.id), "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    flagged = response.data["unavailable_items"]
+    assert len(flagged) == 1, flagged
+    assert flagged[0]["menu_item"] == menu_item.id
+    assert flagged[0]["menu_item_name"] == menu_item.name
+    assert chicken.name in flagged[0]["reason"]
+    assert flagged[0]["out_of_stock_ingredients"] == [chicken.name]
+
+
+def test_ordering_an_available_dish_flags_nothing(api_client, table, menu_item, chicken, recipe):
+    """Empty list in the normal case - never null, never absent."""
+    from apps.tables import services as table_services
+
+    chicken.current_stock = Decimal("500.00")
+    chicken.save(update_fields=["current_stock"])
+    session, _ = table_services.get_or_create_active_session(table.id)
+
+    response = api_client.post(
+        "/v1/orders/",
+        {"session_id": str(session.id), "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+
+    assert response.status_code == 201
+    assert response.data["unavailable_items"] == []
+
+
+def test_taking_the_last_portion_does_not_flag_itself(api_client, table, menu_item, chicken, recipe):
+    """The flag is evaluated BEFORE this order's own deduction. Otherwise
+    whoever takes the last portion always trips the warning, which trains
+    people to ignore it."""
+    from apps.tables import services as table_services
+
+    # Exactly enough for one serving (recipe is 0.25 per portion).
+    chicken.current_stock = Decimal("0.25")
+    chicken.save(update_fields=["current_stock"])
+    session, _ = table_services.get_or_create_active_session(table.id)
+
+    response = api_client.post(
+        "/v1/orders/",
+        {"session_id": str(session.id), "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+
+    assert response.status_code == 201
+    assert response.data["unavailable_items"] == [], (
+        "the dish was still sellable when they ordered - it ran out because of this order"
+    )
+    chicken.refresh_from_db()
+    assert chicken.current_stock == Decimal("0.00")
