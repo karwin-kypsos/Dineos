@@ -86,7 +86,7 @@ def test_takeaway_order_decrements_portions(cashier_with_branch, menu_item):
 
     response = client.post(
         "/v1/orders/takeaway/",
-        {"items": [{"menu_item": menu_item.id, "quantity": 3}]}, format="json",
+        {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 3}]}, format="json",
     )
 
     assert response.status_code == 201
@@ -98,7 +98,7 @@ def test_takeaway_bill_preview_and_payment(cashier_with_branch, menu_item, branc
     _, client = cashier_with_branch
 
     create = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 2}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 2}]}, format="json",
     )
     order_id = create.data["id"]
 
@@ -149,7 +149,7 @@ def test_daily_collections_includes_takeaway_revenue(cashier_with_branch, menu_i
     bills, silently excluding takeaway payments."""
     _, client = cashier_with_branch
 
-    create = client.post("/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json")
+    create = client.post("/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json")
     order_id = create.data["id"]
     pay = client.post("/v1/bills/takeaway-payment/", {"order_id": order_id, "payment_method": "CASH"}, format="json")
     assert pay.status_code == 201
@@ -165,7 +165,7 @@ def test_order_response_includes_total_amount(cashier_with_branch, menu_item):
     _, client = cashier_with_branch
 
     response = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 2}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 2}]}, format="json",
     )
 
     assert response.status_code == 201
@@ -178,7 +178,7 @@ def test_list_takeaway_orders_scoped_to_own_branch(cashier_with_branch, menu_ite
 
     from apps.restaurant.models import Branch
 
-    client.post("/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json")
+    client.post("/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json")
 
     other_branch = Branch.objects.create(restaurant=restaurant, name="Other Branch")
     Order.objects.create(order_type="TAKEAWAY", branch=other_branch, round_number=1)
@@ -200,12 +200,12 @@ def test_list_takeaway_orders_defaults_to_today_not_all_time(cashier_with_branch
     client.post("/v1/cashier/shifts/open/")
 
     old_order = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     ).data
     Order.objects.filter(id=old_order["id"]).update(placed_at=timezone.now() - timedelta(days=3))
 
     today_order = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     ).data
 
     default_response = client.get("/v1/orders/takeaway/?status=all")
@@ -230,10 +230,10 @@ def test_list_takeaway_orders_excludes_collected_and_served_by_default(cashier_w
     client.post("/v1/cashier/shifts/open/")
 
     active_order = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     ).data
     served_order = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     ).data
     Order.objects.filter(id=served_order["id"]).update(status="SERVED")
 
@@ -268,10 +268,10 @@ def test_list_takeaway_orders_scoped_to_own_cashier(cashier_with_branch, restaur
     client_b.post("/v1/cashier/shifts/open/")
 
     order_a = client_a.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     ).data
     order_b = client_b.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     ).data
 
     response_a = client_a.get("/v1/orders/takeaway/?status=all")
@@ -302,7 +302,7 @@ def test_list_takeaway_orders_resets_on_new_shift(cashier_with_branch, menu_item
     shift_id = open_resp.data["id"]
 
     first_shift_order = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     ).data
 
     close_resp = client.post(
@@ -318,7 +318,7 @@ def test_list_takeaway_orders_resets_on_new_shift(cashier_with_branch, menu_item
 
     client.post("/v1/cashier/shifts/open/")
     second_shift_order = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     ).data
 
     response = client.get("/v1/orders/takeaway/")
@@ -332,7 +332,7 @@ def test_list_takeaway_orders_filters_by_status(cashier_with_branch, menu_item):
     client.post("/v1/cashier/shifts/open/")
 
     new_order = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     )
     order_id = new_order.data["id"]
     Order.objects.filter(id=order_id).update(status="READY")
@@ -359,7 +359,7 @@ def test_active_orders_includes_takeaway(cashier_with_branch, manager_client, me
     _, manager = manager_client
 
     create = cashier.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     )
     order_id = create.data["id"]
     Order.objects.filter(id=order_id).update(status="PREPARING")
@@ -379,7 +379,7 @@ def test_ready_orders_includes_takeaway(cashier_with_branch, manager_client, men
     _, manager = manager_client
 
     create = cashier.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     )
     order_id = create.data["id"]
     Order.objects.filter(id=order_id).update(status="READY")
@@ -496,7 +496,7 @@ def test_cannot_add_takeaway_round_to_another_branchs_order(cashier_with_branch,
 
     _, client = cashier_with_branch
     root = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     )
     assert root.status_code == 201
 
@@ -532,7 +532,7 @@ def test_admin_uses_selected_branch_for_takeaway_order(admin_client, menu_item, 
     user.save(update_fields=["selected_branch"])
 
     response = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     )
 
     assert response.status_code == 201
@@ -543,7 +543,7 @@ def test_cannot_add_takeaway_round_once_order_is_billed(cashier_with_branch, men
     _, client = cashier_with_branch
 
     first = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     )
     order_id = first.data["id"]
     pay = client.post(
@@ -564,7 +564,7 @@ def test_takeaway_bill_preview_and_payment_combine_every_round(cashier_with_bran
     _, client = cashier_with_branch
 
     first = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 2}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 2}]}, format="json",
     )
     root_id = first.data["id"]
     second = client.post(
@@ -625,7 +625,7 @@ def test_takeaway_order_payment_status_pending_then_paid(cashier_with_branch, me
     _, client = cashier_with_branch
 
     create = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     )
     assert create.data["payment_status"] == "PENDING"
     order_id = create.data["id"]
@@ -649,7 +649,7 @@ def test_kitchen_disabled_takeaway_order_auto_serves(cashier_with_branch, menu_i
     _, client = cashier_with_branch
 
     response = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     )
 
     assert response.status_code == 201

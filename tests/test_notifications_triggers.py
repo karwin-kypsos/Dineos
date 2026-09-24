@@ -365,7 +365,7 @@ def test_takeaway_order_ready_notifies_cashier_not_server(
     cashier_user.save(update_fields=["branch"])
 
     create = cashier.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     )
     order_id = create.data["id"]
 

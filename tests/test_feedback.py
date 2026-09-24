@@ -79,7 +79,7 @@ def test_submit_feedback_for_takeaway_bill(api_client, cashier_client, branch, m
     user.branch = branch
     user.save(update_fields=["branch"])
     order = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     ).data
     pay = client.post(
         "/v1/bills/takeaway-payment/", {"order_id": order["id"], "payment_method": "CASH"}, format="json",

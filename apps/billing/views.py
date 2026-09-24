@@ -2,11 +2,12 @@ import uuid
 
 from django.utils import timezone
 from django.utils.dateparse import parse_date
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.tables.models import TableSession
+from core.pagination import DineOSPageNumberPagination
 from core.permissions import FeatureEnabledPermission, IsAnyStaff
 from core.tenancy import get_tenant_from_session
 
@@ -30,28 +31,54 @@ class BillListView(APIView):
     permission_classes = [IsAnyStaff, IsBillingEnabled]
 
     def get(self, request):
+        # 2026-09-24, per Shereena: an unrecognised filter on a MONEY screen
+        # is rejected, not ignored. The rest of the API still shrugs off a
+        # bad filter (StaffViewSet's convention), but here a manager typing
+        # ?payment_method=CAHS got back every bill and read it as "these are
+        # the CAHS ones" with nothing on screen saying the filter never
+        # applied. Silence is the dangerous answer when the number is money.
+        def _date(value, field):
+            parsed = parse_date(value)
+            if parsed is None:
+                raise ValidationError({field: ["Expected format YYYY-MM-DD."]})
+            return parsed
+
         date_param = request.query_params.get("date", "").strip()
         date = None
         if date_param == "today":
             date = timezone.localdate()
         elif date_param:
-            date = parse_date(date_param)
+            date = _date(date_param, "date")
 
         date_from_param = request.query_params.get("date_from", "").strip()
         date_to_param = request.query_params.get("date_to", "").strip()
-        date_from = parse_date(date_from_param) if date_from_param else None
-        date_to = parse_date(date_to_param) if date_to_param else None
+        date_from = _date(date_from_param, "date_from") if date_from_param else None
+        date_to = _date(date_to_param, "date_to") if date_to_param else None
 
         payment_method = request.query_params.get("payment_method", "").strip().upper()
-        if payment_method not in Bill.PaymentMethod.values:
-            payment_method = None
+        if payment_method and payment_method not in Bill.PaymentMethod.values:
+            raise ValidationError({
+                "payment_method": [
+                    "Not a valid payment method. Choose one of: "
+                    + ", ".join(Bill.PaymentMethod.values)
+                    + "."
+                ]
+            })
+        payment_method = payment_method or None
 
         branch_id = request.query_params.get("branch")
         if branch_id:
             try:
                 uuid.UUID(branch_id)
-            except ValueError:
-                branch_id = None  # malformed branch id — no filter applied, same convention as StaffViewSet
+            except (ValueError, AttributeError, TypeError):
+                raise ValidationError({"branch": ["Expected a valid branch id."]})
+
+        cashier_id = request.query_params.get("cashier") or None
+        if cashier_id:
+            try:
+                uuid.UUID(cashier_id)
+            except (ValueError, AttributeError, TypeError):
+                raise ValidationError({"cashier": ["Expected a valid cashier id."]})
 
         bills = services.list_bills(
             request.tenant,
@@ -59,11 +86,21 @@ class BillListView(APIView):
             date_from=date_from,
             date_to=date_to,
             payment_method=payment_method,
-            cashier_id=request.query_params.get("cashier") or None,
+            cashier_id=cashier_id,
             branch=branch_id,
             search=request.query_params.get("search", "").strip() or None,
         )
-        return Response(BillSerializer(bills, many=True).data)
+
+        # Paginated since 2026-09-24, per Karwin. This returned every bill
+        # the restaurant had ever taken in one array - fine at 40, a real
+        # problem as it grows, and it grows forever. ?page= and ?page_size=
+        # (capped at 100) as everywhere else; the response shape is now
+        # {count, next, previous, results} rather than a bare list, which
+        # is the breaking part and was scheduled deliberately rather than
+        # shipped quietly.
+        paginator = DineOSPageNumberPagination()
+        page = paginator.paginate_queryset(bills, request, view=self)
+        return paginator.get_paginated_response(BillSerializer(page, many=True).data)
 
 
 class SessionBillView(APIView):

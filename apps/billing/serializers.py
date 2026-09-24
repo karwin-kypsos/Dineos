@@ -37,7 +37,7 @@ class BillSerializer(serializers.ModelSerializer):
             obj._bill_orders_cache = list(
                 takeaway_group(obj.order)
                 if obj.order_id
-                else obj.session.orders.exclude(status="CANCELLED").prefetch_related("items").order_by("round_number")
+                else obj.session.orders.exclude(status="CANCELLED").prefetch_related("items__menu_item").order_by("round_number")
             )
         return obj._bill_orders_cache
 

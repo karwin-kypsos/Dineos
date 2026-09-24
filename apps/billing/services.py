@@ -93,7 +93,7 @@ def receipt_branch_info(branch, restaurant):
 
 
 def _compute_totals(session):
-    orders = list(Order.objects.filter(session=session).exclude(status="CANCELLED").prefetch_related("items"))
+    orders = list(Order.objects.filter(session=session).exclude(status="CANCELLED").prefetch_related("items__menu_item"))
     subtotal = sum((item.unit_price * item.quantity for order in orders for item in order.items.all()), Decimal("0"))
 
     restaurant = session.table.restaurant
@@ -223,7 +223,7 @@ def _compute_order_totals(order, restaurant):
 
 @transaction.atomic
 def get_takeaway_bill_preview(order_id):
-    order = Order.objects.select_related("branch__restaurant").prefetch_related("items", "rounds__items").get(
+    order = Order.objects.select_related("branch__restaurant").prefetch_related("items__menu_item", "rounds__items__menu_item").get(
         id=order_id
     )
     root = _takeaway_root(order)
@@ -260,7 +260,7 @@ def pay_takeaway_bill(order_id, payment_method, processed_by, amount_received=No
     order = (
         Order.objects.select_for_update(of=("self",))
         .select_related("branch__restaurant")
-        .prefetch_related("items", "rounds__items")
+        .prefetch_related("items__menu_item", "rounds__items__menu_item")
         .get(id=order_id)
     )
     root = _takeaway_root(order)
@@ -597,7 +597,11 @@ def list_bills(restaurant, *, date=None, date_from=None, date_to=None, payment_m
             | Q(processed_by__name__icontains=search)
             | Q(total_amount_str__icontains=search)
         )
-    return bills.order_by("-paid_at")
+    # "-id" as a tiebreaker (2026-09-24): paid_at alone is not unique, and
+    # two bills sharing a timestamp can swap places between page 1 and
+    # page 2 of the same listing - a row silently repeating or vanishing.
+    # Now that this endpoint is paginated the ordering has to be total.
+    return bills.order_by("-paid_at", "-id")
 
 
 def cashier_collections(restaurant, *, date=None, date_from=None, date_to=None, branch=None):

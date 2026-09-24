@@ -81,7 +81,7 @@ class TableSessionDetailSerializer(serializers.ModelSerializer):
         # 315.0. Floats are the wrong carrier for money anywhere, and
         # worst of all on the screen where someone decides what to pay.
         total = Decimal("0")
-        for order in obj.orders.exclude(status="CANCELLED").prefetch_related("items"):
+        for order in obj.orders.exclude(status="CANCELLED").prefetch_related("items__menu_item"):
             for item in order.items.all():
                 total += item.unit_price * item.quantity
         return str(total.quantize(Decimal("0.01")))

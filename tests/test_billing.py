@@ -202,7 +202,7 @@ def test_get_receipt_for_takeaway_bill(cashier_client, branch, menu_item):
     cashier_user.branch = branch
     cashier_user.save(update_fields=["branch"])
     create = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     )
     pay = client.post(
         "/v1/bills/takeaway-payment/", {"order_id": create.data["id"], "payment_method": "CASH"}, format="json",
@@ -261,7 +261,7 @@ def test_list_bills_includes_dine_in_and_takeaway_across_cashiers(admin_client, 
         "/v1/bills/payment/", {"session_id": str(session.id), "payment_method": "CASH"}, format="json",
     )
     takeaway_create = cashier.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     )
     takeaway_pay = cashier.post(
         "/v1/bills/takeaway-payment/",
@@ -272,7 +272,7 @@ def test_list_bills_includes_dine_in_and_takeaway_across_cashiers(admin_client, 
     response = admin.get("/v1/bills/")
 
     assert response.status_code == 200
-    bill_ids = {b["id"] for b in response.data}
+    bill_ids = {b["id"] for b in response.data["results"]}
     assert dine_in_pay.data["id"] in bill_ids
     assert takeaway_pay.data["id"] in bill_ids
 
@@ -289,8 +289,8 @@ def test_list_bills_filters_by_payment_method(admin_client, cashier_client, tabl
     response = admin.get("/v1/bills/?payment_method=CASH")
 
     assert response.status_code == 200
-    assert pay.data["id"] in {b["id"] for b in response.data}
-    assert all(b["payment_method"] == "CASH" for b in response.data)
+    assert pay.data["id"] in {b["id"] for b in response.data["results"]}
+    assert all(b["payment_method"] == "CASH" for b in response.data["results"])
 
 
 def test_list_bills_filters_by_cashier(admin_client, cashier_client, table, menu_item):
@@ -305,8 +305,8 @@ def test_list_bills_filters_by_cashier(admin_client, cashier_client, table, menu
     response = admin.get(f"/v1/bills/?cashier={cashier_user.id}")
 
     assert response.status_code == 200
-    assert pay.data["id"] in {b["id"] for b in response.data}
-    assert all(b["processed_by"] == cashier_user.id for b in response.data)
+    assert pay.data["id"] in {b["id"] for b in response.data["results"]}
+    assert all(b["processed_by"] == cashier_user.id for b in response.data["results"])
 
 
 def test_list_bills_search_matches_takeaway_customer_name(admin_client, cashier_client, branch, menu_item):
@@ -326,7 +326,7 @@ def test_list_bills_search_matches_takeaway_customer_name(admin_client, cashier_
     response = admin.get("/v1/bills/?search=Priya")
 
     assert response.status_code == 200
-    assert pay.data["id"] in {b["id"] for b in response.data}
+    assert pay.data["id"] in {b["id"] for b in response.data["results"]}
 
 
 def test_list_bills_date_today_excludes_other_days(admin_client, cashier_client, table, menu_item):
@@ -344,7 +344,7 @@ def test_list_bills_date_today_excludes_other_days(admin_client, cashier_client,
     response = admin.get("/v1/bills/?date=today")
 
     assert response.status_code == 200
-    assert bill.id not in {b["id"] for b in response.data}
+    assert bill.id not in {b["id"] for b in response.data["results"]}
 
 
 def test_list_bills_date_range_filters_inclusive(admin_client, cashier_client, table, menu_item):
@@ -375,6 +375,6 @@ def test_list_bills_date_range_filters_inclusive(admin_client, cashier_client, t
     response = admin.get(f"/v1/bills/?date_from={date_from}&date_to={date_to}")
 
     assert response.status_code == 200
-    ids = {b["id"] for b in response.data}
+    ids = {b["id"] for b in response.data["results"]}
     assert str(bill_in_range.id) in ids
     assert str(bill_outside_range.id) not in ids

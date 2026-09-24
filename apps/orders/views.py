@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from apps.kitchen.authentication import KDSKeyAuthentication
+from apps.tables.models import TableSession
 from core.permissions import IsAnyStaff, IsKDSDevice, IsServerOrKDSDevice
 from core.tenancy import get_tenant_from_session
 
@@ -88,7 +89,7 @@ class TakeawayOrderView(APIView):
                 order_type=Order.OrderType.TAKEAWAY, branch__restaurant=request.tenant, parent_order__isnull=True,
             )
             .select_related("parent_order", "parent_order__takeaway_bill", "takeaway_bill")
-            .prefetch_related("items", "rounds__items")
+            .prefetch_related("items__menu_item", "rounds__items__menu_item")
             .order_by("-placed_at")
         )
         branch = getattr(request.user, "branch", None)
@@ -220,7 +221,7 @@ class TakeawayOrderDetailView(APIView):
         )
         root = order if order.parent_order_id is None else order.parent_order
         rounds = services.takeaway_group(
-            Order.objects.select_related("branch").prefetch_related("items").get(id=root.id)
+            Order.objects.select_related("branch").prefetch_related("items__menu_item").get(id=root.id)
         )
         return Response({
             "order_id": str(root.id),
@@ -256,8 +257,18 @@ class ActiveOrdersView(APIView):
                 models.Q(table__restaurant=request.tenant) | models.Q(branch__restaurant=request.tenant),
                 status__in=["NEW", "ACCEPTED", "PREPARING"],
             )
-            .select_related("table")
-            .prefetch_related("items")
+            # 2026-09-24: once a session is CLOSED its tickets must leave
+            # the board. close_session (both the payment close and the
+            # manager force-close) never touches order status, so an order
+            # still NEW when the table was cleared stayed "active" forever
+            # - the live board was carrying 17 tickets for tables that were
+            # already free, the oldest three days old. Filtered on read
+            # rather than by rewriting order status on close, because
+            # CANCELLED has accounting meaning and "the table was cleared"
+            # is not the same claim as "this order was cancelled".
+            .exclude(session__status=TableSession.Status.CLOSED)
+            .select_related("table", "session__bill", "parent_order__takeaway_bill")
+            .prefetch_related("items__menu_item")
         )
         branch = _request_branch(request)
         if branch is not None:
@@ -296,8 +307,8 @@ class ReadyOrdersView(APIView):
                 models.Q(table__restaurant=request.tenant) | models.Q(branch__restaurant=request.tenant),
                 status="READY",
             )
-            .select_related("table")
-            .prefetch_related("items")
+            .select_related("table", "session__bill", "parent_order__takeaway_bill")
+            .prefetch_related("items__menu_item")
         )
         branch = _request_branch(request)
         if branch is not None:
@@ -331,8 +342,8 @@ class MyOrdersView(APIView):
                 session__assigned_server=request.user,
                 status__in=["NEW", "ACCEPTED", "PREPARING", "READY", "COLLECTED"],
             )
-            .select_related("table")
-            .prefetch_related("items")
+            .select_related("table", "session__bill", "parent_order__takeaway_bill")
+            .prefetch_related("items__menu_item")
         )
         return Response(OrderSerializer(orders, many=True).data)
 
@@ -362,14 +373,15 @@ class TableServiceStatusView(APIView):
     permission_classes = [IsAnyStaff]
 
     def get(self, request):
-        from apps.tables.models import TableSession
-
         sessions = (
             TableSession.objects.filter(
                 table__restaurant=request.tenant,
                 status__in=["ACTIVE", "BILL_REQUESTED"],
             )
-            .select_related("table")
+            # This one is a TableSession queryset, not an Order queryset -
+            # session__bill/parent_order__takeaway_bill are Order paths and
+            # do not exist here.
+            .select_related("table", "bill")
             .prefetch_related("orders__items__menu_item")
             .order_by("table__table_number")
         )
@@ -440,8 +452,8 @@ class OrderDetailView(APIView):
     def get(self, request, order_id):
         order = (
             Order.objects.filter(models.Q(table__restaurant=request.tenant) | models.Q(branch__restaurant=request.tenant))
-            .select_related("table")
-            .prefetch_related("items")
+            .select_related("table", "session__bill", "parent_order__takeaway_bill")
+            .prefetch_related("items__menu_item")
             .get(id=order_id)
         )
         return Response(OrderSerializer(order).data)
@@ -457,7 +469,7 @@ class OrdersBySessionView(APIView):
             Order.objects.filter(session_id=session_id)
             .select_related("table", "session", "session__bill")
             .order_by("round_number")
-            .prefetch_related("items")
+            .prefetch_related("items__menu_item")
         )
         return Response(OrderSerializer(orders, many=True).data)
 
@@ -473,7 +485,7 @@ class OrdersByTableView(APIView):
         today_start = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
         orders = Order.objects.filter(
             table_id=table_id, table__restaurant=request.tenant, placed_at__gte=today_start
-        ).select_related("table").prefetch_related("items")
+        ).select_related("table", "session__bill", "parent_order__takeaway_bill").prefetch_related("items__menu_item")
         return Response(OrderSerializer(orders, many=True).data)
 
 

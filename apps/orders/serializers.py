@@ -165,7 +165,7 @@ class KDSOrderSerializer(OrderSerializer):
         return self._elapsed_seconds(obj) > self.URGENT_THRESHOLD_SECONDS
 
     def _items(self, obj):
-        # obj.items.all() hits the view's prefetch_related("items") cache —
+        # obj.items.all() hits the view's prefetch_related("items__menu_item") cache —
         # no extra query per order — so this stays cheap on a "runs on every
         # KDS refresh" endpoint even with many active orders.
         if not hasattr(obj, "_kds_items_cache"):
@@ -205,7 +205,10 @@ class KDSOrderSerializer(OrderSerializer):
 
 class OrderItemInputSerializer(serializers.Serializer):
     menu_item = serializers.PrimaryKeyRelatedField(queryset=MenuItem.objects.all())
-    quantity = serializers.IntegerField(min_value=1)
+    # max_value 999 (2026-09-24, per Shereena): a fat-finger guard. A
+    # single line of 9999 rang up an order at Rs 14,99,850 live. Nothing
+    # a real counter sells needs four digits on one line.
+    quantity = serializers.IntegerField(min_value=1, max_value=999)
     # max_length mirrors OrderItem.notes' own column (2026-09-24): without
     # it the value only failed at the database, so a long note came back
     # as a 500 instead of a field error. Reproduced live on the dine-in
@@ -225,8 +228,16 @@ class TakeawayOrderCreateSerializer(serializers.Serializer):
     # name longer than the column passed validation and was only rejected
     # by Postgres, surfacing to the cashier as a 500 - a 500-character
     # customer_name crashed the takeaway screen live.
+    # 2026-09-24, per Shereena: validated server-side, not just in the app,
+    # since the API is callable directly by other clients. A takeaway order
+    # has to be called out to somebody, so a name is now required; the phone
+    # stays optional but must look like a phone - "abcdefghij" was accepted.
     customer_name = serializers.CharField(required=False, allow_blank=True, default="", max_length=255)
-    customer_phone = serializers.CharField(required=False, allow_blank=True, default="", max_length=32)
+    customer_phone = serializers.RegexField(
+        r"^[0-9+][0-9 ()\-]{6,20}$",
+        required=False, allow_blank=True, default="", max_length=32,
+        error_messages={"invalid": "Enter a valid phone number."},
+    )
     notes = serializers.CharField(required=False, allow_blank=True, default="", max_length=255)
     items = OrderItemInputSerializer(many=True)
     # Pass an existing takeaway order's id here to add a "next round" of
@@ -238,6 +249,17 @@ class TakeawayOrderCreateSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError("At least one item is required.")
         return value
+
+    def validate(self, attrs):
+        # A name is required to START a takeaway order - somebody has to be
+        # called when it's ready. Adding a later round to an existing order
+        # is exempt: place_takeaway_order carries the name over from the
+        # root, and the app sends only existing_order_id + items for round 2.
+        if not attrs.get("existing_order_id") and not (attrs.get("customer_name") or "").strip():
+            raise serializers.ValidationError(
+                {"customer_name": ["This field is required for a new takeaway order."]}
+            )
+        return attrs
 
 
 class OrderStatusUpdateSerializer(serializers.Serializer):

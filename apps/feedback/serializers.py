@@ -24,7 +24,7 @@ class FeedbackSerializer(serializers.ModelSerializer):
         orders = (
             takeaway_group(bill.order)
             if bill.order_id
-            else bill.session.orders.exclude(status="CANCELLED").prefetch_related("items").order_by("round_number")
+            else bill.session.orders.exclude(status="CANCELLED").prefetch_related("items__menu_item").order_by("round_number")
         )
         return billing_services.line_items(orders)
 

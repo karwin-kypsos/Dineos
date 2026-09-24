@@ -597,7 +597,7 @@ def test_find_a_bill_search_matches_amount(manager_client, cashier_client, table
     response = manager.get(f"/v1/bills/?search={int(bill.total_amount)}")
 
     assert response.status_code == 200
-    ids = {b["id"] for b in response.data}
+    ids = {b["id"] for b in response.data["results"]}
     assert str(bill.id) in ids
 
 

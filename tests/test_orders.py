@@ -224,7 +224,7 @@ def test_order_source_cashier_for_takeaway_order(cashier_client, branch, menu_it
     user.save(update_fields=["branch"])
 
     response = cashier.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     )
 
     assert response.status_code == 201
@@ -237,7 +237,7 @@ def test_takeaway_order_response_has_null_table_number(cashier_client, menu_item
     cashier_user.save(update_fields=["branch"])
 
     response = client.post(
-        "/v1/orders/takeaway/", {"items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+        "/v1/orders/takeaway/", {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
     )
 
     assert response.status_code == 201, response.data

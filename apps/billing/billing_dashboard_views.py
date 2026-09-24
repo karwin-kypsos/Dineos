@@ -8,11 +8,13 @@ duplicating their logic — just reshaped to the exact response format
 this spec asked for, with branch filtering added throughout.
 """
 
+import uuid
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 from rest_framework.generics import ListAPIView
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -27,14 +29,27 @@ IsBillingEnabled = FeatureEnabledPermission("billing_enabled")
 User = get_user_model()
 
 
+def _one_date(value, field):
+    """2026-09-24: strptime RAISES on anything it cannot parse, and nothing
+    caught it - every endpoint in this module answered 500 to
+    ?date=notadate, ?from_date=xx, ?to_date=2026-13-45. Sixteen live
+    crashes in total. A malformed filter is the caller's mistake, so it
+    gets a 400 naming the field, not a stack trace.
+    """
+    if not value:
+        return None
+    try:
+        return timezone.datetime.strptime(value, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        raise ValidationError({field: ["Expected format YYYY-MM-DD."]})
+
+
 def _parse_date_params(request):
-    date_param = request.query_params.get("date")
-    from_param = request.query_params.get("from_date")
-    to_param = request.query_params.get("to_date")
-    date = timezone.datetime.strptime(date_param, "%Y-%m-%d").date() if date_param else None
-    date_from = timezone.datetime.strptime(from_param, "%Y-%m-%d").date() if from_param else None
-    date_to = timezone.datetime.strptime(to_param, "%Y-%m-%d").date() if to_param else None
-    return date, date_from, date_to
+    return (
+        _one_date(request.query_params.get("date"), "date"),
+        _one_date(request.query_params.get("from_date"), "from_date"),
+        _one_date(request.query_params.get("to_date"), "to_date"),
+    )
 
 
 def _branch_param(request):
@@ -44,8 +59,20 @@ def _branch_param(request):
     it, they'd silently get the cross-branch Admin view instead of just
     their own branch's numbers. Falls back to the caller's own branch when
     no explicit param is given; Admin has no fixed branch, so this stays a
-    no-op (still optional, still cross-branch by default) for them."""
-    return request.query_params.get("branch") or getattr(request.user, "branch_id", None)
+    no-op (still optional, still cross-branch by default) for them.
+
+    A malformed ?branch= is rejected rather than ignored (2026-09-24, per
+    Shereena): on a money screen a filter that silently does nothing is
+    worse than one that errors - a manager reads the unfiltered total as
+    if it were the filtered one. It used to 500 here anyway."""
+    branch = request.query_params.get("branch")
+    if branch:
+        try:
+            uuid.UUID(str(branch))
+        except (ValueError, AttributeError, TypeError):
+            raise ValidationError({"branch": ["Expected a valid branch id."]})
+        return branch
+    return getattr(request.user, "branch_id", None)
 
 
 def _collections_report(request, date, date_from, date_to, branch):
