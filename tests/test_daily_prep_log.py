@@ -460,3 +460,44 @@ def test_taking_the_last_portion_does_not_flag_itself(api_client, table, menu_it
     )
     chicken.refresh_from_db()
     assert chicken.current_stock == Decimal("0.00")
+
+
+def test_takeaway_for_an_auto_86ed_dish_is_flagged_too(cashier_client, branch, menu_item, chicken, recipe):
+    """2026-09-24. Option (c) landed on place_order on 2026-09-23 but not
+    on place_takeaway_order, so a takeaway for an 86'd dish came back with
+    an empty unavailable_items - and the Cashier, who is exactly the
+    person taking takeaway orders, never saw the warning. Verified live
+    against production before fixing: dine-in flagged it, takeaway did not.
+    """
+    cashier_user, client = cashier_client
+    cashier_user.branch = branch
+    cashier_user.save(update_fields=["branch"])
+    chicken.current_stock = Decimal("0.00")
+    chicken.save(update_fields=["current_stock"])
+
+    response = client.post(
+        "/v1/orders/takeaway/",
+        {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    flagged = response.data["unavailable_items"]
+    assert len(flagged) == 1, flagged
+    assert flagged[0]["menu_item"] == menu_item.id
+    assert flagged[0]["out_of_stock_ingredients"] == [chicken.name]
+
+
+def test_takeaway_for_an_available_dish_flags_nothing(cashier_client, branch, menu_item, chicken, recipe):
+    cashier_user, client = cashier_client
+    cashier_user.branch = branch
+    cashier_user.save(update_fields=["branch"])
+
+    response = client.post(
+        "/v1/orders/takeaway/",
+        {"customer_name": "Walk-in", "items": [{"menu_item": menu_item.id, "quantity": 1}]},
+        format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["unavailable_items"] == []

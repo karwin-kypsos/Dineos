@@ -104,7 +104,11 @@ class AdminDashboardView(APIView):
                 "id": str(branch.id),
                 "name": branch.name,
                 "is_active": branch.is_active,
-                "today_revenue": branch_bills_today.aggregate(total=Sum("total_amount"))["total"] or Decimal("0"),
+                "today_revenue": str(
+                    (branch_bills_today.aggregate(total=Sum("total_amount"))["total"] or Decimal("0")).quantize(
+                        Decimal("0.01")
+                    )
+                ),
                 "occupied_tables": branch_tables.exclude(status="AVAILABLE").count(),
                 "free_tables": branch_tables.filter(status="AVAILABLE").count(),
             })
@@ -132,7 +136,7 @@ class AdminDashboardView(APIView):
 
         return Response({
             "today_orders_count": count_distinct_visits(orders_today),
-            "today_revenue": today_revenue,
+            "today_revenue": str(today_revenue.quantize(Decimal("0.01"))),
             "today_bills_count": bills_today.count(),
             "active_tables_count": tables.exclude(status="AVAILABLE").count(),
             "total_tables_count": tables.count(),
@@ -235,7 +239,7 @@ class ManagerDashboardView(APIView):
             "branch_id": str(branch.id),
             "branch_name": branch.name,
             "today_orders_count": count_distinct_visits(orders_today),
-            "today_revenue": today_revenue,
+            "today_revenue": str(today_revenue.quantize(Decimal("0.01"))),
             "stock_status": stock_status_counts,
             "needs_restocking": needs_restocking,
             "prepared_dishes_needing_attention": prepared_dishes_needing_attention,

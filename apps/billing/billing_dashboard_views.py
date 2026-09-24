@@ -8,6 +8,8 @@ duplicating their logic — just reshaped to the exact response format
 this spec asked for, with branch filtering added throughout.
 """
 
+from decimal import Decimal
+
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -61,6 +63,18 @@ def _collections_report(request, date, date_from, date_to, branch):
     return services.daily_collections(request.tenant, date=date, branch=branch)
 
 
+def _money(value):
+    """Every figure in this module is assembled into a hand-built dict and
+    handed straight to Response(), so nothing passes through a DRF
+    DecimalField and a raw Decimal comes out of the JSON encoder as a
+    float (2026-09-24: total_revenue 5827.5, payment-split cash 3937.5).
+    Same decimal-string convention as the rest of the money in the API.
+    """
+    if value is None:
+        return None
+    return str(Decimal(value).quantize(Decimal("0.01")))
+
+
 class BillingSummaryView(APIView):
     """GET /v1/billing/summary/?branch=&date=|from_date&to_date="""
 
@@ -71,13 +85,16 @@ class BillingSummaryView(APIView):
         branch = _branch_param(request)
         report = _collections_report(request, date, date_from, date_to, branch)
         return Response({
-            "total_revenue": report["total_collected"],
+            "total_revenue": _money(report["total_collected"]),
             "total_orders": report["tables_served"],
-            "avg_bill_amount": report["avg_bill_value"],
+            "avg_bill_amount": _money(report["avg_bill_value"]),
             "revenue_by_hour": report["revenue_by_hour"],
-            "vs_yesterday": report["vs_yesterday"],
+            # vs_* are rupee deltas, so they take the same treatment (and
+            # may legitimately be negative). The _percentage pair beside
+            # them stays a number - a percentage is not money.
+            "vs_yesterday": _money(report["vs_yesterday"]),
             "vs_yesterday_percentage": report["vs_yesterday_percentage"],
-            "vs_last_week": report["vs_last_week"],
+            "vs_last_week": _money(report["vs_last_week"]),
             "vs_last_week_percentage": report["vs_last_week_percentage"],
             "peak_hour": report["peak_hour"],
         })
@@ -109,7 +126,7 @@ class BillingPaymentSplitView(APIView):
         # from, so a newly-added payment method can never appear in the
         # grand total while being missing from this split.
         return Response({
-            bucket: {"amount": pb[bucket], "percentage": pb[f"{bucket}_percentage"]}
+            bucket: {"amount": _money(pb[bucket]), "percentage": pb[f"{bucket}_percentage"]}
             for bucket in services.PAYMENT_BUCKETS
         })
 
@@ -132,14 +149,19 @@ class BillingCashiersView(APIView):
                 "user_name": row["cashier_name"],
                 "role": "Cashier",
                 "tables_served": row["tables_served"],
-                "total_collected": row["total_collected"],
+                # 2026-09-24: this row is rebuilt by hand here rather than
+                # passed through CashierCollectionSerializer (which does
+                # declare these as DecimalFields), so the Decimals were
+                # reaching the encoder raw - total_collected 787.5,
+                # discrepancy_amount -314.0.
+                "total_collected": _money(row["total_collected"]),
                 "status": status_labels.get(row["status"], row["status"]),
                 "shift_id": row["shift_id"],
                 "opened_at": row["opened_at"],
                 "closed_at": row["closed_at"],
-                "expected_cash": row["expected_cash"],
-                "counted_cash": row["counted_cash"],
-                "discrepancy_amount": row["discrepancy_amount"],
+                "expected_cash": _money(row["expected_cash"]),
+                "counted_cash": _money(row["counted_cash"]),
+                "discrepancy_amount": _money(row["discrepancy_amount"]),
                 "discrepancy_reason": row["discrepancy_reason"],
             }
             for row in rows

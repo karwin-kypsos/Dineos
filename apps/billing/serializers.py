@@ -219,10 +219,19 @@ class ShiftReconciliationSerializer(serializers.Serializer):
     cash = serializers.DecimalField(max_digits=10, decimal_places=2)
     card = serializers.DecimalField(max_digits=10, decimal_places=2)
     upi = serializers.DecimalField(max_digits=10, decimal_places=2)
+    # 2026-09-24: netbanking/wallet were added to PaymentBreakdownSerializer
+    # on 2026-09-14 for exactly this reason but missed here, 44 lines up.
+    # shift_totals_by_method already sums all five buckets into `total`, so
+    # a live shift reconciled to cash 4410 + card 630 + upi 630 against a
+    # total of 6300 - the cashier saw 630 they could not account for.
+    netbanking = serializers.DecimalField(max_digits=10, decimal_places=2)
+    wallet = serializers.DecimalField(max_digits=10, decimal_places=2)
     total = serializers.DecimalField(max_digits=10, decimal_places=2)
     cash_percentage = serializers.FloatField()
     card_percentage = serializers.FloatField()
     upi_percentage = serializers.FloatField()
+    netbanking_percentage = serializers.FloatField()
+    wallet_percentage = serializers.FloatField()
     tables_served = serializers.IntegerField()
     cashier_name = serializers.CharField()
     status = serializers.ChoiceField(choices=["OPEN", "CLOSED"])
@@ -303,6 +312,11 @@ class DailyCollectionsSerializer(serializers.Serializer):
     largest_bill = serializers.DecimalField(max_digits=10, decimal_places=2)
     smallest_bill = serializers.DecimalField(max_digits=10, decimal_places=2)
     peak_hour = serializers.CharField(allow_null=True)
+    # 2026-09-24: DictField passes its values straight through, so the raw
+    # Decimal in each {"hour", "amount"} row reached the JSON encoder and
+    # came out a float (amount: 630.0). Same defect class as the money
+    # fields fixed on 2026-09-23 - see _revenue_by_hour, which now emits
+    # decimal strings at the source.
     revenue_by_hour = serializers.ListField(child=serializers.DictField())
     payment_breakdown = PaymentBreakdownSerializer()
     bills = DailyBillSerializer(many=True)

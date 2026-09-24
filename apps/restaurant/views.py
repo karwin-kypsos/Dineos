@@ -66,7 +66,11 @@ class BranchViewSet(ImageUploadErrorHandlingMixin, viewsets.ModelViewSet):
             Q(table__restaurant=restaurant) | Q(branch__restaurant=restaurant),
         ).exclude(status="CANCELLED"))
 
-        response.data["total_revenue"] = total_revenue
+        # str() (2026-09-24): assigned straight onto response.data after
+        # the serializer has already run, so nothing coerces it and the
+        # encoder rendered it as a float (total_revenue 8820.0). Matches
+        # the per-branch today_revenue beside it.
+        response.data["total_revenue"] = str(total_revenue.quantize(Decimal("0.01")))
         response.data["total_orders"] = total_orders
         return response
 

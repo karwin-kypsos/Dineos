@@ -85,17 +85,31 @@ class ShiftBillsView(APIView):
                 "opened_at": totals["opened_at"],
                 "closed_at": totals["closed_at"],
                 "tables_served": totals["tables_served"],
-                "total_collected": totals["total"],
-                "expected_cash": totals["cash"],
-                "counted_cash": totals["counted_cash"],
-                "discrepancy_amount": totals["discrepancy_amount"],
+                # services.money(): this whole payload is a hand-built dict
+                # with no DecimalField in the path, so the Decimals were
+                # reaching the JSON encoder and rendering as floats
+                # (total_collected 0.0 / expected_cash 0.0) - 2026-09-24.
+                "total_collected": services.money(totals["total"]),
+                "expected_cash": services.money(totals["cash"]),
+                "counted_cash": services.money(totals["counted_cash"]),
+                "discrepancy_amount": services.money(totals["discrepancy_amount"]),
                 "discrepancy_reason": totals["discrepancy_reason"],
                 "is_matched": totals["is_matched"],
             },
+            # Driven off PAYMENT_BUCKETS rather than a hardcoded cash/card/
+            # upi trio (2026-09-24), the same way BillingPaymentSplitView
+            # already is. total_collected above sums every bucket, so the
+            # hardcoded three left NETBANKING/WALLET money inside the total
+            # but absent from the split - this view's own docstring promises
+            # these figures match ShiftReconciliationView exactly, and with
+            # two buckets missing they did not.
             "payment_split": {
-                "cash": {"amount": totals["cash"], "percentage": totals["cash_percentage"], "bill_count": totals["cash_count"]},
-                "card": {"amount": totals["card"], "percentage": totals["card_percentage"], "bill_count": totals["card_count"]},
-                "upi": {"amount": totals["upi"], "percentage": totals["upi_percentage"], "bill_count": totals["upi_count"]},
+                bucket: {
+                    "amount": services.money(totals[bucket]),
+                    "percentage": totals[bucket + "_percentage"],
+                    "bill_count": totals[bucket + "_count"],
+                }
+                for bucket in services.PAYMENT_BUCKETS
             },
             "bills": BillSerializer(bills, many=True).data,
         })

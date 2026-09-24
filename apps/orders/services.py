@@ -270,6 +270,16 @@ def place_takeaway_order(
         placed_by=placed_by, notes=notes,
     )
 
+    # 2026-09-24: option (c) reached place_order on 2026-09-23 but not this
+    # path, so a takeaway for an 86'd dish came back with an empty
+    # unavailable_items and the Cashier never saw the warning - and the
+    # Cashier is exactly who takes takeaway orders. Captured BEFORE
+    # _create_order_items for the same reason as dine-in: see
+    # unavailable_items_at_order_time.
+    order.unavailable_items = unavailable_items_at_order_time(
+        [i["menu_item_id"] for i in items]
+    )
+
     zero_hits, portion_updates = _create_order_items(order, items, restaurant)
     _finalize_new_order(order, restaurant, portion_updates, zero_hits)
     return order

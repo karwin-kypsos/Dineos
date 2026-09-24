@@ -206,19 +206,28 @@ class KDSOrderSerializer(OrderSerializer):
 class OrderItemInputSerializer(serializers.Serializer):
     menu_item = serializers.PrimaryKeyRelatedField(queryset=MenuItem.objects.all())
     quantity = serializers.IntegerField(min_value=1)
-    notes = serializers.CharField(required=False, allow_blank=True, default="")
+    # max_length mirrors OrderItem.notes' own column (2026-09-24): without
+    # it the value only failed at the database, so a long note came back
+    # as a 500 instead of a field error. Reproduced live on the dine-in
+    # and takeaway paths alike - this one is reachable from the customer's
+    # own "less spicy" box, not just staff screens.
+    notes = serializers.CharField(required=False, allow_blank=True, default="", max_length=255)
 
 
 class OrderCreateSerializer(serializers.Serializer):
     session_id = serializers.UUIDField()
-    notes = serializers.CharField(required=False, allow_blank=True, default="")
+    notes = serializers.CharField(required=False, allow_blank=True, default="", max_length=255)
     items = OrderItemInputSerializer(many=True)
 
 
 class TakeawayOrderCreateSerializer(serializers.Serializer):
-    customer_name = serializers.CharField(required=False, allow_blank=True, default="")
-    customer_phone = serializers.CharField(required=False, allow_blank=True, default="")
-    notes = serializers.CharField(required=False, allow_blank=True, default="")
+    # max_length mirrors Order's own columns (2026-09-24). Without it a
+    # name longer than the column passed validation and was only rejected
+    # by Postgres, surfacing to the cashier as a 500 - a 500-character
+    # customer_name crashed the takeaway screen live.
+    customer_name = serializers.CharField(required=False, allow_blank=True, default="", max_length=255)
+    customer_phone = serializers.CharField(required=False, allow_blank=True, default="", max_length=32)
+    notes = serializers.CharField(required=False, allow_blank=True, default="", max_length=255)
     items = OrderItemInputSerializer(many=True)
     # Pass an existing takeaway order's id here to add a "next round" of
     # items to it, instead of starting an unrelated order — the takeaway

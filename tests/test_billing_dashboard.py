@@ -1,3 +1,4 @@
+from decimal import Decimal
 import pytest
 from django.utils import timezone
 
@@ -184,9 +185,12 @@ def test_billing_cashiers_list_shows_discrepancy_amount(manager_client, cashier_
     assert response.status_code == 200
     row = response.data[0]
     assert row["status"] == "Difference"
-    assert row["expected_cash"] == expected
-    assert row["counted_cash"] == counted
-    assert row["discrepancy_amount"] == counted - expected
+    # Decimal(...) around each: these are decimal strings on the wire since
+    # 2026-09-24, like every other money field. The point of this test is
+    # that the AMOUNT is present and correct, not its JSON type.
+    assert Decimal(row["expected_cash"]) == expected
+    assert Decimal(row["counted_cash"]) == counted
+    assert Decimal(row["discrepancy_amount"]) == counted - expected
 
 
 def test_billing_cashiers_list_discrepancy_fields_null_while_open(manager_client, cashier_client):

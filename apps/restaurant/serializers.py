@@ -71,9 +71,15 @@ class BranchSerializer(ImageUploadMixin, serializers.ModelSerializer):
 
         from apps.billing.models import Bill
 
-        return Bill.objects.filter(
+        # str(), not the bare Decimal (2026-09-24): a SerializerMethodField
+        # returns its value as-is - it never passes through a DecimalField -
+        # so the Decimal reached the JSON encoder and rendered as a float
+        # (today_revenue: 5827.5). Same defect class as the money fields
+        # fixed on 2026-09-23.
+        total = Bill.objects.filter(
             Q(session__table__branch=obj) | Q(order__branch=obj), paid_at__gte=self._today_start(),
         ).aggregate(total=Sum("total_amount"))["total"] or Decimal("0")
+        return str(total.quantize(Decimal("0.01")))
 
     def get_today_orders(self, obj):
         from django.db.models import Q

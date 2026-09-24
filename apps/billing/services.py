@@ -46,6 +46,21 @@ class DiscrepancyReasonRequiredError(Exception):
         super().__init__(f"A reason is required for the {discrepancy} discrepancy.")
 
 
+def money(value):
+    """Decimal -> decimal string, the API-wide convention for money.
+
+    2026-09-24. The bill preview, the receipt line items and the shift
+    bills payload are all hand-built dicts handed straight to Response(),
+    so no DRF DecimalField ever sees them and the JSON encoder rendered
+    every Decimal as a float - the cashier's own bill screen was showing
+    subtotal 150.0 / total_amount 157.5. Percentages are deliberately NOT
+    routed through here; a percentage is a number, not money.
+    """
+    if value is None:
+        return None
+    return str(Decimal(value).quantize(Decimal("0.01")))
+
+
 def line_items(orders):
     """Every non-cancelled order's items, flattened — reused by both bill
     previews (pre-payment) and receipts (post-payment) so the two never
@@ -55,8 +70,8 @@ def line_items(orders):
             "menu_item_id": item.menu_item_id,
             "menu_item_name": item.menu_item.name,
             "quantity": item.quantity,
-            "unit_price": item.unit_price,
-            "line_total": item.line_total,
+            "unit_price": money(item.unit_price),
+            "line_total": money(item.line_total),
         }
         for order in orders for item in order.items.all()
     ]
@@ -88,6 +103,20 @@ def _compute_totals(session):
     return subtotal, tax_amount, service_charge, total_amount, orders
 
 
+PREVIEW_MONEY_FIELDS = ("subtotal", "tax_amount", "service_charge", "total_amount")
+
+
+def preview_for_response(preview):
+    """Format a bill preview's money for the wire, leaving the service's
+    own return value in Decimals for callers that do arithmetic on it.
+    line_items() is already string-formatted - nothing computes from it.
+    """
+    return {
+        key: (money(value) if key in PREVIEW_MONEY_FIELDS else value)
+        for key, value in preview.items()
+    }
+
+
 @transaction.atomic
 def get_bill_preview(session_id):
     session = TableSession.objects.select_related("table__branch__restaurant").get(id=session_id)
@@ -98,6 +127,12 @@ def get_bill_preview(session_id):
         # Never "PAID" here — a paid session returns via BillSerializer
         # instead (see SessionBillView), never this preview.
         "payment_status": "BILL_REQUESTED" if session.status == TableSession.Status.BILL_REQUESTED else "PENDING",
+        # Decimals, deliberately: these previews are not only an HTTP
+        # response - apps/payments/views.py computes the Razorpay charge
+        # from total_amount. Formatting for the wire happens at the view,
+        # via preview_for_response() below, so internal callers keep real
+        # numbers. (2026-09-24: stringifying here turned amount * 100 into
+        # a hundred-fold string repeat and broke every Razorpay endpoint.)
         "subtotal": subtotal,
         "tax_amount": tax_amount,
         "service_charge": service_charge,
@@ -105,6 +140,29 @@ def get_bill_preview(session_id):
         "items": line_items(orders),
         **receipt_branch_info(session.table.branch, session.table.restaurant),
     }
+
+
+class UnderPaymentError(Exception):
+    """Tendered less than the bill. 2026-09-24: change_given was computed as
+    a bare `amount_received - total_amount`, so handing over less than the
+    total produced a NEGATIVE change_given on a bill still marked PAID -
+    a cashier could ring up 107.50 against a 157.50 bill and the shift's
+    reconciliation would count the full 157.50 as collected, hiding the
+    shortfall in the drawer. There is no partial-payment concept here (a
+    Bill is created once and closes the session), and discounts land in
+    total_amount via discount_amount, so a shortfall is always an error.
+    """
+
+    def __init__(self, total_amount, amount_received):
+        self.total_amount = total_amount
+        self.amount_received = amount_received
+        self.shortfall = total_amount - amount_received
+        super().__init__("Amount received is less than the bill total.")
+
+
+def _reject_underpayment(total_amount, amount_received):
+    if amount_received is not None and amount_received < total_amount:
+        raise UnderPaymentError(total_amount, amount_received)
 
 
 @transaction.atomic
@@ -116,6 +174,7 @@ def pay_bill(session_id, payment_method, processed_by, amount_received=None, pay
         return existing_bill  # idempotent replay — session already paid
 
     subtotal, tax_amount, service_charge, total_amount, _orders = _compute_totals(session)
+    _reject_underpayment(total_amount, amount_received)
     change_given = amount_received - total_amount if amount_received is not None else None
     bill = Bill.objects.create(
         session=session,
@@ -176,6 +235,12 @@ def get_takeaway_bill_preview(order_id):
         # (see TakeawayBillView), never this preview; takeaway has no
         # "bill requested" step the way a dine-in session does.
         "payment_status": "PENDING",
+        # Decimals, deliberately: these previews are not only an HTTP
+        # response - apps/payments/views.py computes the Razorpay charge
+        # from total_amount. Formatting for the wire happens at the view,
+        # via preview_for_response() below, so internal callers keep real
+        # numbers. (2026-09-24: stringifying here turned amount * 100 into
+        # a hundred-fold string repeat and broke every Razorpay endpoint.)
         "subtotal": subtotal,
         "tax_amount": tax_amount,
         "service_charge": service_charge,
@@ -206,6 +271,7 @@ def pay_takeaway_bill(order_id, payment_method, processed_by, amount_received=No
 
     restaurant = root.branch.restaurant
     subtotal, tax_amount, service_charge, total_amount, _orders = _compute_order_totals(root, restaurant)
+    _reject_underpayment(total_amount, amount_received)
     change_given = amount_received - total_amount if amount_received is not None else None
     bill = Bill.objects.create(
         order=root,
@@ -639,7 +705,13 @@ def _revenue_by_hour(bills):
     for bill in bills:
         local_paid_at = timezone.localtime(bill.paid_at)
         totals_by_hour[local_paid_at.hour] += bill.total_amount
-    return [{"hour": hour, "amount": totals_by_hour[hour]} for hour in range(24)]
+    # str(), not the bare Decimal: this list is serialized through a
+    # DictField, which passes values through untouched, so a Decimal here
+    # reaches the JSON encoder and is rendered as a float (2026-09-24).
+    return [
+        {"hour": hour, "amount": str(totals_by_hour[hour].quantize(Decimal("0.01")))}
+        for hour in range(24)
+    ]
 
 
 def daily_collections(
@@ -853,7 +925,11 @@ def floor_status(restaurant, *, branch=None, date=None, date_from=None, date_to=
                 "table_name": table.table_number,
                 "status": "PAID",
                 "status_time": latest_bill.paid_at,
-                "amount": latest_bill.total_amount,
+                # str() (2026-09-24): these rows are returned straight to
+                # Response() with no serializer in the path, so a Decimal
+                # here is floated by the JSON encoder - the cashier's own
+                # Floor Status panel was showing amount: 157.5.
+                "amount": str(latest_bill.total_amount.quantize(Decimal("0.01"))),
                 "payment_status": latest_bill.payment_method,
             })
         else:
@@ -901,7 +977,12 @@ def cashier_billing_detail(restaurant, cashier, *, branch=None, date=None, date_
     if branch is not None:
         shifts = shifts.filter(branch=branch)
 
-    totals = {"cash": Decimal("0"), "card": Decimal("0"), "upi": Decimal("0")}
+    # 2026-09-24: keyed off PAYMENT_BUCKETS, not a hardcoded cash/card/upi
+    # trio. NETBANKING and WALLET were being dropped here entirely, so
+    # grand_total/total_collected below UNDER-REPORTED what the cashier
+    # actually took - this is not the cosmetic split gap the reconciliation
+    # serializer had, the total itself was short.
+    totals = {bucket: Decimal("0") for bucket in PAYMENT_BUCKETS}
     expected_cash = Decimal("0")
     actual_cash = Decimal("0")
     any_closed = False
@@ -910,9 +991,8 @@ def cashier_billing_detail(restaurant, cashier, *, branch=None, date=None, date_
 
     for shift in shifts:
         shift_totals = shift_totals_by_method(shift)
-        totals["cash"] += shift_totals["cash"]
-        totals["card"] += shift_totals["card"]
-        totals["upi"] += shift_totals["upi"]
+        for bucket in PAYMENT_BUCKETS:
+            totals[bucket] += shift_totals[bucket]
 
         if shift.status == CashierShift.Status.CLOSED:
             any_closed = True
@@ -923,7 +1003,7 @@ def cashier_billing_detail(restaurant, cashier, *, branch=None, date=None, date_
         else:
             any_open = True
 
-    grand_total = totals["cash"] + totals["card"] + totals["upi"]
+    grand_total = sum((totals[bucket] for bucket in PAYMENT_BUCKETS), Decimal("0"))
 
     def _pct(amount):
         return float((amount / grand_total * 100).quantize(Decimal("0.1"))) if grand_total > 0 else 0.0
@@ -942,18 +1022,17 @@ def cashier_billing_detail(restaurant, cashier, *, branch=None, date=None, date_
     return {
         "cashier": {"id": cashier.id, "name": cashier.name, "role": cashier.role},
         "payment_split": {
-            "cash": {"amount": totals["cash"], "percentage": _pct(totals["cash"])},
-            "card": {"amount": totals["card"], "percentage": _pct(totals["card"])},
-            "upi": {"amount": totals["upi"], "percentage": _pct(totals["upi"])},
+            bucket: {"amount": money(totals[bucket]), "percentage": _pct(totals[bucket])}
+            for bucket in PAYMENT_BUCKETS
         },
         "cash_reconciliation": {
-            "expected_cash": expected_cash,
-            "actual_cash": actual_cash,
-            "difference": actual_cash - expected_cash,
+            "expected_cash": money(expected_cash),
+            "actual_cash": money(actual_cash),
+            "difference": money(actual_cash - expected_cash),
             "status": recon_status,
         },
         "tables_served": tables_served,
-        "total_collected": grand_total,
+        "total_collected": money(grand_total),
     }
 
 
