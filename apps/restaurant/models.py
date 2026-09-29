@@ -39,6 +39,9 @@ class Restaurant(models.Model):
     contact_email = models.EmailField(blank=True)
     contact_phone = models.CharField(max_length=32, blank=True)
     billing_email = models.EmailField(blank=True)
+    # The restaurant's GSTIN (2026-09-29, Admin Self-Registration) - its
+    # tax registration number, not a rate; gst_percentage above is the rate.
+    gst_number = models.CharField(max_length=15, blank=True)
     primary_color = models.CharField(max_length=7, blank=True, default="#FF6B35")
 
     # Plan — an internal label only (no real payment processing). Picking
@@ -71,6 +74,47 @@ class Restaurant(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class RestaurantRegistration(models.Model):
+    """A restaurant signing itself up (2026-09-29, Admin Self-Registration):
+    the details and plan from step 2, waiting for step 3 to set the Admin's
+    login.
+
+    The Restaurant row is only created at signup, so a registration that is
+    abandoned halfway leaves nothing in the Super Admin's organization list.
+    The id is the registration_id the client carries between the two steps:
+    a random UUID, never the Restaurant's sequential id - step 3 needs no
+    login, so anyone who could guess the id could set the new restaurant's
+    admin password.
+    """
+
+    class Status(models.TextChoices):
+        PENDING_SIGNUP = "PENDING_SIGNUP", "Waiting for signup"
+        COMPLETED = "COMPLETED", "Completed"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    restaurant_name = models.CharField(max_length=255)
+    contact_name = models.CharField(max_length=255)
+    contact_phone = models.CharField(max_length=32)
+    contact_email = models.EmailField()
+    billing_email = models.EmailField(blank=True)
+    gst_number = models.CharField(max_length=15, blank=True)
+    service_charge_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
+    plan_tier = models.CharField(max_length=16, choices=Restaurant.PlanTier.choices)
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING_SIGNUP)
+    restaurant = models.OneToOneField(
+        Restaurant, on_delete=models.SET_NULL, null=True, blank=True, related_name="registration"
+    )
+    expires_at = models.DateTimeField()
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "restaurant_registrations"
+
+    def __str__(self):
+        return f"{self.restaurant_name} ({self.status})"
 
 
 class Branch(models.Model):

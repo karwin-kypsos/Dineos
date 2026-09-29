@@ -169,6 +169,9 @@ REST_FRAMEWORK = {
     # a basic abuse guard the others don't need.
     "DEFAULT_THROTTLE_RATES": {
         "razorpay_customer_order": "5/min",
+        # Admin Self-Registration's two public POSTs - a real sign-up is two
+        # requests, so this only bites scripted ones.
+        "self_registration": "20/hour",
     },
 }
 

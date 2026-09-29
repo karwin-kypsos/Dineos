@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .registration_views import PlansView, RegisterRestaurantView, SignupView
 from .views import (
     ChangePasswordView,
     ForgotPasswordView,
@@ -20,4 +21,8 @@ urlpatterns = [
     path("select-branch/", SelectBranchView.as_view(), name="auth-select-branch"),
     path("refresh-token/", RefreshTokenView.as_view(), name="auth-refresh-token"),
     path("change-password/", ChangePasswordView.as_view(), name="auth-change-password"),
+    # Admin Self-Registration (2026-09-29)
+    path("plans/", PlansView.as_view(), name="auth-plans"),
+    path("register-restaurant/", RegisterRestaurantView.as_view(), name="auth-register-restaurant"),
+    path("signup/", SignupView.as_view(), name="auth-signup"),
 ]

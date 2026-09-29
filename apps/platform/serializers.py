@@ -85,6 +85,7 @@ class RestaurantSerializer(serializers.ModelSerializer):
             "contact_email",
             "contact_phone",
             "billing_email",
+            "gst_number",
             "primary_color",
             "plan_tier",
             "max_branches",

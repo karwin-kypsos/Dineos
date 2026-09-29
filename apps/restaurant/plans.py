@@ -33,3 +33,15 @@ PLAN_PRESETS = {
         },
     },
 }
+
+# What each plan costs, for the public Get Plans list (2026-09-29, Admin
+# Self-Registration). Hardcoded next to the presets on purpose, like the
+# presets themselves - the build guide says no database plan editor.
+# price is a decimal string in rupees and billing_cycle is "MONTHLY" or
+# "YEARLY"; both stay None until Karwin sets the real figures, and the
+# API returns null rather than a made-up number.
+PLAN_PRICING = {
+    "STARTER": {"price": None, "billing_cycle": None},
+    "GROWTH": {"price": None, "billing_cycle": None},
+    "ENTERPRISE": {"price": None, "billing_cycle": None},
+}

@@ -1,3 +1,6 @@
+import re
+from decimal import Decimal
+
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -180,3 +183,50 @@ class ResetPasswordSerializer(serializers.Serializer):
 class ChangePasswordSerializer(serializers.Serializer):
     current_password = serializers.CharField()
     new_password = serializers.CharField(min_length=8)
+
+
+# ---- Admin Self-Registration (2026-09-29) --------------------------------------
+# A restaurant signs itself up instead of a Super Admin creating it:
+# Get Plans -> Register Restaurant -> Signup (set the Admin's login) -> Login.
+
+# Same phone shape the takeaway order form accepts.
+PHONE_PATTERN = r"^[0-9+][0-9 ()\-]{6,20}$"
+# GSTIN: 2-digit state code, 10-character PAN, entity number, "Z", checksum.
+GSTIN_PATTERN = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
+
+
+class RegisterRestaurantSerializer(serializers.Serializer):
+    restaurant_name = serializers.CharField(max_length=255)
+    contact_name = serializers.CharField(max_length=255)
+    contact_phone = serializers.RegexField(
+        PHONE_PATTERN, max_length=32, error_messages={"invalid": "Enter a valid phone number."},
+    )
+    contact_email = serializers.EmailField()
+    # Where invoices go; the contact email when left blank.
+    billing_email = serializers.EmailField(required=False, allow_blank=True, default="")
+    # Optional - plenty of small restaurants aren't GST-registered - but a
+    # value that is given must look like a real GSTIN.
+    gst_number = serializers.CharField(required=False, allow_blank=True, default="", max_length=15)
+    service_charge_percentage = serializers.DecimalField(
+        max_digits=5, decimal_places=2, min_value=Decimal("0"), max_value=Decimal("100"),
+        required=False, default=Decimal("0.00"),
+    )
+    plan_id = serializers.ChoiceField(choices=Restaurant.PlanTier.values)
+
+    def validate_gst_number(self, value):
+        value = value.strip().upper()
+        if value and not GSTIN_PATTERN.match(value):
+            raise serializers.ValidationError("Enter a valid 15-character GSTIN, e.g. 27ABCDE1234F1Z5.")
+        return value
+
+
+class SelfSignupSerializer(serializers.Serializer):
+    registration_id = serializers.UUIDField()
+    email = serializers.EmailField()
+    password = serializers.CharField(min_length=8)
+    password_confirm = serializers.CharField()
+
+    def validate(self, attrs):
+        if attrs["password"] != attrs["password_confirm"]:
+            raise serializers.ValidationError({"password_confirm": ["Passwords do not match."]})
+        return attrs
