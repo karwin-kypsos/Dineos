@@ -44,6 +44,29 @@ def test_manager_override_marks_unpaid_and_closes_session(table, manager_client)
     assert table.status == Table.Status.AVAILABLE
 
 
+def test_closing_an_already_closed_session_changes_nothing(table, manager_client, cashier_client):
+    """2026-09-25. Closing happens once. A payment and a manager's
+    force-close can land on the same session in either order; whichever is
+    second must not rewrite the first one's reason, closer or time, nor
+    free a table that has since been taken again."""
+    manager_user, _ = manager_client
+    cashier_user, _ = cashier_client
+    session, _ = services.get_or_create_active_session(table.id)
+    services.close_session(session, reason=TableSession.CloseReason.PAID, closed_by=cashier_user)
+    session.refresh_from_db()
+    first_closed_at = session.closed_at
+
+    services.get_or_create_active_session(table.id)  # next party sits down
+    services.close_session(session, reason=TableSession.CloseReason.MANAGER_OVERRIDE, closed_by=manager_user)
+
+    session.refresh_from_db()
+    assert session.close_reason == TableSession.CloseReason.PAID
+    assert session.closed_by_id == cashier_user.id
+    assert session.closed_at == first_closed_at
+    table.refresh_from_db()
+    assert table.status == Table.Status.OCCUPIED
+
+
 def test_first_order_round_robins_across_active_servers(restaurant, branch, menu_item):
     from apps.orders import services as order_services
 

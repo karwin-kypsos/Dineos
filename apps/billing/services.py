@@ -192,6 +192,8 @@ def pay_bill(session_id, payment_method, processed_by, amount_received=None, pay
 
     # Prepared portions are NEVER touched here — decrement only happens at
     # order-creation time (apps/orders/services.py::place_order).
+    # A no-op when a manager already force-closed the session: the late Bill
+    # is recorded, the table and close reason are left as they are.
     close_session(session, reason=TableSession.CloseReason.PAID, closed_by=processed_by)
 
     transaction.on_commit(lambda: _broadcast_payment_confirmed(bill, session))

@@ -465,6 +465,50 @@ def test_customer_initiated_webhook_confirms_payment_with_no_processed_by(
     assert bill.processed_by is None
 
 
+def test_customer_payment_after_force_close_is_billed_without_reopening_the_table(
+    api_client, manager_client, table, menu_item, settings,
+):
+    """2026-09-25, per Karwin. The customer opens Razorpay Checkout on their
+    phone, a manager clears the table before it completes, and the payment
+    captures afterwards. The money has arrived, so the webhook must still
+    produce a Bill - but the table now belongs to the next party and the
+    session's MANAGER_OVERRIDE close stands."""
+    from apps.tables.models import Table, TableSession
+
+    settings.RAZORPAY_KEY_ID = "rzp_test_fake"
+    settings.RAZORPAY_KEY_SECRET = "fake_secret"
+    manager_user, _ = manager_client
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+
+    with patch("apps.payments.views.create_order", return_value={"id": "order_late789"}):
+        api_client.post(
+            "/v1/payments/razorpay/customer/create-order/", {"session_id": str(session.id)}, format="json",
+        )
+
+    table_services.manager_override_status(
+        table.id, status=Table.Status.AVAILABLE, mark_unpaid=True, manager=manager_user,
+    )
+    next_session, _ = table_services.get_or_create_active_session(table.id)
+
+    with patch("apps.payments.views.verify_webhook_signature", return_value=None):
+        response = api_client.post(
+            "/v1/payments/razorpay/webhook/", data=_webhook_payload("order_late789", method="upi"),
+            content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="sig",
+        )
+
+    assert response.status_code == 200, response.data
+    assert Bill.objects.filter(session=session).count() == 1
+    assert PaymentAttempt.objects.get(razorpay_order_id="order_late789").status == PaymentAttempt.Status.PAID
+
+    table.refresh_from_db()
+    assert table.status == Table.Status.OCCUPIED
+    next_session.refresh_from_db()
+    assert next_session.status == TableSession.Status.ACTIVE
+    session.refresh_from_db()
+    assert session.close_reason == TableSession.CloseReason.MANAGER_OVERRIDE
+
+
 # ---- "Pay by QR" (2026-09-09, per Shereena) ----
 
 def test_create_qr_code_succeeds(cashier_client, table, menu_item, restaurant, settings):

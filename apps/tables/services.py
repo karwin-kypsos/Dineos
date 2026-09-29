@@ -146,8 +146,22 @@ def close_session(session, reason, closed_by=None):
     """Shared convergence point for both the payment-triggered close and the
     manager-override close. Frees the table and fires the WS events —
     never touches PreparedPortion (that only happens at order-creation time).
+    Closing happens once: an already-CLOSED session is returned untouched.
     """
     session = TableSession.objects.select_for_update().get(id=session.id)
+
+    # 2026-09-25, per Karwin: a force-closed session stays billable. A
+    # manager can clear a table before it is paid, and the money can still
+    # arrive afterwards - at the counter, or from the customer's own phone
+    # through the Razorpay webhook - so pay_bill records the Bill as usual.
+    # What it must not do is close the session a second time. That second
+    # close flipped the table back to AVAILABLE under whoever had sat down
+    # there since, marked THEIR bill-request alert read, and rewrote
+    # MANAGER_OVERRIDE to PAID along with who closed it and when. Checked
+    # under the row lock, so a payment racing a force-close closes once too.
+    if session.status == TableSession.Status.CLOSED:
+        return session
+
     table = Table.objects.select_for_update().get(id=session.table_id)
     restaurant = table.restaurant
 

@@ -378,3 +378,56 @@ def test_list_bills_date_range_filters_inclusive(admin_client, cashier_client, t
     ids = {b["id"] for b in response.data["results"]}
     assert str(bill_in_range.id) in ids
     assert str(bill_outside_range.id) not in ids
+
+
+def test_bill_after_force_close_leaves_the_table_and_close_reason_alone(
+    cashier_client, manager_client, branch, table, menu_item,
+):
+    """2026-09-25, per Karwin: a force-closed session stays billable, but
+    paying it must not close it a second time. pay_bill used to run
+    close_session again regardless, which put the table back to AVAILABLE
+    under the guests seated there since, marked their bill-request alert
+    read, and rewrote MANAGER_OVERRIDE to PAID."""
+    from apps.notifications.models import Notification
+    from apps.tables.models import Table, TableSession
+
+    cashier_user, client = cashier_client
+    manager_user, _ = manager_client
+    cashier_user.branch = branch
+    cashier_user.save(update_fields=["branch"])
+    table.branch = branch
+    table.save(update_fields=["branch"])
+
+    old_session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(old_session.id, [{"menu_item_id": menu_item.id, "quantity": 2}])
+    table_services.manager_override_status(
+        table.id, status=Table.Status.AVAILABLE, mark_unpaid=True, manager=manager_user,
+    )
+    old_session.refresh_from_db()
+    force_closed_at = old_session.closed_at
+
+    # The next party sits down and asks for their bill.
+    new_session, _ = table_services.get_or_create_active_session(table.id)
+    table_services.request_bill(new_session.id)
+    table_services._notify_bill_requested(new_session, table.restaurant)
+    alert = Notification.objects.filter(recipient=cashier_user, type="BILL_REQUESTED").first()
+    assert alert is not None and alert.is_read is False
+
+    response = client.post(
+        "/v1/bills/payment/", {"session_id": str(old_session.id), "payment_method": "CASH"}, format="json",
+    )
+
+    assert response.status_code == 201, response.data
+    assert Bill.objects.get(session=old_session).subtotal == menu_item.price * 2
+
+    table.refresh_from_db()
+    assert table.status == Table.Status.OCCUPIED
+    new_session.refresh_from_db()
+    assert new_session.status == TableSession.Status.BILL_REQUESTED
+    alert.refresh_from_db()
+    assert alert.is_read is False
+
+    old_session.refresh_from_db()
+    assert old_session.close_reason == TableSession.CloseReason.MANAGER_OVERRIDE
+    assert old_session.closed_by_id == manager_user.id
+    assert old_session.closed_at == force_closed_at
