@@ -75,8 +75,9 @@ def test_plans_are_public_and_describe_each_tier(client):
     assert plans["STARTER"]["max_branches"] == 1
     assert plans["ENTERPRISE"]["max_branches"] is None  # unlimited
     starter_features = {f["key"]: f["included"] for f in plans["STARTER"]["features"]}
+    # Billing left Starter on 2026-09-29, per Karwin.
     assert starter_features == {
-        "kitchen_enabled": False, "billing_enabled": True, "notifications_enabled": True, "realtime_enabled": False,
+        "kitchen_enabled": False, "billing_enabled": False, "notifications_enabled": True, "realtime_enabled": False,
     }
     assert all(f["label"] and f["description"] for f in plans["GROWTH"]["features"])
     # No real prices yet: null, never a made-up number.
@@ -182,7 +183,8 @@ def test_starter_plan_applies_its_limits(client):
     assert restaurant.max_branches == 1
     assert restaurant.kitchen_enabled is False
     assert restaurant.realtime_enabled is False
-    assert restaurant.billing_enabled is True
+    assert restaurant.billing_enabled is False
+    assert restaurant.notifications_enabled is True
 
 
 def test_signup_refuses_mismatched_or_short_passwords(client):

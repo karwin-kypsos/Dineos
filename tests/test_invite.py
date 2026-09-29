@@ -163,6 +163,7 @@ def test_organization_creation_with_contact_email_invites_first_admin():
     assert response.data["plan_tier"] == "STARTER"
     assert response.data["max_branches"] == 1
     assert response.data["kitchen_enabled"] is False  # Starter preset
+    assert response.data["billing_enabled"] is False  # Starter preset since 2026-09-29, per Karwin
 
     admin = User.objects.get(email="jamie@tacohub.test")
     assert admin.role == "ADMIN"

@@ -10,7 +10,10 @@ PLAN_PRESETS = {
         "flags": {
             "notifications_enabled": True,
             "kitchen_enabled": False,
-            "billing_enabled": True,
+            # Off since 2026-09-29, per Karwin: billing is a Growth/Enterprise
+            # module. A preset only fills new organizations and plan changes -
+            # restaurants already on Starter keep whatever their row says.
+            "billing_enabled": False,
             "realtime_enabled": False,
         },
     },
