@@ -622,9 +622,15 @@ def generate_ai_insights(restaurant, branch=None):
         severity = item.get("severity")
         if severity not in AIInsight.Severity.values:
             severity = AIInsight.Severity.TIP
+        # The insight belongs to its ingredient's branch, not the caller's
+        # (2026-09-29). An Admin has no branch, so tagging with the
+        # caller's left every Admin-generated insight branch-less - and
+        # since 2026-09-21 a branch's dashboard and its Manager's feed
+        # only show insights for that exact branch, so those never
+        # appeared anywhere but the Admin's own all-branches list.
         created.append(
             AIInsight.objects.create(
-                restaurant=restaurant, branch=branch, ingredient=ingredient, severity=severity,
+                restaurant=restaurant, branch=ingredient.branch, ingredient=ingredient, severity=severity,
                 headline=item.get("headline", "")[:255],
                 reason_breakdown=item.get("reason_breakdown", ""),
                 recommended_action=item.get("recommended_action", "")[:255],

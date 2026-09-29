@@ -18,38 +18,81 @@ CHAT_SYSTEM_PROMPT = (
 )
 
 
-def build_chat_context(restaurant):
+def _low_stock_ingredients(restaurant, branch=None):
+    """Ingredients at or below their minimum, for the AI prompts. Labelled
+    with their branch only when the caller covers several branches: six
+    branches can each have a "Chicken", and an unlabelled list leaves the
+    model unable to say which one is short."""
+    from apps.inventory.models import Ingredient
+
+    ingredients = (
+        Ingredient.objects.filter(restaurant=restaurant, is_active=True)
+        .exclude(current_stock__gt=F("minimum_stock_level"))
+        .select_related("branch")
+        .order_by("name")
+    )
+    if branch is not None:
+        ingredients = ingredients.filter(branch=branch)
+    rows = []
+    for i in ingredients[:20]:
+        row = {
+            "name": i.name, "current_stock": float(i.current_stock), "unit": i.unit,
+            "minimum_stock_level": float(i.minimum_stock_level),
+        }
+        if branch is None:
+            row["branch"] = i.branch.name if i.branch else None
+        rows.append(row)
+    return rows
+
+
+def _scope_label(branch):
+    return f"{branch.name} branch only" if branch is not None else "whole restaurant, all branches"
+
+
+def build_chat_context(restaurant, branch=None):
     """Snapshot of current restaurant state handed to Groq as grounding —
     same idea as AI Insights/Prep Forecast: the app supplies real facts,
     the model only ever phrases/reasons over them, never invents numbers.
+
+    branch (2026-09-29): a Manager's snapshot covers only their own
+    branch - it used to hand every branch's stock and revenue to a Manager
+    pinned to one. An Admin's covers the whole restaurant, with each
+    branch's takings listed separately so "which branch is doing best"
+    has an answer.
     """
-    from apps.billing.services import daily_collections
-    from apps.inventory.models import Ingredient
+    from django.db.models import Count, Sum
 
-    low_stock = list(
-        Ingredient.objects.filter(restaurant=restaurant, is_active=True)
-        .exclude(current_stock__gt=F("minimum_stock_level"))
-        .values("name", "current_stock", "unit", "minimum_stock_level")[:20]
-    )
-    today = daily_collections(restaurant, timezone.localdate())
+    from apps.billing.services import daily_collections, restaurant_bills_qs
 
-    return {
-        "low_or_critical_stock_ingredients": [
-            {
-                "name": i["name"], "current_stock": float(i["current_stock"]), "unit": i["unit"],
-                "minimum_stock_level": float(i["minimum_stock_level"]),
-            }
-            for i in low_stock
-        ],
+    today_date = timezone.localdate()
+    today = daily_collections(restaurant, today_date, branch=branch)
+
+    context = {
+        "scope": _scope_label(branch),
+        "low_or_critical_stock_ingredients": _low_stock_ingredients(restaurant, branch),
         "today": {
             "total_collected": float(today["total_collected"]),
             "vs_yesterday": float(today["vs_yesterday"]),
             "tables_served": today["tables_served"],
         },
     }
+    if branch is None:
+        day_start = timezone.make_aware(timezone.datetime.combine(today_date, timezone.datetime.min.time()))
+        by_branch = (
+            restaurant_bills_qs(restaurant)
+            .filter(paid_at__gte=day_start, paid_at__lt=day_start + timezone.timedelta(days=1))
+            .values("branch__name")
+            .annotate(total=Sum("total_amount"), bills=Count("id"))
+            .order_by("branch__name")
+        )
+        context["today_by_branch"] = [
+            {"branch": row["branch__name"], "total_collected": float(row["total"]), "bills_paid": row["bills"]}
+            for row in by_branch
+        ]
+    return context
 
 
-def send_chat_message(restaurant, user, content):
+def send_chat_message(restaurant, user, content, branch=None):
     """Persists the user's message, calls Groq with recent history + a
     fresh context snapshot, persists and returns the assistant's reply.
     """
@@ -64,7 +107,7 @@ def send_chat_message(restaurant, user, content):
     )
     history.reverse()
 
-    context = build_chat_context(restaurant)
+    context = build_chat_context(restaurant, branch=branch)
     messages = [{"role": "system", "content": f"Current restaurant snapshot: {json.dumps(context)}"}]
     messages += [
         {"role": "user" if m.role == ChatMessage.Role.USER else "assistant", "content": m.content}
@@ -79,12 +122,16 @@ def send_chat_message(restaurant, user, content):
     return user_message, assistant_message
 
 
-def compute_eod_data(restaurant, review_date):
+def compute_eod_data(restaurant, review_date, branch=None):
     """Manager's End of Day Review numbers — revenue (via the existing
     apps.billing.services.daily_collections, reused rather than duplicated),
     plus wastage, restocks, low-stock state, and staff activity for the
     day. Shared by both the manual End of Day Review screen and the AI
     End of Day Report below, so they're always looking at the same facts.
+
+    branch (2026-09-29) scopes every figure to that one branch; None is
+    the whole restaurant. See core.tenancy.resolve_report_branch for who
+    gets which.
     """
     from datetime import datetime
     from decimal import Decimal
@@ -96,7 +143,7 @@ def compute_eod_data(restaurant, review_date):
     from apps.inventory.models import Ingredient, StockMovement
     from apps.orders.models import Order
 
-    collections = daily_collections(restaurant, review_date)
+    collections = daily_collections(restaurant, review_date, branch=branch)
     collections["bills"] = None  # full bill objects aren't JSON-serializable here; counts/totals only
 
     day_start = timezone.make_aware(datetime.combine(review_date, datetime.min.time()))
@@ -109,22 +156,31 @@ def compute_eod_data(restaurant, review_date):
     movements = StockMovement.objects.filter(
         ingredient__restaurant=restaurant, recorded_at__gte=day_start, recorded_at__lt=day_end,
     )
+    bills_qs = Bill.objects.filter(
+        Q(session__table__restaurant=restaurant) | Q(order__branch__restaurant=restaurant),
+        paid_at__gte=day_start, paid_at__lt=day_end,
+    )
+    ingredients = Ingredient.objects.filter(restaurant=restaurant, is_active=True)
+    if branch is not None:
+        # Same table-or-branch pair the Prep Forecast uses: a dine-in
+        # order reaches its branch through its table, a takeaway directly.
+        orders_qs = orders_qs.filter(Q(table__branch=branch) | Q(branch=branch))
+        movements = movements.filter(ingredient__branch=branch)
+        bills_qs = bills_qs.filter(branch=branch)
+        ingredients = ingredients.filter(branch=branch)
+
     wastage = movements.filter(movement_type=StockMovement.MovementType.WASTAGE)
     restocks = movements.filter(movement_type=StockMovement.MovementType.RESTOCK)
     wastage_cost = sum((m.quantity * (m.unit_cost_at_time or Decimal("0")) for m in wastage), Decimal("0"))
 
     staff_ids = set(orders_qs.exclude(placed_by__isnull=True).values_list("placed_by_id", flat=True))
-    staff_ids |= set(
-        Bill.objects.filter(
-            Q(session__table__restaurant=restaurant) | Q(order__branch__restaurant=restaurant),
-            paid_at__gte=day_start, paid_at__lt=day_end,
-        ).exclude(processed_by__isnull=True).values_list("processed_by_id", flat=True)
-    )
+    staff_ids |= set(bills_qs.exclude(processed_by__isnull=True).values_list("processed_by_id", flat=True))
 
-    low_stock_count = sum(1 for i in Ingredient.objects.filter(restaurant=restaurant, is_active=True) if i.is_low_stock)
+    low_stock_count = sum(1 for i in ingredients if i.is_low_stock)
 
     return {
         **collections,
+        "branch": str(branch.id) if branch is not None else None,
         "orders_placed": orders_qs.count(),
         "orders_cancelled": orders_qs.filter(status="CANCELLED").count(),
         "wastage_entries_count": wastage.count(),
@@ -150,14 +206,15 @@ EOD_REPORT_SYSTEM_PROMPT = (
 )
 
 
-def generate_eod_report(restaurant, review_date=None):
+def generate_eod_report(restaurant, review_date=None, branch=None):
     """AI End of Day Report — Manager Home / Prep Log screens' 'AI Restaurant
     Operating System' daily briefing: today's numbers (see compute_eod_data)
     phrased into a short summary, plus 'Recommendations for Tomorrow' drawn
     from tomorrow's prep forecast (apps.menu.services.compute_prep_forecast)
     and today's low/critical stock ingredients — one Groq call ties both
     together, same batched-not-per-item pattern as AI Insights/Prep Forecast.
-    Stateless: recomputed fresh each call, not persisted.
+    Stateless: recomputed fresh each call, not persisted. branch scopes
+    every fact handed to the model, same as compute_eod_data.
     """
     import json
     from datetime import timedelta
@@ -165,19 +222,17 @@ def generate_eod_report(restaurant, review_date=None):
     from core.ai_client import generate_json
 
     review_date = review_date or timezone.localdate()
-    eod_data = compute_eod_data(restaurant, review_date)
+    eod_data = compute_eod_data(restaurant, review_date, branch=branch)
 
-    from apps.inventory.models import Ingredient
     from apps.menu.services import compute_prep_forecast
 
-    low_stock = list(
-        Ingredient.objects.filter(restaurant=restaurant, is_active=True)
-        .exclude(current_stock__gt=F("minimum_stock_level"))
-        .values("name", "current_stock", "unit", "minimum_stock_level")[:20]
+    low_stock = _low_stock_ingredients(restaurant, branch)
+    prep_forecast, tomorrow = compute_prep_forecast(
+        restaurant, branch=branch, target_date=review_date + timedelta(days=1)
     )
-    prep_forecast, tomorrow = compute_prep_forecast(restaurant, target_date=review_date + timedelta(days=1))
 
     facts = {
+        "scope": _scope_label(branch),
         "date": str(review_date),
         "today_summary": {
             "total_collected": float(eod_data["total_collected"]),
@@ -189,13 +244,7 @@ def generate_eod_report(restaurant, review_date=None):
             "wastage_total_cost": float(eod_data["wastage_total_cost"]),
             "staff_active_count": eod_data["staff_active_count"],
         },
-        "low_or_critical_stock_ingredients": [
-            {
-                "name": i["name"], "current_stock": float(i["current_stock"]), "unit": i["unit"],
-                "minimum_stock_level": float(i["minimum_stock_level"]),
-            }
-            for i in low_stock
-        ],
+        "low_or_critical_stock_ingredients": low_stock,
         "tomorrow_prep_forecast": [
             {
                 "menu_item_name": c["menu_item"].name,

@@ -20,6 +20,7 @@ from apps.restaurant.models import Branch
 from apps.tables.models import Table
 from core.ai_client import AIUnavailableError
 from core.permissions import IsAdminOrManager, IsManager
+from core.tenancy import resolve_report_branch
 
 from . import services
 from .models import ChatMessage
@@ -275,7 +276,8 @@ class EndOfDayReviewView(APIView):
         else:
             review_date = timezone.localdate()
 
-        return Response(services.compute_eod_data(request.tenant, review_date))
+        branch = resolve_report_branch(request)
+        return Response(services.compute_eod_data(request.tenant, review_date, branch=branch))
 
 
 class LowStockAlertsView(APIView):
@@ -297,8 +299,13 @@ class LowStockAlertsView(APIView):
         restaurant = request.tenant
         since = timezone.now() - timezone.timedelta(days=self.LOOKBACK_DAYS)
 
+        ingredients = Ingredient.objects.filter(restaurant=restaurant, is_active=True)
+        branch = resolve_report_branch(request)
+        if branch is not None:
+            ingredients = ingredients.filter(branch=branch)
+
         alerts = []
-        for ingredient in Ingredient.objects.filter(restaurant=restaurant, is_active=True):
+        for ingredient in ingredients:
             usage_total = StockMovement.objects.filter(
                 ingredient=ingredient, movement_type=StockMovement.MovementType.USAGE, recorded_at__gte=since,
             ).aggregate(total=Sum("quantity"))["total"] or Decimal("0")
@@ -348,10 +355,11 @@ class ChatMessagesView(APIView):
     def post(self, request):
         serializer = SendChatMessageSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        branch = resolve_report_branch(request)
 
         try:
             user_message, assistant_message = services.send_chat_message(
-                request.tenant, request.user, serializer.validated_data["content"]
+                request.tenant, request.user, serializer.validated_data["content"], branch=branch,
             )
         except AIUnavailableError as e:
             return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -387,8 +395,9 @@ class AIEndOfDayReportView(APIView):
         else:
             review_date = timezone.localdate()
 
+        branch = resolve_report_branch(request)
         try:
-            report = services.generate_eod_report(request.tenant, review_date)
+            report = services.generate_eod_report(request.tenant, review_date, branch=branch)
         except AIUnavailableError as e:
             return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 

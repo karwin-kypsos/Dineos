@@ -194,6 +194,11 @@ def generate_prep_forecast(restaurant, branch=None, target_date=None, lookback_o
             "menu_item_name": c["menu_item"].name,
             "suggested_prep_quantity": c["suggested_prep_quantity"],
             "average_quantity": c["average_quantity"],
+            # occurrence_dates (2026-09-29) pairs each quantity with its day.
+            # Both run newest first, while the headline Groq writes reads
+            # oldest first - so "[2, 1, 8, 0]" under "ordered 0, 8, 1, 2"
+            # looked like a contradiction with nothing on screen to settle it.
+            "occurrence_dates": [d.isoformat() for d in c["occurrence_dates"]],
             "occurrence_quantities": c["occurrence_quantities"],
             "headline": item.get("headline", ""),
             "reasoning": item.get("reasoning", ""),

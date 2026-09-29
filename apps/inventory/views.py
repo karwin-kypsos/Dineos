@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 
 from core.ai_client import AIUnavailableError
 from core.permissions import IsAdminOrManager, IsAnyStaff
+from core.tenancy import resolve_report_branch
 
 from . import services
 from .models import AIInsight, Ingredient, PurchaseOrder, RecipeItem, StockMovement
@@ -529,9 +530,7 @@ class AIInsightViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=False, methods=["post"])
     def generate(self, request):
         try:
-            insights = services.generate_ai_insights(
-                request.tenant, branch=getattr(request.user, "branch", None)
-            )
+            insights = services.generate_ai_insights(request.tenant, branch=resolve_report_branch(request))
         except AIUnavailableError as e:
             return Response({"detail": str(e)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         return Response(AIInsightSerializer(insights, many=True).data, status=status.HTTP_201_CREATED)

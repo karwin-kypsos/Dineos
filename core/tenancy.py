@@ -10,6 +10,8 @@ None if unresolved):
 Platform (Super Admin) requests never resolve a tenant — their tokens
 carry no restaurant_id by design (see apps/platform/authentication.py).
 """
+import uuid
+
 from django.http import JsonResponse
 from rest_framework.permissions import BasePermission
 from rest_framework_simplejwt.tokens import UntypedToken
@@ -127,6 +129,49 @@ def get_tenant_from_session(session_id):
 
     session = TableSession.objects.filter(id=session_id).select_related("table__restaurant").first()
     return session.table.restaurant if session else None
+
+
+def resolve_report_branch(request):
+    """The branch a report or AI endpoint covers; None means the whole
+    restaurant.
+
+    2026-09-29, per Karwin. The reporting and AI endpoints (End of Day
+    Review, the AI End of Day Report, AI Chat, low-stock alerts, the AI
+    Prep Forecast) read every branch at once, so a Manager pinned to one
+    branch saw every branch's revenue and stock. The same strict rule
+    Tables, Menu and Inventory follow since 2026-09-14/21:
+
+      - staff with a branch always get their own branch. A ?branch= naming
+        a different one is refused with 403, the same answer a cashier gets
+        for billing another branch, rather than quietly swapped for their
+        own - a report that silently ignores the filter reads as if it
+        applied;
+      - an Admin has no branch of their own, so they get the whole
+        restaurant unless they narrow it with ?branch=. A malformed id is
+        400 and one that isn't this restaurant's is 404, never an
+        unfiltered answer.
+    """
+    from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+
+    own_branch = getattr(request.user, "branch", None)
+    branch_param = (request.query_params.get("branch") or "").strip()
+    if not branch_param:
+        return own_branch
+
+    try:
+        branch_id = uuid.UUID(branch_param)
+    except ValueError:
+        raise ValidationError({"branch": ["Expected a valid branch id."]})
+
+    if own_branch is not None:
+        if own_branch.id != branch_id:
+            raise PermissionDenied("You can only view your own branch.")
+        return own_branch
+
+    branch = request.tenant.branches.filter(id=branch_id).first()
+    if branch is None:
+        raise NotFound({"branch": "Branch not found."})
+    return branch
 
 
 class TenantObjectPermission(BasePermission):

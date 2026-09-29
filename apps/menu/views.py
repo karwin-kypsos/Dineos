@@ -14,7 +14,7 @@ from rest_framework.views import APIView
 from core.ai_client import AIUnavailableError
 from core.image_fields import ImageUploadErrorHandlingMixin
 from core.permissions import IsAdminOrManager, IsAnyStaff
-from core.tenancy import TenantObjectPermission, get_branch_from_table, get_tenant_from_table
+from core.tenancy import TenantObjectPermission, get_branch_from_table, get_tenant_from_table, resolve_report_branch
 
 from . import services
 from .models import Category, MenuItem, PreparedPortion
@@ -310,8 +310,12 @@ class PrepForecastView(APIView):
     Chicken Biryani averaged 24 servings.' Stateless (recomputed fresh each
     call, not persisted) since it's a live planning aid for whichever date
     is being prepped for, not a dismissible alert. ?date=YYYY-MM-DD defaults
-    to today; ?branch=<id> narrows to one branch; ?lookback=<n> overrides
-    the default 4 occurrences.
+    to today; ?lookback=<n> overrides the default 4 occurrences.
+
+    Branch (2026-09-29): a Manager always gets their own branch - without
+    ?branch= they used to get the whole restaurant's dishes. An Admin gets
+    the whole restaurant unless ?branch=<id> narrows it. See
+    core.tenancy.resolve_report_branch.
     """
 
     permission_classes = [IsAdminOrManager]
@@ -328,13 +332,7 @@ class PrepForecastView(APIView):
         else:
             target_date = timezone.localdate()
 
-        branch = None
-        branch_id = request.query_params.get("branch")
-        if branch_id:
-            try:
-                branch = request.tenant.branches.get(id=branch_id)
-            except (ValueError, request.tenant.branches.model.DoesNotExist):
-                return Response({"branch": "Branch not found."}, status=status.HTTP_404_NOT_FOUND)
+        branch = resolve_report_branch(request)
 
         lookback = request.query_params.get("lookback")
         try:
