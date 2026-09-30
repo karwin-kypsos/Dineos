@@ -119,6 +119,16 @@ class TableSessionDetailSerializer(serializers.ModelSerializer):
 class QRLandingSerializer(serializers.Serializer):
     table = TableSerializer()
     active_session = TableSessionSerializer(allow_null=True)
+    # The restaurant's feature flags (2026-09-30), so the customer app can
+    # lock what the restaurant doesn't offer - it has no login and so no
+    # /v1/auth/me/ to read them from. Every flag, keyed like /me.
+    features = serializers.SerializerMethodField()
+
+    def get_features(self, obj):
+        from apps.platform.constants import FEATURE_FLAG_METADATA
+
+        restaurant = obj["table"].restaurant
+        return {flag["key"]: getattr(restaurant, flag["key"]) for flag in FEATURE_FLAG_METADATA}
 
 
 class ManagerStatusOverrideSerializer(serializers.Serializer):

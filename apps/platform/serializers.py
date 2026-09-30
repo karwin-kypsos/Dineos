@@ -96,6 +96,8 @@ class RestaurantSerializer(serializers.ModelSerializer):
             "kitchen_enabled",
             "billing_enabled",
             "realtime_enabled",
+            "customer_ordering_enabled",
+            "server_staff_enabled",
             "razorpay_account_id",
             "branch_count",
             "staff_count",

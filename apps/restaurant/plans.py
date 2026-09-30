@@ -15,6 +15,9 @@ PLAN_PRESETS = {
             # restaurants already on Starter keep whatever their row says.
             "billing_enabled": False,
             "realtime_enabled": False,
+            # Off since 2026-09-30, per Shereena - same caveat as billing.
+            "customer_ordering_enabled": False,
+            "server_staff_enabled": False,
         },
     },
     "GROWTH": {
@@ -24,6 +27,8 @@ PLAN_PRESETS = {
             "kitchen_enabled": True,
             "billing_enabled": True,
             "realtime_enabled": True,
+            "customer_ordering_enabled": True,
+            "server_staff_enabled": True,
         },
     },
     "ENTERPRISE": {
@@ -33,6 +38,8 @@ PLAN_PRESETS = {
             "kitchen_enabled": True,
             "billing_enabled": True,
             "realtime_enabled": True,
+            "customer_ordering_enabled": True,
+            "server_staff_enabled": True,
         },
     },
 }

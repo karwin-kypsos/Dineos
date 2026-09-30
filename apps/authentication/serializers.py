@@ -43,7 +43,24 @@ class TenantSummarySerializer(serializers.ModelSerializer):
             "kitchen_enabled",
             "billing_enabled",
             "realtime_enabled",
+            "customer_ordering_enabled",
+            "server_staff_enabled",
         ]
+
+
+def refuse_server_role_without_the_flag(serializer, role):
+    """server_staff_enabled (2026-09-30, per Shereena): a restaurant with
+    the flag off can't add a Server account or turn someone into one.
+    Existing Server accounts are left alone - the flag gates adding them -
+    so editing a current Server's other details still works."""
+    if role != User.Role.SERVER:
+        return role
+    request = serializer.context.get("request")
+    restaurant = getattr(getattr(request, "user", None), "restaurant", None)
+    already_server = serializer.instance is not None and serializer.instance.role == User.Role.SERVER
+    if restaurant is not None and not restaurant.server_staff_enabled and not already_server:
+        raise serializers.ValidationError("Server staff accounts are not enabled for this restaurant.")
+    return role
 
 
 def resolve_branch_context(user):
@@ -129,6 +146,9 @@ class UserSerializer(serializers.ModelSerializer):
     def get_role_name(self, obj):
         return ROLE_METADATA[obj.role]["name"]
 
+    def validate_role(self, role):
+        return refuse_server_role_without_the_flag(self, role)
+
 
 class MeSerializer(UserSerializer):
     """GET /v1/auth/me/ only — adds the branch switcher's resolved branch
@@ -165,6 +185,9 @@ class UserCreateSerializer(serializers.ModelSerializer):
         if branch is not None and request is not None and branch.restaurant_id != request.user.restaurant_id:
             raise serializers.ValidationError("Branch does not belong to your restaurant.")
         return branch
+
+    def validate_role(self, role):
+        return refuse_server_role_without_the_flag(self, role)
 
     def create(self, validated_data):
         password = validated_data.pop("password", None)

@@ -3,11 +3,13 @@ import uuid
 from django.db import models
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.permissions import IsAdminOrManager, IsAnyStaff
+from core.permissions import CUSTOMER_ORDERING_OFF, IsAdminOrManager, IsAnyStaff
+from core.tenancy import get_tenant_from_table
 
 from . import services
 from .models import Table, TableSession
@@ -148,6 +150,14 @@ class TableViewSet(viewsets.ReadOnlyModelViewSet):
 
     @session.mapping.post
     def start_session(self, request, pk=None):
+        if not (request.user and request.user.is_authenticated):
+            # A customer seating themselves from the QR code. With customer
+            # ordering off there is nothing for them to do in a session, and
+            # opening one would still mark the table OCCUPIED. Staff seating
+            # a table is unaffected.
+            restaurant = get_tenant_from_table(pk)
+            if restaurant is not None and not restaurant.customer_ordering_enabled:
+                raise PermissionDenied(CUSTOMER_ORDERING_OFF)
         session, created = services.get_or_create_active_session(pk)
         return Response(
             TableSessionSerializer(session).data,

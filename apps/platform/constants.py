@@ -24,6 +24,17 @@ FEATURE_FLAG_METADATA = [
         "label": "Realtime Updates",
         "description": "Live WebSocket updates for kitchen, tables, and notifications instead of manual refresh.",
     },
+    # 2026-09-30, per Shereena.
+    {
+        "key": "customer_ordering_enabled",
+        "label": "Customer Ordering",
+        "description": "Customers order for themselves from the table QR code. When off, the QR shows the menu only and staff take the orders.",
+    },
+    {
+        "key": "server_staff_enabled",
+        "label": "Server Staff",
+        "description": "The restaurant can add Server (order-taking) staff accounts. Off for fully self-order restaurants.",
+    },
 ]
 
 # A curated set of brand-safe hex colors for the primary-color picker —

@@ -58,6 +58,11 @@ class Restaurant(models.Model):
     kitchen_enabled = models.BooleanField(default=True)
     billing_enabled = models.BooleanField(default=True)
     realtime_enabled = models.BooleanField(default=True)
+    # 2026-09-30, per Shereena: customers ordering for themselves from the
+    # table QR code, and whether "Server" staff accounts may be added (some
+    # restaurants run fully self-order with no order-taking staff).
+    customer_ordering_enabled = models.BooleanField(default=True)
+    server_staff_enabled = models.BooleanField(default=True)
 
     # Razorpay Route linked account id (2026-09-09) — this restaurant's own
     # Razorpay sub-account, set once they've completed Razorpay's own hosted

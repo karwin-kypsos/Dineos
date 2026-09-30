@@ -75,6 +75,13 @@ class IsPlatformAdmin(BasePermission):
         return bool(request.user and isinstance(request.user, PlatformAdmin) and request.user.is_active)
 
 
+# customer_ordering_enabled off (2026-09-30, per Shereena): a customer on the
+# table QR can still read the menu, but staff take the orders.
+CUSTOMER_ORDERING_OFF = (
+    "Ordering from the table isn't available at this restaurant. Please ask a staff member to take your order."
+)
+
+
 def FeatureEnabledPermission(flag_name):
     """Factory: a permission class rejecting the request unless the
     resolved tenant (request.tenant, set by core.tenancy.TenantResolverMiddleware)
