@@ -14,7 +14,8 @@ PLAN_PRESETS = {
             # module. A preset only fills new organizations and plan changes -
             # restaurants already on Starter keep whatever their row says.
             "billing_enabled": False,
-            "realtime_enabled": False,
+            # On since 2026-09-30, per Karwin: live updates in every plan.
+            "realtime_enabled": True,
             # Off since 2026-09-30, per Shereena - same caveat as billing.
             "customer_ordering_enabled": False,
             "server_staff_enabled": False,
