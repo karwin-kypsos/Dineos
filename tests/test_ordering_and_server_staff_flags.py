@@ -78,7 +78,7 @@ def test_super_admin_toggles_both_and_me_reports_it(admin_client, restaurant):
 
 # ---- server_staff_enabled -------------------------------------------------------
 
-def test_server_accounts_refused_when_the_flag_is_off(admin_client, restaurant):
+def test_server_accounts_refused_when_the_flag_is_off(admin_client, restaurant, branch):
     _, client = admin_client
     existing_server = User.objects.create_user(
         email="old-server@test.dineos", password="Test@1234", role="SERVER", name="Old Server", restaurant=restaurant,
@@ -88,8 +88,8 @@ def test_server_accounts_refused_when_the_flag_is_off(admin_client, restaurant):
     )
     _switch_off(restaurant, "server_staff_enabled")
 
-    new_server = client.post("/v1/staff/", {"email": "s@test.dineos", "role": "SERVER", "name": "S"}, format="json")
-    new_cashier = client.post("/v1/staff/", {"email": "c@test.dineos", "role": "CASHIER", "name": "C"}, format="json")
+    new_server = client.post("/v1/staff/", {"email": "s@test.dineos", "role": "SERVER", "name": "S", "branch": str(branch.id)}, format="json")
+    new_cashier = client.post("/v1/staff/", {"email": "c@test.dineos", "role": "CASHIER", "name": "C", "branch": str(branch.id)}, format="json")
     promote = client.patch(f"/v1/staff/{cashier.id}/", {"role": "SERVER"}, format="json")
     rename = client.patch(f"/v1/staff/{existing_server.id}/", {"name": "Renamed", "role": "SERVER"}, format="json")
 
@@ -102,10 +102,10 @@ def test_server_accounts_refused_when_the_flag_is_off(admin_client, restaurant):
     assert rename.status_code == 200, rename.data
 
 
-def test_server_accounts_allowed_when_the_flag_is_on(admin_client):
+def test_server_accounts_allowed_when_the_flag_is_on(admin_client, branch):
     _, client = admin_client
 
-    response = client.post("/v1/staff/", {"email": "s2@test.dineos", "role": "SERVER", "name": "S2"}, format="json")
+    response = client.post("/v1/staff/", {"email": "s2@test.dineos", "role": "SERVER", "name": "S2", "branch": str(branch.id)}, format="json")
 
     assert response.status_code == 201, response.data
 

@@ -15,11 +15,11 @@ def _platform_login(client, email, password):
     return verify.data["access"]
 
 
-def test_creating_staff_without_password_generates_temp_password(admin_client):
+def test_creating_staff_without_password_generates_temp_password(admin_client, branch):
     _, client = admin_client
 
     response = client.post(
-        "/v1/staff/", {"email": "invited@test.dineos", "role": "SERVER", "name": "Invited Server"}, format="json",
+        "/v1/staff/", {"email": "invited@test.dineos", "role": "SERVER", "name": "Invited Server", "branch": str(branch.id)}, format="json",
     )
 
     assert response.status_code == 201, response.data
@@ -38,13 +38,13 @@ def test_creating_staff_without_password_generates_temp_password(admin_client):
     assert not PasswordResetToken.objects.filter(user=user).exists()
 
 
-def test_regenerate_temp_password_issues_a_new_one_while_still_pending(admin_client):
+def test_regenerate_temp_password_issues_a_new_one_while_still_pending(admin_client, branch):
     """New (2026-09-08, per Shereena) - "Recreate Temporary Password":
     covers the Admin forgetting to hand over a new hire's credentials, or
     the original temp password getting lost before first login."""
     _, client = admin_client
     create = client.post(
-        "/v1/staff/", {"email": "forgot-creds@test.dineos", "role": "SERVER", "name": "Forgot Creds"}, format="json",
+        "/v1/staff/", {"email": "forgot-creds@test.dineos", "role": "SERVER", "name": "Forgot Creds", "branch": str(branch.id)}, format="json",
     )
     old_temp_password = create.data["temp_password"]
     user_id = create.data["id"]
@@ -69,10 +69,10 @@ def test_regenerate_temp_password_issues_a_new_one_while_still_pending(admin_cli
     assert new_login.data["must_change_password"] is True
 
 
-def test_regenerate_temp_password_rejected_once_staff_has_set_their_own(admin_client):
+def test_regenerate_temp_password_rejected_once_staff_has_set_their_own(admin_client, branch):
     _, client = admin_client
     create = client.post(
-        "/v1/staff/", {"email": "already-changed@test.dineos", "role": "SERVER", "name": "Already Changed"},
+        "/v1/staff/", {"email": "already-changed@test.dineos", "role": "SERVER", "name": "Already Changed", "branch": str(branch.id)},
         format="json",
     )
     temp_password = create.data["temp_password"]
@@ -96,12 +96,12 @@ def test_regenerate_temp_password_rejected_once_staff_has_set_their_own(admin_cl
     assert user.check_password("MyOwnRealPass1")  # untouched by the rejected attempt
 
 
-def test_creating_staff_with_password_skips_invite(admin_client):
+def test_creating_staff_with_password_skips_invite(admin_client, branch):
     _, client = admin_client
 
     response = client.post(
         "/v1/staff/",
-        {"email": "direct@test.dineos", "role": "SERVER", "name": "Direct", "password": "Demo@1234"},
+        {"email": "direct@test.dineos", "role": "SERVER", "name": "Direct", "password": "Demo@1234", "branch": str(branch.id)},
         format="json",
     )
 
@@ -112,10 +112,10 @@ def test_creating_staff_with_password_skips_invite(admin_client):
     assert user.must_change_password is False
 
 
-def test_invited_staff_logs_in_with_temp_password_then_must_change_it(admin_client):
+def test_invited_staff_logs_in_with_temp_password_then_must_change_it(admin_client, branch):
     _, client = admin_client
     create = client.post(
-        "/v1/staff/", {"email": "pending@test.dineos", "role": "SERVER", "name": "Pending"}, format="json",
+        "/v1/staff/", {"email": "pending@test.dineos", "role": "SERVER", "name": "Pending", "branch": str(branch.id)}, format="json",
     )
     temp_password = create.data["temp_password"]
 

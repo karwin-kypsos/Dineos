@@ -170,11 +170,13 @@ def test_record_wastage_does_not_notify_when_stock_goes_critical(manager_client,
     ).exists()
 
 
-def test_create_staff_notifies_admins(admin_client, restaurant):
+def test_create_staff_notifies_admins(admin_client, restaurant, branch):
     admin_user, client = admin_client
 
     response = client.post(
-        "/v1/staff/", {"email": "newhire@demo-bistro.demo", "name": "New Hire", "role": "SERVER"}, format="json",
+        "/v1/staff/",
+        {"email": "newhire@demo-bistro.demo", "name": "New Hire", "role": "SERVER", "branch": str(branch.id)},
+        format="json",
     )
 
     assert response.status_code == 201, response.data

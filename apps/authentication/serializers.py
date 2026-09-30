@@ -48,6 +48,10 @@ class TenantSummarySerializer(serializers.ModelSerializer):
         ]
 
 
+# Roles that work inside one branch; Admin is the only one without.
+BRANCH_ROLES = {User.Role.MANAGER, User.Role.SERVER, User.Role.CASHIER}
+
+
 def refuse_server_role_without_the_flag(serializer, role):
     """server_staff_enabled (2026-09-30, per Shereena): a restaurant with
     the flag off can't add a Server account or turn someone into one.
@@ -188,6 +192,18 @@ class UserCreateSerializer(serializers.ModelSerializer):
 
     def validate_role(self, role):
         return refuse_server_role_without_the_flag(self, role)
+
+    def validate(self, attrs):
+        # 2026-09-30, per Shereena: a Manager, Server or Cashier is created
+        # into a branch, never without one. Every branch check in the API
+        # treats "no branch" as "not pinned", so such an account fell
+        # through all of them and got whole-restaurant reach like an Admin.
+        # An Admin has no branch by design, so it stays optional for them.
+        if attrs.get("role") in BRANCH_ROLES and attrs.get("branch") is None:
+            raise serializers.ValidationError(
+                {"branch": ["This field is required for Manager, Server and Cashier accounts."]}
+            )
+        return attrs
 
     def create(self, validated_data):
         password = validated_data.pop("password", None)

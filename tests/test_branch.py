@@ -251,16 +251,38 @@ def test_create_staff_rejects_branch_from_other_restaurant(admin_client):
     assert "branch" in response.data
 
 
-def test_staff_creation_without_branch_still_works(admin_client):
+@pytest.mark.parametrize("role", ["MANAGER", "SERVER", "CASHIER"])
+def test_staff_creation_without_branch_is_refused(admin_client, role):
+    """2026-09-30, per Shereena: this used to create the account with
+    branch null, and a branch-less Manager/Server/Cashier slips past every
+    branch check with whole-restaurant reach. Now a 400 naming the field."""
+    from apps.authentication.models import User
+
     _, client = admin_client
 
     response = client.post(
         "/v1/staff/",
-        {"email": "nobranch@branch.test", "password": "Demo@1234", "role": "SERVER", "name": "No Branch"},
+        {"email": f"nobranch-{role.lower()}@branch.test", "password": "Demo@1234", "role": role, "name": "No Branch"},
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert response.data["branch"] == ["This field is required for Manager, Server and Cashier accounts."]
+    assert not User.objects.filter(email=f"nobranch-{role.lower()}@branch.test").exists()
+
+
+def test_admin_creation_without_branch_still_works(admin_client):
+    # An Admin has no branch by design - the rule is for branch roles only.
+    _, client = admin_client
+
+    response = client.post(
+        "/v1/staff/",
+        {"email": "second-admin@branch.test", "password": "Demo@1234", "role": "ADMIN", "name": "Second Admin"},
         format="json",
     )
 
     assert response.status_code == 201, response.data
+    assert response.data["branch"] is None
 
 
 def test_create_branch_with_uploaded_image(admin_client, monkeypatch):
