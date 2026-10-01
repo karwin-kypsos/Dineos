@@ -392,17 +392,16 @@ class AddPortionsView(APIView):
             data={"menu_item_id": portion.menu_item_id}, branch=portion.menu_item.category.branch,
         )
 
-        if request.tenant.realtime_enabled:
-            channel_layer = get_channel_layer()
-            if channel_layer:
-                async_to_sync(channel_layer.group_send)(
-                    f"customers_global_{request.tenant.id}",
-                    {
-                        "type": "portions_updated",
-                        "menu_item_id": str(portion.menu_item_id),
-                        "portions_remaining": portion.portions_remaining,
-                    },
-                )
+        channel_layer = get_channel_layer()
+        if channel_layer:
+            async_to_sync(channel_layer.group_send)(
+                f"customers_global_{request.tenant.id}",
+                {
+                    "type": "portions_updated",
+                    "menu_item_id": str(portion.menu_item_id),
+                    "portions_remaining": portion.portions_remaining,
+                },
+            )
         # 2026-09-21, per Shereena: stock_warnings lists every ingredient
         # this prep pushed to zero or below, so the app can raise the
         # over-used banner straight from the save response instead of

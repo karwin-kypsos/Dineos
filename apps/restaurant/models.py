@@ -62,7 +62,11 @@ class Restaurant(models.Model):
     notifications_enabled = models.BooleanField(default=True)
     kitchen_enabled = models.BooleanField(default=True)
     billing_enabled = models.BooleanField(default=True)
-    realtime_enabled = models.BooleanField(default=True)
+    # Realtime updates stopped being a flag on 2026-10-01, per Karwin: every
+    # restaurant on every plan gets them, so the column is gone. Kept as a
+    # constant so /v1/auth/me/, Super Admin and the QR response still say
+    # realtime_enabled: true to the apps that read it.
+    realtime_enabled = True
     # 2026-09-30, per Shereena: customers ordering for themselves from the
     # table QR code, and whether "Server" staff accounts may be added (some
     # restaurants run fully self-order with no order-taking staff).

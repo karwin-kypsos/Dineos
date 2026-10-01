@@ -64,10 +64,6 @@ class KitchenConsumer(_BroadcastConsumer):
             return
 
         restaurant = await self._get_restaurant(device)
-        if not restaurant.realtime_enabled:
-            await self.close(code=4003)
-            return
-
         self._group = f"kitchen_{restaurant.id}"
         await self.channel_layer.group_add(self._group, self.channel_name)
         await self.accept()
@@ -92,11 +88,9 @@ class StaffConsumer(_BroadcastConsumer):
             await self.close(code=4003)
             return
 
+        # No realtime_enabled check since 2026-10-01, per Karwin: every
+        # restaurant gets live updates, so it stopped being a flag.
         restaurant = await self._get_restaurant(user)
-        if not restaurant.realtime_enabled:
-            await self.close(code=4003)
-            return
-
         self._groups = [f"staff_all_{restaurant.id}", f"notifications_{user.id}"] + _role_groups(user.role, restaurant.id)
         for group in self._groups:
             await self.channel_layer.group_add(group, self.channel_name)
@@ -118,9 +112,6 @@ class TableConsumer(_BroadcastConsumer):
         session_id = self.scope["url_route"]["kwargs"]["session_id"]
         session = await self._get_open_session(session_id)
         if session is None:
-            await self.close(code=4003)
-            return
-        if not session["realtime_enabled"]:
             await self.close(code=4003)
             return
 
@@ -145,7 +136,7 @@ class TableConsumer(_BroadcastConsumer):
 
         session = (
             TableSession.objects.filter(id=session_id, status__in=["ACTIVE", "BILL_REQUESTED"])
-            .select_related("table__restaurant")
+            .select_related("table")
             .first()
         )
         if session is None:
@@ -153,5 +144,4 @@ class TableConsumer(_BroadcastConsumer):
         return {
             "table_id": str(session.table_id),
             "restaurant_id": session.table.restaurant_id,
-            "realtime_enabled": session.table.restaurant.realtime_enabled,
         }

@@ -18,19 +18,18 @@ def notify(recipient, type, title, body="", data=None, order=None, table=None, b
         data=data or {}, order=order, table=table,
     )
 
-    if recipient.restaurant.realtime_enabled:
-        channel_layer = get_channel_layer()
-        if channel_layer:
-            async_to_sync(channel_layer.group_send)(
-                f"notifications_{recipient.id}",
-                {
-                    "type": "notification_new",
-                    "notification_id": notification.id,
-                    "notification_type": notification.type,
-                    "title": notification.title,
-                    "body": notification.body,
-                },
-            )
+    channel_layer = get_channel_layer()
+    if channel_layer:
+        async_to_sync(channel_layer.group_send)(
+            f"notifications_{recipient.id}",
+            {
+                "type": "notification_new",
+                "notification_id": notification.id,
+                "notification_type": notification.type,
+                "title": notification.title,
+                "body": notification.body,
+            },
+        )
     return notification
 
 

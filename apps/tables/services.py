@@ -228,8 +228,8 @@ def manager_override_status(table_id, status, mark_unpaid=False, manager=None):
 
 
 def _broadcast(restaurant, groups, event_type, payload):
-    if not restaurant.realtime_enabled:
-        return
+    # restaurant is unused since realtime_enabled stopped being a flag
+    # (2026-10-01, per Karwin); kept so the call sites read the same.
     channel_layer = get_channel_layer()
     if channel_layer is None:
         return

@@ -19,11 +19,8 @@ FEATURE_FLAG_METADATA = [
         "label": "Notifications",
         "description": "In-app notifications for order-ready, bill-requested, and payment-confirmed events.",
     },
-    {
-        "key": "realtime_enabled",
-        "label": "Realtime Updates",
-        "description": "Live WebSocket updates for kitchen, tables, and notifications instead of manual refresh.",
-    },
+    # realtime_enabled was here until 2026-10-01: every restaurant gets live
+    # updates now (per Karwin), so it is no longer a switch or a plan feature.
     # 2026-09-30, per Shereena.
     {
         "key": "customer_ordering_enabled",

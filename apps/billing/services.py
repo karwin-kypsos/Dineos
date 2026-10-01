@@ -302,9 +302,6 @@ def _broadcast_takeaway_payment_confirmed(bill, order, restaurant):
     revenue. Same event name and shape as the dine-in one, with order_id
     where that has session_id.
     """
-    if not restaurant.realtime_enabled:
-        return
-
     channel_layer = get_channel_layer()
     if channel_layer is None:
         return
@@ -359,9 +356,6 @@ def _notify_payment_confirmed(bill, session):
 
 def _broadcast_payment_confirmed(bill, session):
     restaurant = session.table.restaurant
-    if not restaurant.realtime_enabled:
-        return
-
     channel_layer = get_channel_layer()
     if channel_layer is None:
         return

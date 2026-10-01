@@ -128,7 +128,10 @@ class QRLandingSerializer(serializers.Serializer):
         from apps.platform.constants import FEATURE_FLAG_METADATA
 
         restaurant = obj["table"].restaurant
-        return {flag["key"]: getattr(restaurant, flag["key"]) for flag in FEATURE_FLAG_METADATA}
+        features = {flag["key"]: getattr(restaurant, flag["key"]) for flag in FEATURE_FLAG_METADATA}
+        # Always true since 2026-10-01 - no longer a flag (see Restaurant).
+        features["realtime_enabled"] = restaurant.realtime_enabled
+        return features
 
 
 class ManagerStatusOverrideSerializer(serializers.Serializer):

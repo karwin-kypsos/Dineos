@@ -78,9 +78,10 @@ def test_plans_are_public_and_describe_each_tier(client):
     assert plans["ENTERPRISE"]["max_branches"] is None  # unlimited
     starter_features = {f["key"]: f["included"] for f in plans["STARTER"]["features"]}
     # Billing left Starter on 2026-09-29, per Karwin; customer ordering and
-    # Server staff were added off on 2026-09-30, per Shereena.
+    # Server staff were added off on 2026-09-30, per Shereena. Realtime is no
+    # plan feature since 2026-10-01 - every restaurant has it.
     assert starter_features == {
-        "kitchen_enabled": False, "billing_enabled": False, "notifications_enabled": True, "realtime_enabled": True,
+        "kitchen_enabled": False, "billing_enabled": False, "notifications_enabled": True,
         "customer_ordering_enabled": False, "server_staff_enabled": False,
     }
     assert all(f["label"] and f["description"] for f in plans["GROWTH"]["features"])
@@ -155,7 +156,7 @@ def test_signup_creates_the_restaurant_and_its_admin(client):
     assert timedelta(days=13) < restaurant.trial_ends_at - timezone.now() <= timedelta(days=14)
     assert restaurant.plan_tier == "GROWTH"
     assert restaurant.max_branches == 5
-    assert restaurant.kitchen_enabled and restaurant.realtime_enabled
+    assert restaurant.kitchen_enabled
     assert restaurant.gst_number == "32ABCDE1234F1Z5"
     assert restaurant.pan_number == "ABCDE1234F"
     assert restaurant.business_registration_number == "UDYAM-KL-07-0012345"
@@ -194,7 +195,6 @@ def test_starter_plan_applies_its_limits(client):
 
     assert restaurant.max_branches == 1
     assert restaurant.kitchen_enabled is False
-    assert restaurant.realtime_enabled is True  # every plan since 2026-09-30, per Karwin
     assert restaurant.billing_enabled is False
     assert restaurant.notifications_enabled is True
 
