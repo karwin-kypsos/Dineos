@@ -22,6 +22,8 @@ VALID = {
     "contact_email": "anita@spiceroute.example",
     "billing_email": "accounts@spiceroute.example",
     "gst_number": "32abcde1234f1z5",
+    "pan_number": "abcde1234f",
+    "business_registration_number": " UDYAM-KL-07-0012345 ",
     "service_charge_percentage": "5.00",
     "plan_id": "GROWTH",
 }
@@ -99,18 +101,21 @@ def test_register_returns_a_registration_to_sign_up_with(client):
     assert response.data["plan"]["id"] == "GROWTH"
     registration = RestaurantRegistration.objects.get(id=response.data["registration_id"])
     assert registration.gst_number == "32ABCDE1234F1Z5"
+    assert registration.pan_number == "ABCDE1234F"
+    assert registration.business_registration_number == "UDYAM-KL-07-0012345"
     assert registration.billing_email == "accounts@spiceroute.example"
     # Nothing on the platform until the Admin sets a login.
     assert Restaurant.objects.count() == restaurants_before
 
 
 def test_register_defaults_billing_email_and_allows_no_gstin(client):
-    response = _register(client, billing_email="", gst_number="")
+    response = _register(client, billing_email="", gst_number="", pan_number="", business_registration_number="")
 
     assert response.status_code == 201, response.data
     registration = RestaurantRegistration.objects.get(id=response.data["registration_id"])
     assert registration.billing_email == VALID["contact_email"]
     assert registration.gst_number == ""
+    assert registration.pan_number == registration.business_registration_number == ""
 
 
 @pytest.mark.parametrize("field, value", [
@@ -119,6 +124,9 @@ def test_register_defaults_billing_email_and_allows_no_gstin(client):
     ("contact_phone", "abcdefghij"),
     ("contact_email", "not-an-email"),
     ("gst_number", "12345"),
+    ("pan_number", "ABCDE12345"),
+    ("pan_number", "1234567890"),
+    ("business_registration_number", "X" * 51),
     ("service_charge_percentage", "150"),
     ("plan_id", "PLATINUM"),
 ])
@@ -149,6 +157,8 @@ def test_signup_creates_the_restaurant_and_its_admin(client):
     assert restaurant.max_branches == 5
     assert restaurant.kitchen_enabled and restaurant.realtime_enabled
     assert restaurant.gst_number == "32ABCDE1234F1Z5"
+    assert restaurant.pan_number == "ABCDE1234F"
+    assert restaurant.business_registration_number == "UDYAM-KL-07-0012345"
     assert restaurant.service_charge_percentage == Decimal("5.00")
     assert (restaurant.contact_name, restaurant.contact_phone) == ("Anita Menon", "+91 98470 12345")
     assert restaurant.billing_email == "accounts@spiceroute.example"
@@ -251,3 +261,28 @@ def test_registration_is_rate_limited(client):
         assert _register(client).status_code == 201
 
     assert _register(client).status_code == 429
+
+
+def test_super_admin_organization_form_takes_pan_and_registration_number():
+    """The same two fields on the Super Admin's Create Organization and
+    Organization Detail (2026-10-01, per Shereena), with the same PAN check."""
+    from apps.platform.models import PlatformAdmin
+
+    PlatformAdmin.objects.create_user(email="super@pan.test", password="Test@1234")
+    platform = APIClient()
+    login = platform.post("/platform/auth/login/", {"email": "super@pan.test", "password": "Test@1234"}, format="json")
+    verify = platform.post("/platform/auth/verify-2fa/", {"email": "super@pan.test", "code": login.data["code"]}, format="json")
+    platform.credentials(HTTP_AUTHORIZATION=f"Bearer {verify.data['access']}")
+
+    created = platform.post("/platform/tenants/", {
+        "name": "Pan Co", "slug": "pan-co", "plan_tier": "GROWTH",
+        "pan_number": "abcde1234f", "business_registration_number": "U55101KL2020PTC012345",
+    }, format="json")
+    bad_pan = platform.patch(f"/platform/tenants/{created.data['id']}/", {"pan_number": "ABC123"}, format="json")
+
+    assert created.status_code == 201, created.data
+    assert created.data["pan_number"] == "ABCDE1234F"
+    assert created.data["business_registration_number"] == "U55101KL2020PTC012345"
+    assert bad_pan.status_code == 400
+    assert "pan_number" in bad_pan.data
+    assert Restaurant.objects.get(id=created.data["id"]).pan_number == "ABCDE1234F"

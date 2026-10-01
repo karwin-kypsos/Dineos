@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.tokens import AccessToken
 
+from apps.authentication.serializers import clean_pan_number
 from apps.restaurant.models import Restaurant
 
 from .models import ImpersonationSession, PlatformActivityLog, PlatformAdmin, PlatformLoginCode, PlatformRefreshToken
@@ -86,6 +87,8 @@ class RestaurantSerializer(serializers.ModelSerializer):
             "contact_phone",
             "billing_email",
             "gst_number",
+            "pan_number",
+            "business_registration_number",
             "primary_color",
             "plan_tier",
             "max_branches",
@@ -107,6 +110,9 @@ class RestaurantSerializer(serializers.ModelSerializer):
         # and .update_status()) — never client-settable, so the "needing
         # attention" trial-expiry check can't be gamed via a plain PATCH.
         read_only_fields = ["id", "created_at", "trial_ends_at"]
+
+    def validate_pan_number(self, value):
+        return clean_pan_number(value)
 
 
 class PlatformAdminSerializer(serializers.ModelSerializer):

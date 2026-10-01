@@ -232,6 +232,17 @@ class ChangePasswordSerializer(serializers.Serializer):
 PHONE_PATTERN = r"^[0-9+][0-9 ()\-]{6,20}$"
 # GSTIN: 2-digit state code, 10-character PAN, entity number, "Z", checksum.
 GSTIN_PATTERN = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
+# PAN: 5 letters, 4 digits, 1 letter (2026-10-01, per Shereena).
+PAN_PATTERN = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
+
+
+def clean_pan_number(value):
+    """Optional, but a PAN that is given must look like one. Shared with the
+    Super Admin's organization form (apps.platform.serializers)."""
+    value = value.strip().upper()
+    if value and not PAN_PATTERN.match(value):
+        raise serializers.ValidationError("Enter a valid 10-character PAN, e.g. ABCDE1234F.")
+    return value
 
 
 class RegisterRestaurantSerializer(serializers.Serializer):
@@ -246,6 +257,12 @@ class RegisterRestaurantSerializer(serializers.Serializer):
     # Optional - plenty of small restaurants aren't GST-registered - but a
     # value that is given must look like a real GSTIN.
     gst_number = serializers.CharField(required=False, allow_blank=True, default="", max_length=15)
+    # Both optional, like the GSTIN (2026-10-01, per Shereena). The
+    # registration number is free text: CIN, LLPIN, Udyam, shop licence...
+    pan_number = serializers.CharField(required=False, allow_blank=True, default="", max_length=10)
+    business_registration_number = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=50,
+    )
     service_charge_percentage = serializers.DecimalField(
         max_digits=5, decimal_places=2, min_value=Decimal("0"), max_value=Decimal("100"),
         required=False, default=Decimal("0.00"),
@@ -257,6 +274,9 @@ class RegisterRestaurantSerializer(serializers.Serializer):
         if value and not GSTIN_PATTERN.match(value):
             raise serializers.ValidationError("Enter a valid 15-character GSTIN, e.g. 27ABCDE1234F1Z5.")
         return value
+
+    def validate_pan_number(self, value):
+        return clean_pan_number(value)
 
 
 class SelfSignupSerializer(serializers.Serializer):

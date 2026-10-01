@@ -42,6 +42,11 @@ class Restaurant(models.Model):
     # The restaurant's GSTIN (2026-09-29, Admin Self-Registration) - its
     # tax registration number, not a rate; gst_percentage above is the rate.
     gst_number = models.CharField(max_length=15, blank=True)
+    # 2026-10-01, per Shereena: on the registration form beside the GSTIN.
+    # The business's PAN, and its registration number - free text, since it
+    # can be a CIN, an LLPIN, an Udyam number or a shop licence number.
+    pan_number = models.CharField(max_length=10, blank=True)
+    business_registration_number = models.CharField(max_length=50, blank=True)
     primary_color = models.CharField(max_length=7, blank=True, default="#FF6B35")
 
     # Plan — an internal label only (no real payment processing). Picking
@@ -105,6 +110,8 @@ class RestaurantRegistration(models.Model):
     contact_email = models.EmailField()
     billing_email = models.EmailField(blank=True)
     gst_number = models.CharField(max_length=15, blank=True)
+    pan_number = models.CharField(max_length=10, blank=True)
+    business_registration_number = models.CharField(max_length=50, blank=True)
     service_charge_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal("0.00"))
     plan_tier = models.CharField(max_length=16, choices=Restaurant.PlanTier.choices)
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.PENDING_SIGNUP)
