@@ -261,11 +261,11 @@ def test_placing_order_does_not_affect_untracked_items(api_client, table):
     assert not drink.prepared_portions.exists()
 
 
-def test_my_orders_keeps_served_orders_at_open_tables_when_the_kitchen_is_off(server_client, restaurant, branch, menu_item):
-    """Regression (2026-10-01, per Shereena): with the Kitchen Display off an
-    order is SERVED the moment it is placed, and My Orders dropped every
-    SERVED order - so a server never saw the order they had just taken.
-    With the kitchen off it now lists them until the table is closed."""
+def test_kitchen_off_order_waits_for_the_server_to_mark_it_served(server_client, restaurant, branch, menu_item):
+    """2026-10-01, per Shereena: with the Kitchen Display off a dine-in order
+    used to be SERVED the moment it was placed, so "placed" and "delivered"
+    looked the same. It now stays NEW until the server marks it served, and
+    My Orders keeps it - served or not - until the table is closed."""
     from apps.tables.models import Table, TableSession
 
     user, client = server_client
@@ -273,18 +273,52 @@ def test_my_orders_keeps_served_orders_at_open_tables_when_the_kitchen_is_off(se
     user.save(update_fields=["branch"])
     restaurant.kitchen_enabled = False
     restaurant.save(update_fields=["kitchen_enabled"])
-
     table = Table.objects.create(restaurant=restaurant, branch=branch, table_number="KO1")
     session, _ = table_services.get_or_create_active_session(table.id)
-    order = order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}], placed_by=user)
 
-    response = client.get("/v1/orders/mine/")
+    placed = client.post(
+        "/v1/orders/", {"session_id": str(session.id), "items": [{"menu_item": menu_item.id, "quantity": 1}]}, format="json",
+    )
+    order_id = placed.data["id"]
 
-    assert order.status == "SERVED"
-    listed = [o for o in response.data if o["id"] == str(order.id)]
-    assert len(listed) == 1 and listed[0]["status"] == "SERVED"
+    def mine():
+        return {o["id"]: o["status"] for o in client.get("/v1/orders/mine/").data}
+
+    assert placed.status_code == 201
+    assert placed.data["status"] == "NEW"
+    assert mine().get(order_id) == "NEW"
+    status = client.get("/v1/orders/service-status/", {"table": str(table.id)}).data[0]
+    assert status["unserved_count"] == 1 and not status["all_served"]
+
+    served = client.patch(f"/v1/orders/{order_id}/served/")
+
+    assert served.status_code == 200, served.data
+    assert served.data["status"] == "SERVED"
+    assert mine().get(order_id) == "SERVED"  # still the server's table
+    assert client.get("/v1/orders/service-status/", {"table": str(table.id)}).data[0]["all_served"]
 
     session.refresh_from_db()
     table_services.close_session(session, reason=TableSession.CloseReason.MANAGER_OVERRIDE)
 
+    assert order_id not in mine()
+
+
+def test_my_orders_drops_an_unserved_order_once_its_table_is_closed(server_client, restaurant, branch, menu_item):
+    """A table paid or cleared before anyone tapped Served must not leave its
+    order on My Orders forever (2026-10-01) - same rule as the live board."""
+    from apps.tables.models import Table, TableSession
+
+    user, client = server_client
+    user.branch = branch
+    user.save(update_fields=["branch"])
+    table = Table.objects.create(restaurant=restaurant, branch=branch, table_number="KO2")
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order = order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}], placed_by=user)
+    assert any(o["id"] == str(order.id) for o in client.get("/v1/orders/mine/").data)
+
+    session.refresh_from_db()
+    table_services.close_session(session, reason=TableSession.CloseReason.MANAGER_OVERRIDE)
+
+    order.refresh_from_db()
+    assert order.status == "NEW"
     assert all(o["id"] != str(order.id) for o in client.get("/v1/orders/mine/").data)

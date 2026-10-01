@@ -337,29 +337,30 @@ class MyOrdersView(APIView):
     served — so a server carrying the food to the table had already lost
     sight of it. SERVED is still excluded: that is the end of the job.
 
-    Except with the Kitchen Display off (2026-10-01, per Shereena): there
-    an order is SERVED the moment it is placed (see
-    services._finalize_new_order), so excluding SERVED hid every order the
-    server had just taken. With no kitchen pipeline to follow, the list is
-    the orders at their tables that are still open, SERVED ones included,
-    until the table is paid or closed.
+    Except with the Kitchen Display off (2026-10-01, per Shereena): with no
+    kitchen pipeline to follow, the list is every order at their tables
+    that are still open, SERVED ones included, until the table is paid or
+    closed.
+
+    Orders at a CLOSED table never show (2026-10-01): with the kitchen off
+    an order now waits as NEW until the server marks it served, and a table
+    paid before that tap would otherwise leave it here forever. Same rule
+    as the live board's (ActiveOrdersView).
     """
 
     permission_classes = [IsAnyStaff]
 
     def get(self, request):
-        in_progress = models.Q(status__in=["NEW", "ACCEPTED", "PREPARING", "READY", "COLLECTED"])
+        statuses = ["NEW", "ACCEPTED", "PREPARING", "READY", "COLLECTED"]
         if not request.tenant.kitchen_enabled:
-            in_progress |= models.Q(
-                status=Order.Status.SERVED,
-                session__status__in=[TableSession.Status.ACTIVE, TableSession.Status.BILL_REQUESTED],
-            )
+            statuses.append(Order.Status.SERVED)
         orders = (
             Order.objects.filter(
-                in_progress,
                 table__restaurant=request.tenant,
                 session__assigned_server=request.user,
+                status__in=statuses,
             )
+            .exclude(session__status=TableSession.Status.CLOSED)
             .select_related("table", "session__bill", "parent_order__takeaway_bill")
             .prefetch_related("items__menu_item")
         )

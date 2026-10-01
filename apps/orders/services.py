@@ -137,9 +137,14 @@ def _deduct_recipe_for_unlimited_item(menu_item, quantity, recorded_by):
 
 
 def _finalize_new_order(order, restaurant, portion_updates, zero_hits):
-    if not restaurant.kitchen_enabled:
-        # No Kitchen Display add-on — skip the kitchen lifecycle entirely.
-        # Staff take the order through to served in one action instead.
+    # Kitchen Display off, dine-in (2026-10-01, per Shereena): the order
+    # used to be SERVED the moment it was placed, so "order placed" and
+    # "food delivered" could not be told apart. It now stays NEW like any
+    # other order and the server marks it served when the food reaches the
+    # table (PATCH .../served/, which skips the kitchen steps when the
+    # kitchen is off - see mark_served). Takeaway still completes at once:
+    # it is handed over at the counter.
+    if not restaurant.kitchen_enabled and order.order_type == Order.OrderType.TAKEAWAY:
         order.status = Order.Status.SERVED
         order.served_at = timezone.now()
         order.save(update_fields=["status", "served_at"])

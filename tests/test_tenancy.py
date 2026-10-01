@@ -111,7 +111,10 @@ def test_notify_role_only_notifies_the_specified_tenants_staff():
     assert Notification.objects.filter(recipient=manager_b).count() == 0
 
 
-def test_kitchen_disabled_tenant_orders_go_straight_to_served():
+def test_kitchen_disabled_tenant_orders_wait_for_the_server_to_serve_them():
+    """Until 2026-10-01 a kitchen-off dine-in order was SERVED the moment it
+    was placed. Per Shereena it now stays NEW until the server marks it
+    served, which skips the kitchen steps when the kitchen is off."""
     restaurant, _, _ = _make_tenant_with_staff("no-kitchen-tenant")
     restaurant.kitchen_enabled = False
     restaurant.save()
@@ -120,7 +123,12 @@ def test_kitchen_disabled_tenant_orders_go_straight_to_served():
     item = _make_menu_item(restaurant)
 
     order = order_services.place_order(session.id, [{"menu_item_id": item.id, "quantity": 1}])
+    assert order.status == "NEW"
+    assert order.served_at is None
+
+    order = order_services.mark_served(order.id)
     assert order.status == "SERVED"
+    assert order.served_at is not None
 
 
 def test_kitchen_enabled_tenant_orders_start_new():
