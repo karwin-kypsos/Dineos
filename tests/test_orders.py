@@ -259,3 +259,32 @@ def test_placing_order_does_not_affect_untracked_items(api_client, table):
     )
     assert response.status_code == 201
     assert not drink.prepared_portions.exists()
+
+
+def test_my_orders_keeps_served_orders_at_open_tables_when_the_kitchen_is_off(server_client, restaurant, branch, menu_item):
+    """Regression (2026-10-01, per Shereena): with the Kitchen Display off an
+    order is SERVED the moment it is placed, and My Orders dropped every
+    SERVED order - so a server never saw the order they had just taken.
+    With the kitchen off it now lists them until the table is closed."""
+    from apps.tables.models import Table, TableSession
+
+    user, client = server_client
+    user.branch = branch
+    user.save(update_fields=["branch"])
+    restaurant.kitchen_enabled = False
+    restaurant.save(update_fields=["kitchen_enabled"])
+
+    table = Table.objects.create(restaurant=restaurant, branch=branch, table_number="KO1")
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order = order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}], placed_by=user)
+
+    response = client.get("/v1/orders/mine/")
+
+    assert order.status == "SERVED"
+    listed = [o for o in response.data if o["id"] == str(order.id)]
+    assert len(listed) == 1 and listed[0]["status"] == "SERVED"
+
+    session.refresh_from_db()
+    table_services.close_session(session, reason=TableSession.CloseReason.MANAGER_OVERRIDE)
+
+    assert all(o["id"] != str(order.id) for o in client.get("/v1/orders/mine/").data)
