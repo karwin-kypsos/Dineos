@@ -6,7 +6,7 @@ from rest_framework.test import APIClient
 
 from apps.authentication.models import User
 from apps.orders import services as order_services
-from apps.platform.models import PlatformAdmin
+from apps.platform.models import PlatformActivityLog, PlatformAdmin
 from apps.tables import services as table_services
 from core.permissions import CUSTOMER_ORDERING_OFF
 
@@ -74,6 +74,40 @@ def test_super_admin_toggles_both_and_me_reports_it(admin_client, restaurant):
     me = admin.get("/v1/auth/me/").data["restaurant"]
     assert me["customer_ordering_enabled"] is False
     assert me["server_staff_enabled"] is False
+
+
+@pytest.mark.parametrize("off", [False, "false", "False", 0, "0", "off"])
+def test_a_flag_sent_as_a_string_switches_off(restaurant, off):
+    """Regression (2026-10-01, per Shereena): bool("false") is True, so a
+    toggle sent as a string switched customer_ordering_enabled on, not off."""
+    platform = _platform_client()
+
+    response = platform.patch(
+        f"/platform/tenants/{restaurant.id}/feature-flags/", {"customer_ordering_enabled": off}, format="json",
+    )
+
+    assert response.status_code == 200, response.data
+    assert response.data["customer_ordering_enabled"] is False
+    restaurant.refresh_from_db()
+    assert restaurant.customer_ordering_enabled is False
+    log = PlatformActivityLog.objects.filter(action="FLAGS_CHANGED").latest("created_at")
+    assert log.description.endswith("customer_ordering_enabled off")
+
+
+def test_a_flag_that_is_not_a_yes_or_no_is_refused(restaurant):
+    platform = _platform_client()
+
+    response = platform.patch(
+        f"/platform/tenants/{restaurant.id}/feature-flags/",
+        {"customer_ordering_enabled": "maybe", "billing_enabled": False}, format="json",
+    )
+
+    assert response.status_code == 400
+    assert response.data == {"customer_ordering_enabled": ["Must be true or false."]}
+    restaurant.refresh_from_db()
+    # Nothing in a refused request is saved, not even the valid flag.
+    assert restaurant.customer_ordering_enabled is True
+    assert restaurant.billing_enabled is True
 
 
 # ---- server_staff_enabled -------------------------------------------------------

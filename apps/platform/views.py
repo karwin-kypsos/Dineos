@@ -1,7 +1,8 @@
 from django.conf import settings
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -387,17 +388,32 @@ class TenantViewSet(viewsets.ModelViewSet):
         if unknown:
             return Response({"detail": f"Unknown flag(s): {sorted(unknown)}"}, status=status.HTTP_400_BAD_REQUEST)
 
-        changed = []
+        # 2026-10-01, per Shereena: customer_ordering_enabled switched off
+        # here still read true. This used bool(value), and bool("false") is
+        # True - a toggle sent as a string could only ever switch a flag on.
+        # DRF's BooleanField reads "false"/"0"/"off" as False like a JSON
+        # false, and anything that isn't a yes/no is refused, not guessed.
+        values, errors = {}, {}
         for key, value in request.data.items():
-            setattr(restaurant, key, bool(value))
-            changed.append(key)
-        if changed:
-            restaurant.save(update_fields=changed)
+            try:
+                values[key] = serializers.BooleanField().to_internal_value(value)
+            except ValidationError:
+                errors[key] = ["Must be true or false."]
+        if errors:
+            return Response(errors, status=status.HTTP_400_BAD_REQUEST)
+
+        for key, value in values.items():
+            setattr(restaurant, key, value)
+        if values:
+            restaurant.save(update_fields=list(values))
             PlatformActivityLog.objects.create(
                 actor=request.user,
                 action="FLAGS_CHANGED",
                 restaurant=restaurant,
-                description=f"Changed flags for '{restaurant.name}': {', '.join(changed)}",
+                # The value too, not just the name - the log couldn't say
+                # which way the flag above had actually been switched.
+                description=f"Changed flags for '{restaurant.name}': "
+                + ", ".join(f"{key} {'on' if value else 'off'}" for key, value in values.items()),
             )
         return Response(RestaurantSerializer(restaurant).data)
 
