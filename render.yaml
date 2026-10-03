@@ -14,10 +14,10 @@ services:
         sync: false
       - key: ALLOWED_HOSTS
         sync: false
+      # Neon Postgres since 2026-10-03 (the free Render database expired):
+      # paste the Neon connection string in the dashboard.
       - key: DATABASE_URL
-        fromDatabase:
-          name: dineos-db
-          property: connectionString
+        sync: false
       - key: REDIS_URL
         fromService:
           name: dineos-redis
@@ -51,9 +51,7 @@ services:
       - key: SECRET_KEY
         sync: false
       - key: DATABASE_URL
-        fromDatabase:
-          name: dineos-db
-          property: connectionString
+        sync: false
       - key: REDIS_URL
         fromService:
           name: dineos-redis
@@ -62,10 +60,9 @@ services:
       - key: GROQ_API_KEY
         sync: false
 
-databases:
-  - name: dineos-db
-    databaseName: dineos
-    user: dineos
+# No Render database: the free one (dineos-db) expired on 2026-10-03 and
+# Postgres now lives on Neon (project shy-cell-57422984), which has no
+# 30-day expiry. DATABASE_URL above is set by hand in the dashboard.
 
 # Note: Redis on Render requires a paid plan (starts at $10/mo).
 # Free alternative: use Upstash Redis (upstash.com) and paste the URL manually.
