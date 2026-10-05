@@ -164,10 +164,20 @@ def test_forgot_password_never_returns_the_token_and_tokens_are_random(api_clien
     assert api_client.post("/v1/auth/reset-password/", {"token": "COMMON-TEST-TOKEN", "new_password": "Hijack-123"}, format="json").status_code == 400
 
 
-def test_super_admin_2fa_codes_are_random():
+def test_super_admin_2fa_codes_are_random_once_email_delivery_is_on(settings):
+    settings.EMAIL_DELIVERY_ENABLED = True
     admin = PlatformAdmin.objects.create_user(email="random@fixes.test", password="Test@1234")
 
     codes = {PlatformLoginCode.issue(admin).code for _ in range(5)}
 
     assert all(len(c) == 6 and c.isdigit() for c in codes)
     assert len(codes) > 1  # five fixed "123456"s would collapse to one
+
+
+def test_super_admin_2fa_code_is_123456_while_email_delivery_is_off(settings):
+    """Put back the same day, per Karwin: with email off the login response
+    echoes the code anyway, and the Super Admin screen doesn't show it."""
+    settings.EMAIL_DELIVERY_ENABLED = False
+    admin = PlatformAdmin.objects.create_user(email="fixed@fixes.test", password="Test@1234")
+
+    assert PlatformLoginCode.issue(admin).code == "123456"

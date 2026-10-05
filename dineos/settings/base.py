@@ -269,15 +269,16 @@ DEFAULT_SERVICE_CHARGE_PERCENTAGE = env.float("DEFAULT_SERVICE_CHARGE_PERCENTAGE
 CUSTOMER_APP_BASE_URL = env("CUSTOMER_APP_BASE_URL", default="https://dineos-customer.onrender.com").rstrip("/")
 
 # ---------------------------------------------------------------------------
-# 2FA codes and password-reset/invite tokens are always random (since
-# 2026-10-05; they used to be the fixed, public 123456 and
-# COMMON-TEST-TOKEN while this was off). A reset token is never returned
-# to the requester outside DEBUG - it reaches the user by email only.
+# Password-reset/invite tokens are always random (since 2026-10-05; they
+# used to be the public COMMON-TEST-TOKEN while this was off), and a reset
+# token is never returned to the requester outside DEBUG - it reaches the
+# user by email only.
 #
-# EMAIL_DELIVERY_ENABLED now only decides whether the Super Admin login
-# response also echoes the 2FA code: until emails actually go out
+# While EMAIL_DELIVERY_ENABLED is off, the Super Admin 2FA code is 123456
+# and the login response also echoes it. Until emails actually go out
 # (RESEND_API_KEY, below), leave it off or nobody can finish signing in.
-# Turn it on once email works, so the code arrives only by email.
+# Turn it on once email works: the code becomes random and arrives only by
+# email.
 # ---------------------------------------------------------------------------
 EMAIL_DELIVERY_ENABLED = env.bool("EMAIL_DELIVERY_ENABLED", default=False)
 
