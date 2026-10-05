@@ -3,7 +3,7 @@ import uuid
 from django.db import models
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -150,16 +150,22 @@ class TableViewSet(viewsets.ReadOnlyModelViewSet):
 
     @session.mapping.post
     def start_session(self, request, pk=None):
+        # 2026-10-05: an unknown or malformed table id was a 500, and staff
+        # could open a session on another restaurant's table by its id.
+        restaurant = get_tenant_from_table(pk)
+        if restaurant is None:
+            raise NotFound("Table not found.")
         if not (request.user and request.user.is_authenticated):
             # A customer seating themselves from the QR code. With customer
             # ordering off there is nothing for them to do in a session, and
             # opening one would still mark the table OCCUPIED. Staff seating
             # a table is unaffected.
-            restaurant = get_tenant_from_table(pk)
-            if restaurant is not None and restaurant.status in ("SUSPENDED", "PAYMENT_DUE"):
+            if restaurant.status in ("SUSPENDED", "PAYMENT_DUE"):
                 raise PermissionDenied(RESTAURANT_NOT_SERVING)
-            if restaurant is not None and not restaurant.customer_ordering_enabled:
+            if not restaurant.customer_ordering_enabled:
                 raise PermissionDenied(CUSTOMER_ORDERING_OFF)
+        elif restaurant.id != getattr(getattr(request, "tenant", None), "id", None):
+            raise NotFound("Table not found.")
         session, created = services.get_or_create_active_session(pk)
         return Response(
             TableSessionSerializer(session).data,

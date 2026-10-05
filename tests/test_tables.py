@@ -392,3 +392,29 @@ def test_customer_bill_preview_returns_money_as_decimal_strings(api_client, tabl
     # Must agree with the item strings it is the sum of.
     assert isinstance(order["items"][0]["line_total"], str)
     assert order["total_amount"] == order["items"][0]["line_total"]
+
+
+# ---- 2026-10-05: start-session on an unknown, malformed or foreign table ----
+
+@pytest.mark.parametrize("table_id", ["None", "00000000-0000-0000-0000-000000000000"])
+def test_customer_start_session_unknown_table_is_404_not_500(api_client, table_id):
+    assert api_client.post(f"/v1/tables/{table_id}/session/").status_code == 404
+
+
+def test_staff_cannot_open_a_session_on_another_restaurants_table(manager_client):
+    from apps.restaurant.models import Restaurant
+
+    other = Restaurant.objects.create(name="Other Place", slug="other-place")
+    their_table = Table.objects.create(restaurant=other, table_number="1", capacity=2)
+    _, client = manager_client
+
+    response = client.post(f"/v1/tables/{their_table.id}/session/")
+
+    assert response.status_code == 404
+    assert not TableSession.objects.filter(table=their_table).exists()
+
+
+def test_staff_still_open_a_session_on_their_own_table(manager_client, table):
+    _, client = manager_client
+
+    assert client.post(f"/v1/tables/{table.id}/session/").status_code == 201

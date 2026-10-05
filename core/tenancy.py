@@ -148,17 +148,24 @@ class TenantResolverMiddleware:
         return device.restaurant
 
 
-def get_tenant_from_table(table_id):
+def _table(table_id, related):
+    from django.core.exceptions import ValidationError
+
     from apps.tables.models import Table
 
-    table = Table.objects.filter(id=table_id).select_related("restaurant").first()
+    try:
+        return Table.objects.filter(id=table_id).select_related(related).first()
+    except (ValidationError, ValueError):
+        return None  # not a UUID at all (2026-10-05: "/tables/None/..." was a 500)
+
+
+def get_tenant_from_table(table_id):
+    table = _table(table_id, "restaurant")
     return table.restaurant if table else None
 
 
 def get_branch_from_table(table_id):
-    from apps.tables.models import Table
-
-    table = Table.objects.filter(id=table_id).select_related("branch").first()
+    table = _table(table_id, "branch")
     return table.branch if table else None
 
 
