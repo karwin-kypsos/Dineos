@@ -30,6 +30,9 @@ logger = logging.getLogger(__name__)
 
 # Statuses in which a subscription is the restaurant's current one.
 LIVE = (Subscription.Status.AUTHENTICATED, Subscription.Status.ACTIVE, Subscription.Status.PENDING)
+# Final in Razorpay too: nothing brings these back, so a late or replayed
+# event for one changes nothing (renewing is a new checkout).
+ENDED = (Subscription.Status.CANCELLED, Subscription.Status.COMPLETED)
 # 10 years of monthly charges - Razorpay requires a finite count.
 TOTAL_COUNT = 120
 
@@ -174,6 +177,8 @@ def _lock(sub):
 def mark_authorised(sub):
     """The mandate is approved (verify call or subscription.authenticated)."""
     sub = _lock(sub)
+    if sub.status in ENDED:
+        return sub
     now = timezone.now()
     first_time = sub.status == Subscription.Status.CREATED
     if first_time:
@@ -297,7 +302,7 @@ def handle_webhook(event, payload):
     (another environment's, or one created outside DineOS)."""
     entity = ((payload.get("payload") or {}).get("subscription") or {}).get("entity") or {}
     sub = Subscription.objects.filter(razorpay_subscription_id=entity.get("id")).first()
-    if sub is None:
+    if sub is None or sub.status in ENDED:
         return "ignored"
     payment = ((payload.get("payload") or {}).get("payment") or {}).get("entity")
     if event == "subscription.authenticated":

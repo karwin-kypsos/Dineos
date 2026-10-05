@@ -319,3 +319,27 @@ def test_razorpay_refusing_subscriptions_gives_a_readable_502(admin_client, tria
     assert response.status_code == 502
     assert "Subscriptions enabled" in response.data["detail"]
     assert not Subscription.objects.exists()
+
+
+def test_an_ended_subscription_stays_ended(admin_client, trial_restaurant, prices, razorpay, settings):
+    """A late or replayed charged/resumed webhook, or a late verify, must
+    not revive a cancelled subscription and reopen a PAYMENT_DUE restaurant."""
+    _, client = admin_client
+    sub = _active_on(client, "GROWTH")
+    _webhook("subscription.cancelled", sub)
+    trial_restaurant.refresh_from_db()
+    assert trial_restaurant.status == "PAYMENT_DUE"
+
+    for event in ("subscription.charged", "subscription.resumed", "subscription.activated", "subscription.pending"):
+        response = _webhook(event, sub, payment={"id": f"pay_late_{event}", "amount": 249900, "currency": "INR"})
+        assert response.status_code == 200 and "ignored" in response.data["detail"]
+    late_verify = client.post("/v1/subscriptions/verify/", {
+        "razorpay_subscription_id": sub.razorpay_subscription_id, "razorpay_payment_id": "pay_late", "razorpay_signature": "sig",
+    }, format="json")
+
+    sub.refresh_from_db()
+    trial_restaurant.refresh_from_db()
+    assert late_verify.status_code == 200 and late_verify.data["status"] == "cancelled"
+    assert sub.status == "CANCELLED"
+    assert trial_restaurant.status == "PAYMENT_DUE"
+    assert not SubscriptionPayment.objects.filter(razorpay_payment_id__startswith="pay_late").exists()
