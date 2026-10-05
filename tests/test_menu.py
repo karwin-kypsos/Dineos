@@ -552,3 +552,91 @@ def test_update_menu_item_replaces_recipe_items(manager_client, menu_item):
     assert response.status_code == 200, response.data
     assert RecipeItem.objects.filter(menu_item=menu_item).count() == 1
     assert RecipeItem.objects.get(menu_item=menu_item).ingredient == garlic
+
+
+# ---- recipe_items as a JSON string on multipart (2026-10-05, per Karwin) ----
+
+def _two_ingredients(restaurant):
+    from apps.inventory.models import Ingredient
+
+    return (Ingredient.objects.create(restaurant=restaurant, name="Ginger", unit="G"),
+            Ingredient.objects.create(restaurant=restaurant, name="Chicken", unit="KG"))
+
+
+def test_multipart_create_reads_recipe_items_sent_as_a_json_string(manager_client, menu_item, monkeypatch):
+    import json
+    from decimal import Decimal
+
+    from apps.inventory.models import RecipeItem
+    from tests.conftest import make_test_image
+
+    _, client = manager_client
+    monkeypatch.setattr("core.image_upload.upload_image", lambda f: "https://res.cloudinary.com/demo/dish.jpg")
+    ginger, chicken = _two_ingredients(menu_item.category.restaurant)
+
+    response = client.post(
+        "/v1/menu/",
+        {"category": menu_item.category_id, "name": "Chicken Tikka", "price": "220.00", "sort_order": 1,
+         "image": make_test_image(),
+         "recipe_items": json.dumps([{"ingredient": str(ginger.id), "quantity_per_serving": 0.01},
+                                     {"ingredient": str(chicken.id), "quantity_per_serving": "0.250"}])},
+        format="multipart",
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["image_url"] == "https://res.cloudinary.com/demo/dish.jpg"
+    assert len(response.data["recipe"]) == 2
+    assert RecipeItem.objects.get(menu_item_id=response.data["id"], ingredient=chicken).quantity_per_serving == Decimal("0.250")
+
+
+def test_multipart_update_replaces_recipe_from_a_json_string_and_blank_leaves_it(manager_client, menu_item):
+    import json
+
+    from apps.inventory.models import RecipeItem
+
+    _, client = manager_client
+    ginger, chicken = _two_ingredients(menu_item.category.restaurant)
+    RecipeItem.objects.create(menu_item=menu_item, ingredient=ginger, quantity_per_serving="0.005")
+
+    replaced = client.patch(f"/v1/menu/{menu_item.id}/", {
+        "recipe_items": json.dumps([{"ingredient": str(chicken.id), "quantity_per_serving": "0.300"}]),
+    }, format="multipart")
+    assert replaced.status_code == 200, replaced.data
+    assert list(RecipeItem.objects.filter(menu_item=menu_item).values_list("ingredient", flat=True)) == [chicken.id]
+
+    untouched = client.patch(f"/v1/menu/{menu_item.id}/", {"name": "Renamed", "recipe_items": ""}, format="multipart")
+    assert untouched.status_code == 200, untouched.data
+    assert RecipeItem.objects.filter(menu_item=menu_item).count() == 1
+
+    cleared = client.patch(f"/v1/menu/{menu_item.id}/", {"recipe_items": "[]"}, format="multipart")
+    assert cleared.status_code == 200
+    assert not RecipeItem.objects.filter(menu_item=menu_item).exists()
+
+
+def test_multipart_recipe_items_that_is_not_json_is_a_400_not_silently_dropped(manager_client, menu_item):
+    _, client = manager_client
+
+    response = client.post(
+        "/v1/menu/",
+        {"category": menu_item.category_id, "name": "Broken", "price": "10.00", "sort_order": 1,
+         "recipe_items": "[{ingredient: oops"},
+        format="multipart",
+    )
+
+    assert response.status_code == 400 and "recipe_items" in response.data
+
+
+def test_multipart_json_string_recipe_still_checks_ingredients(manager_client, menu_item):
+    import json
+
+    ginger, _ = _two_ingredients(menu_item.category.restaurant)
+    _, client = manager_client
+
+    response = client.post(
+        "/v1/menu/",
+        {"category": menu_item.category_id, "name": "Twice Ginger", "price": "10.00", "sort_order": 1,
+         "recipe_items": json.dumps([{"ingredient": str(ginger.id), "quantity_per_serving": "0.1"}] * 2)},
+        format="multipart",
+    )
+
+    assert response.status_code == 400 and "recipe_items" in response.data

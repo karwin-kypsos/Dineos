@@ -1,7 +1,10 @@
+import json
 from decimal import Decimal
 
 from django.db import transaction
 from rest_framework import serializers
+from rest_framework.fields import empty
+from rest_framework.utils import html
 
 from apps.inventory.serializers import RecipeItemSerializer
 from core.image_fields import ImageUploadMixin
@@ -10,9 +13,31 @@ from .models import Category, MenuItem, PreparedPortion
 from .services import get_today_portion
 
 
+class RecipeItemInputListSerializer(serializers.ListSerializer):
+    """recipe_items on a multipart request (2026-10-05, per Karwin). A
+    form can only carry text, so the app sends the list as one
+    JSON-encoded string next to the image. DRF reads a nested list from a
+    form only as recipe_items[0]ingredient=... keys, so the string was
+    silently dropped: the item saved with no recipe and no error."""
+
+    def get_value(self, dictionary):
+        raw = dictionary.get(self.field_name) if html.is_html_input(dictionary) else None
+        if isinstance(raw, str):
+            if not raw.strip():
+                return empty  # blank: not sent - an edit leaves the recipe alone
+            try:
+                return json.loads(raw)
+            except ValueError:
+                return raw  # answered as "Expected a list of items", not dropped
+        return super().get_value(dictionary)
+
+
 class RecipeItemInputSerializer(serializers.Serializer):
     ingredient = serializers.UUIDField()
     quantity_per_serving = serializers.DecimalField(max_digits=10, decimal_places=3, min_value=Decimal("0.001"))
+
+    class Meta:
+        list_serializer_class = RecipeItemInputListSerializer
 
 
 class CategorySerializer(ImageUploadMixin, serializers.ModelSerializer):
