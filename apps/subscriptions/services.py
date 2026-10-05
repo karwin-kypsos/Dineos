@@ -167,7 +167,7 @@ def _log(restaurant, action, description):
 
 
 def _lock(sub):
-    return Subscription.objects.select_for_update().select_related("restaurant", "replaces").get(id=sub.id)
+    return Subscription.objects.select_for_update(of=("self",)).select_related("restaurant", "replaces").get(id=sub.id)
 
 
 @transaction.atomic
