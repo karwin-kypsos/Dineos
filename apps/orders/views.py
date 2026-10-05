@@ -13,7 +13,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from apps.kitchen.authentication import KDSKeyAuthentication
 from apps.tables.models import TableSession
-from core.permissions import CUSTOMER_ORDERING_OFF, IsAnyStaff, IsKDSDevice, IsServerOrKDSDevice
+from core.permissions import CUSTOMER_ORDERING_OFF, RESTAURANT_NOT_SERVING, IsAnyStaff, IsKDSDevice, IsServerOrKDSDevice
 from core.query_params import parse_query_date
 from core.tenancy import get_tenant_from_session
 
@@ -68,6 +68,8 @@ class CreateOrderView(APIView):
         if placed_by is None:
             # A customer ordering for themselves; staff always may.
             restaurant = get_tenant_from_session(data["session_id"])
+            if restaurant is not None and restaurant.status in ("SUSPENDED", "PAYMENT_DUE"):
+                raise PermissionDenied(RESTAURANT_NOT_SERVING)
             if restaurant is not None and not restaurant.customer_ordering_enabled:
                 raise PermissionDenied(CUSTOMER_ORDERING_OFF)
         order = services.place_order(data["session_id"], items, placed_by=placed_by, notes=data.get("notes", ""))

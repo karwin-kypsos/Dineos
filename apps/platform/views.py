@@ -375,7 +375,7 @@ class TenantViewSet(viewsets.ModelViewSet):
             )
 
         restaurant.status = new_status
-        restaurant.is_active = new_status != Restaurant.Status.SUSPENDED
+        restaurant.is_active = new_status not in (Restaurant.Status.SUSPENDED, Restaurant.Status.PAYMENT_DUE)
         update_fields = ["status", "is_active"]
         # Starting (or restarting) a trial gets a fresh 14-day window if one
         # isn't already running — see the dashboard's "needing attention"
@@ -607,7 +607,7 @@ class DashboardView(APIView):
         # flagged back to her rather than faking a field with no real signal
         # behind it.
         attention_qs = Restaurant.objects.filter(
-            Q(status=Restaurant.Status.SUSPENDED)
+            Q(status__in=[Restaurant.Status.SUSPENDED, Restaurant.Status.PAYMENT_DUE])
             | Q(status=Restaurant.Status.TRIAL, trial_ends_at__lt=now)
         ).order_by("-created_at")
 

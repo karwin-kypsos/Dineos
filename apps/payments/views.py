@@ -337,10 +337,25 @@ class RazorpayWebhookView(APIView):
             return Response({"detail": "Invalid signature."}, status=400)
 
         payload = json.loads(raw_body.decode("utf-8"))
-        event = payload.get("event")
-        payment_entity = payload["payload"]["payment"]["entity"]
+        event = payload.get("event") or ""
 
+        # 2026-10-05: a restaurant paying DineOS for its plan - see
+        # apps.subscriptions. Same webhook URL and secret as diner payments.
+        if event.startswith("subscription."):
+            from apps.subscriptions.services import handle_webhook
+
+            return Response({"detail": f"Subscription event {handle_webhook(event, payload)}."}, status=200)
+
+        payment_entity = ((payload.get("payload") or {}).get("payment") or {}).get("entity") or {}
         if event == "payment.captured":
+            # A subscription renewal also raises payment.captured, on an
+            # order Razorpay made for the invoice - not one of ours. It is
+            # handled by subscription.charged; a 404 here would make
+            # Razorpay retry it and eventually disable the webhook.
+            if payment_entity.get("invoice_id") and not PaymentAttempt.objects.filter(
+                razorpay_order_id=payment_entity.get("order_id")
+            ).exists():
+                return Response({"detail": "Subscription payment; handled by subscription events."}, status=200)
             attempt = get_object_or_404(PaymentAttempt, razorpay_order_id=payment_entity["order_id"])
         elif event == "qr_code.credited":
             qr_code_id = payload["payload"]["qr_code"]["entity"]["id"]

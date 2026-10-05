@@ -14,6 +14,10 @@ class Restaurant(models.Model):
         ACTIVE = "ACTIVE", "Active"
         TRIAL = "TRIAL", "Trial"
         SUSPENDED = "SUSPENDED", "Suspended"
+        # 2026-10-05: the subscription ended or its renewals failed. Unlike
+        # SUSPENDED (a Super Admin decision) the Admin can still sign in and
+        # renew; everyone else is locked out - see core.tenancy.
+        PAYMENT_DUE = "PAYMENT_DUE", "Payment due"
 
     class PlanTier(models.TextChoices):
         STARTER = "STARTER", "Starter"

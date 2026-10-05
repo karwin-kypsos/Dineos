@@ -50,6 +50,7 @@ LOCAL_APPS = [
     "apps.feedback",
     "apps.websockets",
     "apps.payments",
+    "apps.subscriptions",
 ]
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
@@ -313,6 +314,19 @@ TEST_EMAIL_OVERRIDE = env("TEST_EMAIL_OVERRIDE", default="")
 RAZORPAY_KEY_ID = env("RAZORPAY_KEY_ID", default="")
 RAZORPAY_KEY_SECRET = env("RAZORPAY_KEY_SECRET", default="")
 RAZORPAY_WEBHOOK_SECRET = env("RAZORPAY_WEBHOOK_SECRET", default="")
+
+# ---------------------------------------------------------------------------
+# Subscription prices (2026-10-05, per Karwin: "set it up, we will decide the
+# price later") - rupees per month per plan, e.g. PLAN_PRICE_GROWTH=2499.
+# Blank means "not decided yet": /v1/auth/plans/ shows price null and
+# /v1/subscriptions/checkout/ answers 409. Changing a price needs no code
+# change - the matching Razorpay plan is created on the next checkout.
+# ---------------------------------------------------------------------------
+PLAN_PRICES = {
+    "STARTER": env("PLAN_PRICE_STARTER", default=""),
+    "GROWTH": env("PLAN_PRICE_GROWTH", default=""),
+    "ENTERPRISE": env("PLAN_PRICE_ENTERPRISE", default=""),
+}
 
 # ---------------------------------------------------------------------------
 # Logging — send everything to stdout so Render captures it

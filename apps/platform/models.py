@@ -146,6 +146,11 @@ class PlatformActivityLog(models.Model):
         ("TENANT_IMPERSONATED", "Support access started"),
         ("IMPERSONATION_ENDED", "Support access ended"),
         ("TENANT_DELETED", "Organization permanently deleted"),
+        # 2026-10-05: subscription payments (apps.subscriptions); actor is None.
+        ("SUBSCRIPTION_STARTED", "Subscription started"),
+        ("SUBSCRIPTION_PLAN_CHANGED", "Subscription plan changed"),
+        ("SUBSCRIPTION_PAYMENT_FAILED", "Subscription payment failed"),
+        ("SUBSCRIPTION_ENDED", "Subscription ended"),
     ]
 
     id = models.BigAutoField(primary_key=True)

@@ -12,6 +12,8 @@ All three are public (no token), so none of them authenticates - a stale
 token left in the client must not turn a signup into a 401 - and both
 POSTs are rate-limited per client against scripted sign-ups.
 """
+from decimal import Decimal
+
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -20,21 +22,23 @@ from rest_framework.views import APIView
 
 from apps.platform.constants import FEATURE_FLAG_METADATA
 from apps.restaurant.models import Restaurant
-from apps.restaurant.plans import PLAN_PRESETS, PLAN_PRICING
+from apps.restaurant.plans import PLAN_PRESETS
 
 from . import services
 from .serializers import ROLE_METADATA, RegisterRestaurantSerializer, SelfSignupSerializer
 
 
 def plan_payload(tier):
-    preset, pricing = PLAN_PRESETS[tier], PLAN_PRICING[tier]
+    from apps.subscriptions.services import plan_price
+
+    preset, price = PLAN_PRESETS[tier], plan_price(tier)
     return {
         "id": tier,
         "name": Restaurant.PlanTier(tier).label,
-        # null until the real price is set in apps/restaurant/plans.py
-        "price": pricing["price"],
+        # null until PLAN_PRICE_<TIER> is set (settings.PLAN_PRICES)
+        "price": str(price.quantize(Decimal("0.01"))) if price is not None else None,
         "currency": "INR",
-        "billing_cycle": pricing["billing_cycle"],
+        "billing_cycle": "MONTHLY" if price is not None else None,
         "max_branches": preset["max_branches"],  # null = unlimited
         "features": [
             {**flag, "included": preset["flags"][flag["key"]]} for flag in FEATURE_FLAG_METADATA

@@ -8,7 +8,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.permissions import CUSTOMER_ORDERING_OFF, IsAdminOrManager, IsAnyStaff
+from core.permissions import CUSTOMER_ORDERING_OFF, RESTAURANT_NOT_SERVING, IsAdminOrManager, IsAnyStaff
 from core.tenancy import get_tenant_from_table
 
 from . import services
@@ -156,6 +156,8 @@ class TableViewSet(viewsets.ReadOnlyModelViewSet):
             # opening one would still mark the table OCCUPIED. Staff seating
             # a table is unaffected.
             restaurant = get_tenant_from_table(pk)
+            if restaurant is not None and restaurant.status in ("SUSPENDED", "PAYMENT_DUE"):
+                raise PermissionDenied(RESTAURANT_NOT_SERVING)
             if restaurant is not None and not restaurant.customer_ordering_enabled:
                 raise PermissionDenied(CUSTOMER_ORDERING_OFF)
         session, created = services.get_or_create_active_session(pk)

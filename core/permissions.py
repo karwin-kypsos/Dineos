@@ -77,6 +77,10 @@ class IsPlatformAdmin(BasePermission):
 
 # customer_ordering_enabled off (2026-09-30, per Shereena): a customer on the
 # table QR can still read the menu, but staff take the orders.
+# 2026-10-05: a suspended or unpaid (PAYMENT_DUE) restaurant takes no new
+# tables or orders from the QR code.
+RESTAURANT_NOT_SERVING = "This restaurant isn't taking orders right now. Please ask a staff member."
+
 CUSTOMER_ORDERING_OFF = (
     "Ordering from the table isn't available at this restaurant. Please ask a staff member to take your order."
 )

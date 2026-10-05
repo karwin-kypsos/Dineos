@@ -26,6 +26,25 @@ class ImpersonationRevoked(Exception):
     expiry."""
 
 
+class TenantPaymentDue(Exception):
+    """The restaurant is PAYMENT_DUE (its subscription ended or renewals
+    failed - apps.subscriptions). Its Admin may still sign in and renew;
+    every other staff request, and its kitchen tablets, get a 403 with
+    code "subscription_required" (2026-10-05)."""
+
+
+# What a PAYMENT_DUE restaurant's Admin can still reach: renewing, and the
+# account basics the app needs around it.
+PAYMENT_DUE_ALLOWED_PATHS = (
+    "/v1/subscriptions/",
+    "/v1/auth/me/",
+    "/v1/auth/plans/",
+    "/v1/auth/logout/",
+    "/v1/auth/refresh-token/",
+    "/v1/auth/change-password/",
+)
+
+
 class TenantSuspended(Exception):
     """Raised internally when a resolved tenant's status is SUSPENDED —
     see apps.platform.views.TenantViewSet.update_status. Login is already
@@ -57,6 +76,11 @@ class TenantResolverMiddleware:
             return JsonResponse({"detail": "This support access session has ended."}, status=401)
         except TenantSuspended:
             return JsonResponse({"detail": "This organization's account has been suspended."}, status=403)
+        except TenantPaymentDue:
+            return JsonResponse(
+                {"detail": "This organization's subscription has ended. Renew it to continue.", "code": "subscription_required"},
+                status=403,
+            )
         return self.get_response(request)
 
     def _resolve(self, request):
@@ -97,6 +121,10 @@ class TenantResolverMiddleware:
         restaurant = Restaurant.objects.filter(id=restaurant_id).first()
         if restaurant is not None and restaurant.status == Restaurant.Status.SUSPENDED:
             raise TenantSuspended()
+        if restaurant is not None and restaurant.status == Restaurant.Status.PAYMENT_DUE:
+            # Only the Admin, and only what renewing needs.
+            if token.get("role") != "ADMIN" or not request.path.startswith(PAYMENT_DUE_ALLOWED_PATHS):
+                raise TenantPaymentDue()
         return restaurant
 
     def _resolve_from_kds_key(self, request):
@@ -107,7 +135,17 @@ class TenantResolverMiddleware:
         from apps.kitchen.models import KDSDevice
 
         device = KDSDevice.objects.filter(api_key=api_key, is_active=True).select_related("restaurant").first()
-        return device.restaurant if device else None
+        if device is None:
+            return None
+        # 2026-10-05: a suspended or unpaid restaurant's kitchen tablets
+        # used to keep working - only staff tokens were checked.
+        from apps.restaurant.models import Restaurant
+
+        if device.restaurant.status == Restaurant.Status.SUSPENDED:
+            raise TenantSuspended()
+        if device.restaurant.status == Restaurant.Status.PAYMENT_DUE:
+            raise TenantPaymentDue()
+        return device.restaurant
 
 
 def get_tenant_from_table(table_id):

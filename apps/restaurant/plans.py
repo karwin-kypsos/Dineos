@@ -43,14 +43,17 @@ PLAN_PRESETS = {
     },
 }
 
-# What each plan costs, for the public Get Plans list (2026-09-29, Admin
-# Self-Registration). Hardcoded next to the presets on purpose, like the
-# presets themselves - the build guide says no database plan editor.
-# price is a decimal string in rupees and billing_cycle is "MONTHLY" or
-# "YEARLY"; both stay None until Karwin sets the real figures, and the
-# API returns null rather than a made-up number.
-PLAN_PRICING = {
-    "STARTER": {"price": None, "billing_cycle": None},
-    "GROWTH": {"price": None, "billing_cycle": None},
-    "ENTERPRISE": {"price": None, "billing_cycle": None},
-}
+# Prices live in settings.PLAN_PRICES (PLAN_PRICE_<TIER> env vars, rupees a
+# month) since 2026-10-05 - see apps.subscriptions.services.plan_price.
+
+
+def apply_plan_preset(restaurant, plan_tier):
+    """Put a restaurant on a plan: tier, branch limit and add-on flags from
+    its preset (what Super Admin's plan change does), saved."""
+    preset = PLAN_PRESETS[plan_tier]
+    restaurant.plan_tier = plan_tier
+    restaurant.max_branches = preset["max_branches"]
+    for flag, value in preset["flags"].items():
+        setattr(restaurant, flag, value)
+    restaurant.save(update_fields=["plan_tier", "max_branches", *preset["flags"].keys()])
+    return restaurant

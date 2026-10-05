@@ -103,6 +103,10 @@ class DineOSTokenObtainPairSerializer(TokenObtainPairSerializer):
         data = super().validate(attrs)
         if self.user.restaurant.status == Restaurant.Status.SUSPENDED:
             raise serializers.ValidationError("This organization's account has been suspended.")
+        if self.user.restaurant.status == Restaurant.Status.PAYMENT_DUE and self.user.role != User.Role.ADMIN:
+            raise serializers.ValidationError(
+                "This organization's subscription has ended. Ask your admin to renew it."
+            )
         # 2026-09-21, per Karwin: the login response carried role, role_id
         # (the ROLE's id, not the person's) and name — nothing stable to
         # compare against assigned_server_id, so the app had no way to ask

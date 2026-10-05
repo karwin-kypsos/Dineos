@@ -103,3 +103,83 @@ def verify_webhook_signature(body, signature):
         client.utility.verify_webhook_signature(body, signature, settings.RAZORPAY_WEBHOOK_SECRET)
     except SignatureVerificationError as e:
         raise RazorpayUnavailableError(f"Webhook signature verification failed: {e}") from e
+
+
+# ---------------------------------------------------------------------------
+# Subscriptions (2026-10-05, per Karwin) - the restaurant paying DineOS for
+# its plan, distinct from everything above, which is a diner paying a
+# restaurant. Same client, same error type, same never-500 contract.
+# ---------------------------------------------------------------------------
+
+def _client():
+    if not (settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET):
+        raise RazorpayUnavailableError("Razorpay is not configured on this platform yet.")
+
+    import razorpay
+
+    return razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+
+
+def _reason(e):
+    # The SDK raises an empty ServerError when Razorpay answers a bare
+    # {"error": "Unauthorized"} - which is what Plans and Subscriptions say
+    # when that product isn't switched on for the account.
+    return str(e) or "Razorpay refused the request (is Subscriptions enabled on the Razorpay account?)"
+
+
+def create_plan(name, amount_rupees, period="monthly"):
+    """A Razorpay Plan: one fixed price on one billing period. Razorpay
+    plans can't be edited, so a new price is simply a new plan - see
+    apps.subscriptions.services.razorpay_plan_for."""
+    client = _client()
+    try:
+        return client.plan.create({
+            "period": period,
+            "interval": 1,
+            "item": {"name": name, "amount": int(amount_rupees * 100), "currency": "INR"},
+        })
+    except Exception as e:
+        logger.exception("Razorpay plan creation failed")
+        raise RazorpayUnavailableError(f"Razorpay plan creation failed: {_reason(e)}") from e
+
+
+def create_subscription(plan_id, total_count, start_at=None, notes=None):
+    """A Razorpay Subscription on plan_id. start_at (an aware datetime) puts
+    the first charge in the future - the end of a trial, or the end of the
+    period already paid for on the plan being replaced. The customer still
+    authorises the mandate at checkout now."""
+    client = _client()
+    payload = {"plan_id": plan_id, "total_count": total_count, "quantity": 1, "customer_notify": 1, "notes": notes or {}}
+    if start_at is not None:
+        payload["start_at"] = int(start_at.timestamp())
+    try:
+        return client.subscription.create(payload)
+    except Exception as e:
+        logger.exception("Razorpay subscription creation failed")
+        raise RazorpayUnavailableError(f"Razorpay subscription creation failed: {_reason(e)}") from e
+
+
+def cancel_subscription(subscription_id, at_cycle_end=True):
+    """at_cycle_end: stop renewing but keep the period already paid for."""
+    client = _client()
+    try:
+        return client.subscription.cancel(subscription_id, {"cancel_at_cycle_end": 1 if at_cycle_end else 0})
+    except Exception as e:
+        logger.exception("Razorpay subscription cancel failed")
+        raise RazorpayUnavailableError(f"Razorpay subscription cancel failed: {_reason(e)}") from e
+
+
+def verify_subscription_payment(subscription_id, payment_id, signature):
+    """Checkout's client-side "success" is only a claim until this passes:
+    HMAC-SHA256 of "payment_id|subscription_id" with the key secret."""
+    from razorpay.errors import SignatureVerificationError
+
+    client = _client()
+    try:
+        client.utility.verify_subscription_payment_signature({
+            "razorpay_subscription_id": subscription_id,
+            "razorpay_payment_id": payment_id,
+            "razorpay_signature": signature,
+        })
+    except SignatureVerificationError as e:
+        raise RazorpayUnavailableError(f"Payment signature verification failed: {e}") from e
