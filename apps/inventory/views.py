@@ -2,6 +2,7 @@ import uuid
 from decimal import Decimal
 
 from django.db import models as dj_models
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import generics, status, viewsets
 from rest_framework.decorators import action
@@ -10,6 +11,7 @@ from rest_framework.views import APIView
 
 from core.ai_client import AIUnavailableError
 from core.permissions import IsAdminOrManager, IsAnyStaff
+from core.query_params import parse_query_date
 from core.tenancy import resolve_report_branch
 
 from . import services
@@ -27,6 +29,7 @@ from .serializers import (
     RecipeItemSerializer,
     RecordWastageSerializer,
     StockAdditionSerializer,
+    WastageEntrySerializer,
 )
 
 
@@ -201,85 +204,91 @@ class StockAdditionListView(generics.ListAPIView):
         return qs
 
 
-class WastageLogView(APIView):
-    """Record Wastage screen's 'Today's Wastage So Far' + 'Today's Wastage
-    Log' — total cost, a breakdown by reason, and the individual entries
-    for one day. Defaults to today; ?date=YYYY-MM-DD for a past day.
+class WastageLogView(generics.ListAPIView):
+    """Wastage history (2026-10-05, per Karwin): paginated like
+    stock-additions (count/next/previous/results), with the same filters -
+    ?branch= (Admin; a user pinned to a branch only ever sees theirs),
+    ?ingredient=, ?date_from= / ?date_to= (YYYY-MM-DD, inclusive) - plus
+    ?date= for a single day and ?wastage_reason=. No date filter means all
+    history, as on stock-additions.
+
+    total_cost and breakdown_by_reason sit beside the results and cover
+    every matching record, not just the page - so the Record Wastage
+    screen's "Today's Wastage So Far" is ?date=<today>.
+
+    Until 2026-10-05 this answered one day only (today unless ?date=) as
+    {date, total_cost, breakdown_by_reason, entries}.
     """
 
+    serializer_class = WastageEntrySerializer
     permission_classes = [IsAdminOrManager]
 
-    def get(self, request):
-        from datetime import datetime
+    def get_queryset(self):
+        qs = (
+            StockMovement.objects
+            .filter(ingredient__restaurant=self.request.tenant, movement_type=StockMovement.MovementType.WASTAGE)
+            .select_related("ingredient", "ingredient__branch", "recorded_by")
+            .order_by("-recorded_at", "-id")
+        )
+        params = self.request.query_params
 
-        date_param = request.query_params.get("date")
-        if date_param:
-            try:
-                target_date = datetime.strptime(date_param, "%Y-%m-%d").date()
-            except ValueError:
-                return Response({"date": "Expected format YYYY-MM-DD."}, status=status.HTTP_400_BAD_REQUEST)
-        else:
-            target_date = timezone.localdate()
-
-        movements = StockMovement.objects.filter(
-            ingredient__restaurant=request.tenant,
-            movement_type=StockMovement.MovementType.WASTAGE,
-            recorded_at__date=target_date,
-        ).select_related("ingredient", "recorded_by")
-
-        branch = getattr(request.user, "branch", None)
+        # Strict since 2026-09-21 - see _branch_scoped above.
+        branch = getattr(self.request.user, "branch", None)
         if branch is not None:
-            # Strict since 2026-09-21 — see _branch_scoped above.
-            movements = movements.filter(ingredient__branch=branch)
+            qs = qs.filter(ingredient__branch=branch)
+        branch_id = params.get("branch")
+        if branch_id:
+            try:
+                uuid.UUID(branch_id)
+                qs = qs.filter(ingredient__branch_id=branch_id)
+            except ValueError:
+                pass  # malformed id ignored, same as stock-additions
 
-        # 2026-09-22: money and quantities go out as decimal STRINGS, and
-        # timestamps carry the local +05:30 offset.
-        #
-        # This view hand-builds a plain dict rather than going through a
-        # serializer, and that changed the wire format in two ways nobody
-        # had noticed:
-        #   - a raw Decimal in a plain dict never reaches DecimalField, so
-        #     DRF's encoder fell back to float() - total_cost came out as
-        #     55.0 and every breakdown value as 10.0, while every
-        #     serializer-backed endpoint in this API returns "55.00".
-        #     Same defect as estimated_total on the purchase order.
-        #   - a raw datetime likewise skips DateTimeField, whose
-        #     enforce_timezone() is what applies TIME_ZONE. So recorded_at
-        #     came out as "...894689Z" (UTC) while every serializer-backed
-        #     timestamp reads "...+05:30". Two formats in one API, decided
-        #     by an implementation detail the client cannot see.
+        ingredient_id = params.get("ingredient")
+        if ingredient_id:
+            try:
+                uuid.UUID(ingredient_id)
+            except ValueError:
+                return qs.none()
+            qs = qs.filter(ingredient_id=ingredient_id)
+
+        reason = params.get("wastage_reason", "").strip().upper()
+        if reason in StockMovement.WastageReason.values:
+            qs = qs.filter(wastage_reason=reason)
+
+        # A bad date is a 400 naming the parameter, not silently ignored.
+        if params.get("date"):
+            qs = qs.filter(recorded_at__date=parse_query_date(params["date"], "date"))
+        if params.get("date_from"):
+            qs = qs.filter(recorded_at__date__gte=parse_query_date(params["date_from"], "date_from"))
+        if params.get("date_to"):
+            qs = qs.filter(recorded_at__date__lte=parse_query_date(params["date_to"], "date_to"))
+        return qs
+
+    def list(self, request, *args, **kwargs):
+        qs = self.get_queryset()
         cents = Decimal("0.01")
+        cost = dj_models.ExpressionWrapper(
+            dj_models.F("quantity") * Coalesce("unit_cost_at_time", dj_models.Value(Decimal("0"))),
+            output_field=dj_models.DecimalField(max_digits=22, decimal_places=4),
+        )
+        breakdown = {reason: Decimal("0") for reason in StockMovement.WastageReason.values}
+        for row in qs.order_by().values("wastage_reason").annotate(total=dj_models.Sum(cost)):
+            if row["wastage_reason"] in breakdown:
+                breakdown[row["wastage_reason"]] = row["total"] or Decimal("0")
+        total = qs.order_by().aggregate(total=dj_models.Sum(cost))["total"] or Decimal("0")
 
-        def money(value):
-            return str(value.quantize(cents))
-
-        breakdown_by_reason = {reason: Decimal("0") for reason in StockMovement.WastageReason.values}
-        total_cost = Decimal("0")
-        entries = []
-        for m in movements.order_by("-recorded_at"):
-            cost = m.quantity * (m.unit_cost_at_time or Decimal("0"))
-            total_cost += cost
-            breakdown_by_reason[m.wastage_reason] += cost
-            entries.append({
-                "id": str(m.id),
-                "ingredient_id": str(m.ingredient_id),
-                "ingredient_name": m.ingredient.name,
-                "unit": m.ingredient.unit,
-                "quantity": money(m.quantity),
-                "wastage_reason": m.wastage_reason,
-                "reason": m.reason,
-                "cost": money(cost),
-                "recorded_at": timezone.localtime(m.recorded_at).isoformat(),
-                "recorded_by_name": m.recorded_by.name if m.recorded_by else None,
-            })
-
+        page = self.paginate_queryset(qs)
+        paginated = self.get_paginated_response(self.get_serializer(page, many=True).data).data
         return Response({
-            "date": target_date.isoformat(),
-            "total_cost": money(total_cost),
-            # Every reason is always present, including OTHER, and a reason
-            # with nothing against it reads "0.00" rather than being absent.
-            "breakdown_by_reason": {k: money(v) for k, v in breakdown_by_reason.items()},
-            "entries": entries,
+            "count": paginated["count"],
+            "next": paginated["next"],
+            "previous": paginated["previous"],
+            # Money as decimal strings. Every reason is always present,
+            # including OTHER; one with nothing against it reads "0.00".
+            "total_cost": str(Decimal(total).quantize(cents)),
+            "breakdown_by_reason": {k: str(Decimal(v).quantize(cents)) for k, v in breakdown.items()},
+            "results": paginated["results"],
         })
 
 

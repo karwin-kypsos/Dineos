@@ -209,12 +209,12 @@ def test_wastage_log_returns_todays_entries_with_cost_breakdown(manager_client, 
     assert Decimal(str(breakdown["SPOILED"])) == Decimal("400.00")
     assert Decimal(str(breakdown["OVER_PREPPED"])) == Decimal("60.00")
     assert Decimal(str(breakdown["RETURNED"])) == Decimal("0")
-    assert len(response.data["entries"]) == 2
-    names = {e["ingredient_name"] for e in response.data["entries"]}
+    assert response.data["count"] == 2
+    names = {e["ingredient_name"] for e in response.data["results"]}
     assert names == {"Chicken", "Milk"}
 
 
-def test_wastage_log_excludes_other_days(manager_client, ingredient):
+def test_wastage_log_date_filter_excludes_other_days(manager_client, ingredient):
     from datetime import timedelta
 
     from django.utils import timezone
@@ -226,11 +226,13 @@ def test_wastage_log_excludes_other_days(manager_client, ingredient):
     movement = inventory_services.record_wastage(ingredient.id, Decimal("1.00"), "SPOILED")
     StockMovement.objects.filter(id=movement.id).update(recorded_at=timezone.now() - timedelta(days=2))
 
-    response = client.get("/v1/inventory/wastage/")
+    response = client.get(f"/v1/inventory/wastage/?date={timezone.localdate().isoformat()}")
 
     assert response.status_code == 200
-    assert response.data["entries"] == []
-    assert Decimal(str(response.data["total_cost"])) == Decimal("0")
+    assert response.data["results"] == []
+    assert response.data["total_cost"] == "0.00"
+    # Without a date filter it is history, like stock-additions.
+    assert client.get("/v1/inventory/wastage/").data["count"] == 1
 
 
 def test_wastage_log_rejects_bad_date_format(manager_client):
@@ -930,7 +932,7 @@ def test_wastage_report_excludes_branch_less_ingredients_for_a_branched_user(
     response = client.get("/v1/inventory/wastage/")
 
     assert response.status_code == 200, response.data
-    names = {e["ingredient_name"] for e in response.data["entries"]}
+    names = {e["ingredient_name"] for e in response.data["results"]}
     assert "Branch Oil" in names
     assert "Legacy Oil" not in names
 
@@ -1313,13 +1315,13 @@ def test_wastage_summary_returns_decimal_strings_and_local_timestamps(manager_cl
     assert breakdown["SPOILED"] == "0.00", "an unused reason reads 0.00, not absent and not 0"
     assert all(isinstance(v, str) for v in breakdown.values())
 
-    entry = wire["entries"][0]
+    entry = wire["results"][0]
     assert entry["quantity"] == "1.50"
     assert entry["cost"] == "15.00"
     assert isinstance(entry["quantity"], str) and isinstance(entry["cost"], str)
     # Local offset, matching every serializer-backed timestamp.
-    assert "+05:30" in entry["recorded_at"], entry["recorded_at"]
-    assert not entry["recorded_at"].endswith("Z")
+    assert "+05:30" in entry["created_at"], entry["created_at"]
+    assert not entry["created_at"].endswith("Z")
 
 
 def test_every_wastage_reason_including_other_is_accepted(manager_client, ingredient):
@@ -1334,3 +1336,105 @@ def test_every_wastage_reason_including_other_is_accepted(manager_client, ingred
             {"quantity": "1.00", "wastage_reason": reason}, format="json",
         )
         assert response.status_code == 200, (reason, response.data)
+
+
+# ---- wastage history (2026-10-05, per Karwin) --------------------------------
+
+def _wastage(ingredient, qty, reason, days_ago=0, by=None):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.inventory.models import StockMovement
+
+    m = StockMovement.objects.create(
+        ingredient=ingredient, movement_type=StockMovement.MovementType.WASTAGE, quantity=Decimal(qty),
+        unit_cost_at_time=ingredient.unit_cost, wastage_reason=reason, reason="note", recorded_by=by,
+    )
+    StockMovement.objects.filter(id=m.id).update(recorded_at=timezone.now() - timedelta(days=days_ago))
+    return m
+
+
+def test_wastage_history_filters_like_stock_additions(admin_client, restaurant):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.restaurant.models import Branch
+
+    user, client = admin_client
+    north = Branch.objects.create(restaurant=restaurant, name="North")
+    south = Branch.objects.create(restaurant=restaurant, name="South")
+    rice = Ingredient.objects.create(restaurant=restaurant, branch=north, name="Rice", unit="KG", unit_cost=Decimal("50.00"))
+    oil = Ingredient.objects.create(restaurant=restaurant, branch=south, name="Oil", unit="L", unit_cost=Decimal("100.00"))
+    _wastage(rice, "1.00", "SPOILED", days_ago=0, by=user)
+    _wastage(rice, "2.00", "RETURNED", days_ago=3)
+    _wastage(oil, "1.00", "SPOILED", days_ago=10)
+    today = timezone.localdate()
+
+    everything = client.get("/v1/inventory/wastage/")
+    assert everything.data["count"] == 3
+    assert [r["ingredient_name"] for r in everything.data["results"]] == ["Rice", "Rice", "Oil"]  # newest first
+    assert everything.data["total_cost"] == "250.00"
+    assert everything.data["breakdown_by_reason"] == {"SPOILED": "150.00", "OVER_PREPPED": "0.00", "RETURNED": "100.00", "OTHER": "0.00"}
+
+    assert client.get(f"/v1/inventory/wastage/?branch={south.id}").data["count"] == 1
+    assert client.get(f"/v1/inventory/wastage/?ingredient={rice.id}").data["count"] == 2
+    assert client.get("/v1/inventory/wastage/?ingredient=not-a-uuid").data["count"] == 0
+    assert client.get("/v1/inventory/wastage/?wastage_reason=returned").data["count"] == 1
+    # Inclusive range: 3 days ago through today.
+    ranged = client.get(f"/v1/inventory/wastage/?date_from={(today - timedelta(days=3)).isoformat()}&date_to={today.isoformat()}")
+    assert ranged.data["count"] == 2 and ranged.data["total_cost"] == "150.00"
+    assert client.get(f"/v1/inventory/wastage/?date_to={(today - timedelta(days=4)).isoformat()}").data["count"] == 1
+
+
+def test_wastage_history_rows_carry_what_a_history_screen_shows(admin_client, restaurant):
+    from apps.restaurant.models import Branch
+
+    user, client = admin_client
+    north = Branch.objects.create(restaurant=restaurant, name="North")
+    rice = Ingredient.objects.create(restaurant=restaurant, branch=north, name="Rice", unit="KG", unit_cost=Decimal("50.00"))
+    _wastage(rice, "1.50", "OVER_PREPPED", by=user)
+
+    row = client.get("/v1/inventory/wastage/").data["results"][0]
+
+    assert row["ingredient"] == rice.id and row["ingredient_name"] == "Rice" and row["unit"] == "KG"
+    assert row["quantity"] == "1.50" and row["unit_cost"] == "50.00" and row["cost"] == "75.00"
+    assert row["wastage_reason"] == "OVER_PREPPED" and row["reason"] == "note"
+    assert row["branch"] == north.id and row["branch_name"] == "North"
+    assert row["performed_by"] == user.id and row["performed_by_name"] == user.name
+    assert row["created_at"]
+
+
+def test_wastage_history_paginates_but_totals_cover_every_page(manager_client, ingredient):
+    _, client = manager_client
+    for _ in range(3):
+        _wastage(ingredient, "1.00", "SPOILED")
+
+    page = client.get("/v1/inventory/wastage/?page_size=2")
+
+    assert page.data["count"] == 3 and len(page.data["results"]) == 2 and page.data["next"]
+    assert page.data["total_cost"] == str((ingredient.unit_cost * 3).quantize(Decimal("0.01")))
+
+
+@pytest.mark.parametrize("param", ["date", "date_from", "date_to"])
+def test_wastage_history_bad_date_is_400_naming_it(manager_client, param):
+    _, client = manager_client
+
+    response = client.get(f"/v1/inventory/wastage/?{param}=2026-13-45")
+
+    assert response.status_code == 400 and param in response.data
+
+
+def test_branch_manager_cannot_see_another_branch_wastage_via_branch_param(manager_client, restaurant):
+    from apps.restaurant.models import Branch
+
+    user, client = manager_client
+    north = Branch.objects.create(restaurant=restaurant, name="North")
+    south = Branch.objects.create(restaurant=restaurant, name="South")
+    user.branch = north
+    user.save(update_fields=["branch"])
+    oil = Ingredient.objects.create(restaurant=restaurant, branch=south, name="Oil", unit="L", unit_cost=Decimal("100.00"))
+    _wastage(oil, "1.00", "SPOILED")
+
+    assert client.get(f"/v1/inventory/wastage/?branch={south.id}").data["count"] == 0

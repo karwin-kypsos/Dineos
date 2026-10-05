@@ -144,6 +144,38 @@ class StockAdditionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class WastageEntrySerializer(serializers.ModelSerializer):
+    """One wastage record, for the wastage history (2026-10-05, per
+    Karwin). Same field names as StockAdditionSerializer, plus
+    wastage_reason and the cost it represents."""
+
+    ingredient_name = serializers.CharField(source="ingredient.name", read_only=True)
+    unit = serializers.CharField(source="ingredient.unit", read_only=True)
+    branch = serializers.PrimaryKeyRelatedField(source="ingredient.branch", read_only=True)
+    branch_name = serializers.CharField(source="ingredient.branch.name", read_only=True, default=None)
+    unit_cost = serializers.DecimalField(
+        source="unit_cost_at_time", max_digits=10, decimal_places=2, read_only=True
+    )
+    cost = serializers.SerializerMethodField()
+    performed_by = serializers.PrimaryKeyRelatedField(source="recorded_by", read_only=True)
+    performed_by_name = serializers.CharField(source="recorded_by.name", read_only=True, default=None)
+    created_at = serializers.DateTimeField(source="recorded_at", read_only=True)
+
+    class Meta:
+        model = StockMovement
+        fields = [
+            "id", "ingredient", "ingredient_name", "unit", "quantity", "wastage_reason", "reason",
+            "unit_cost", "cost", "performed_by", "performed_by_name", "branch", "branch_name",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_cost(self, obj):
+        # A string, like every other money field - a SerializerMethodField
+        # value skips DecimalField and would otherwise go out as a float.
+        return str((obj.quantity * (obj.unit_cost_at_time or Decimal("0"))).quantize(Decimal("0.01")))
+
+
 class PurchaseOrderLineSerializer(serializers.ModelSerializer):
     ingredient_name = serializers.CharField(source="ingredient.name", read_only=True)
     unit = serializers.CharField(source="ingredient.unit", read_only=True)
