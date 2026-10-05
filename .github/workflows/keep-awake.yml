@@ -9,11 +9,16 @@
 # service awake all month (~744 h) fits Render's 750 free instance hours.
 # Free for a public repo. GitHub may run scheduled jobs a few minutes late,
 # and pauses them after 60 days with no commits to the repo.
+#
+# 2026-10-05: "*/10" never fired once in its first 3 hours (a manual run
+# worked). GitHub drops scheduled runs when it is busy, worst at the top of
+# the hour and on round minutes - so every 5 minutes, off the round marks,
+# leaving room for a skipped run or two inside Render's 15 idle minutes.
 name: keep-awake
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"
   workflow_dispatch:
 
 permissions: {}
