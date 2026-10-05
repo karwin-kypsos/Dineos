@@ -1,4 +1,5 @@
 from django.db.models import F
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 from .models import ChatMessage
@@ -29,7 +30,7 @@ def _low_stock_ingredients(restaurant, branch=None):
         Ingredient.objects.filter(restaurant=restaurant, is_active=True)
         .exclude(current_stock__gt=F("minimum_stock_level"))
         .select_related("branch")
-        .order_by("name")
+        .order_by(Lower("name"), "id")
     )
     if branch is not None:
         ingredients = ingredients.filter(branch=branch)
@@ -83,7 +84,7 @@ def build_chat_context(restaurant, branch=None):
             .filter(paid_at__gte=day_start, paid_at__lt=day_start + timezone.timedelta(days=1))
             .values("branch__name")
             .annotate(total=Sum("total_amount"), bills=Count("id"))
-            .order_by("branch__name")
+            .order_by(Lower("branch__name"))
         )
         context["today_by_branch"] = [
             {"branch": row["branch__name"], "total_collected": float(row["total"]), "bills_paid": row["bills"]}

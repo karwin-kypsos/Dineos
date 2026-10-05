@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils.text import slugify
 
 
@@ -153,7 +154,10 @@ class Branch(models.Model):
 
     class Meta:
         db_table = "branches"
-        ordering = ["name"]
+        # Lower(): case-insensitive A-Z (2026-10-05, per Karwin). Neon sorts
+        # text byte-wise (C.UTF-8), so "Zeta" came before "alpha"; the old
+        # Render database ignored case. Done here so it holds on any database.
+        ordering = [Lower("name"), "id"]
         constraints = [
             models.UniqueConstraint(fields=["restaurant", "name"], name="one_branch_name_per_restaurant"),
             models.UniqueConstraint(fields=["restaurant", "slug"], name="one_branch_slug_per_restaurant"),

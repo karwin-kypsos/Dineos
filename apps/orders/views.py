@@ -14,6 +14,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from apps.kitchen.authentication import KDSKeyAuthentication
 from apps.tables.models import TableSession
 from core.permissions import CUSTOMER_ORDERING_OFF, IsAnyStaff, IsKDSDevice, IsServerOrKDSDevice
+from core.query_params import parse_query_date
 from core.tenancy import get_tenant_from_session
 
 from . import services
@@ -46,6 +47,11 @@ class CreateOrderView(APIView):
         serializer = OrderCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+
+        # 2026-10-05: a session id that doesn't exist reached place_order's
+        # bare .get() and answered 500 to the customer's phone.
+        if get_tenant_from_session(data["session_id"]) is None:
+            return Response({"session_id": ["Session not found."]}, status=404)
 
         # A staff-authenticated caller (request.tenant resolved from their
         # JWT) can only place orders into their OWN restaurant's sessions —
@@ -117,11 +123,11 @@ class TakeawayOrderView(APIView):
         date_to_param = request.query_params.get("date_to")
         if date_from_param or date_to_param:
             if date_from_param:
-                date_from = timezone.datetime.strptime(date_from_param, "%Y-%m-%d").date()
+                date_from = parse_query_date(date_from_param, "date_from")
                 range_start = timezone.make_aware(timezone.datetime.combine(date_from, timezone.datetime.min.time()))
                 orders = orders.filter(placed_at__gte=range_start)
             if date_to_param:
-                date_to = timezone.datetime.strptime(date_to_param, "%Y-%m-%d").date()
+                date_to = parse_query_date(date_to_param, "date_to")
                 range_end = timezone.make_aware(timezone.datetime.combine(date_to, timezone.datetime.min.time())) + timezone.timedelta(days=1)
                 orders = orders.filter(placed_at__lt=range_end)
         elif request.user.role == "CASHIER":
@@ -469,11 +475,13 @@ class OrderDetailView(APIView):
     permission_classes = [IsServerOrKDSDevice]
 
     def get(self, request, order_id):
-        order = (
+        # get_object_or_404 (2026-10-05): a bare .get() answered 500 for an
+        # order id that doesn't exist (or belongs to another restaurant).
+        order = get_object_or_404(
             Order.objects.filter(models.Q(table__restaurant=request.tenant) | models.Q(branch__restaurant=request.tenant))
             .select_related("table", "session__bill", "parent_order__takeaway_bill")
-            .prefetch_related("items__menu_item")
-            .get(id=order_id)
+            .prefetch_related("items__menu_item"),
+            id=order_id,
         )
         return Response(OrderSerializer(order).data)
 

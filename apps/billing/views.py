@@ -1,7 +1,6 @@
 import uuid
 
 from django.utils import timezone
-from django.utils.dateparse import parse_date
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -9,6 +8,7 @@ from rest_framework.views import APIView
 from apps.tables.models import TableSession
 from core.pagination import DineOSPageNumberPagination
 from core.permissions import FeatureEnabledPermission, IsAnyStaff
+from core.query_params import parse_query_date
 from core.tenancy import get_tenant_from_session
 
 from . import services
@@ -38,10 +38,10 @@ class BillListView(APIView):
         # the CAHS ones" with nothing on screen saying the filter never
         # applied. Silence is the dangerous answer when the number is money.
         def _date(value, field):
-            parsed = parse_date(value)
-            if parsed is None:
-                raise ValidationError({field: ["Expected format YYYY-MM-DD."]})
-            return parsed
+            # parse_query_date (2026-10-05): parse_date raises, rather than
+            # returning None, for a well-formed but impossible date such as
+            # 2026-13-45 - that used to answer 500.
+            return parse_query_date(value, field)
 
         date_param = request.query_params.get("date", "").strip()
         date = None

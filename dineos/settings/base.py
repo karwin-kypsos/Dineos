@@ -268,22 +268,17 @@ DEFAULT_SERVICE_CHARGE_PERCENTAGE = env.float("DEFAULT_SERVICE_CHARGE_PERCENTAGE
 CUSTOMER_APP_BASE_URL = env("CUSTOMER_APP_BASE_URL", default="https://dineos-customer.onrender.com").rstrip("/")
 
 # ---------------------------------------------------------------------------
-# Until EMAIL_DELIVERY_ENABLED is True, every "sent" secret (2FA code,
-# password-reset/invite token) is a fixed, known value instead of a random
-# one — see apps.platform.models._generate_2fa_code and
-# apps.authentication.models._generate_reset_token — so the Postman suite
-# stays deterministic and testable without reading a real inbox. Deliberately
-# left off in production for that reason.
+# 2FA codes and password-reset/invite tokens are always random (since
+# 2026-10-05; they used to be the fixed, public 123456 and
+# COMMON-TEST-TOKEN while this was off). A reset token is never returned
+# to the requester outside DEBUG - it reaches the user by email only.
 #
-# Actual email SENDING (core.email.send_notification_email) is a separate,
-# independent switch from the above — it only requires RESEND_API_KEY to be
-# set, works with EMAIL_DELIVERY_ENABLED left off, and exists purely so a
-# real inbox can see what these emails look like without destabilizing the
-# fixed-token test flow.
+# EMAIL_DELIVERY_ENABLED now only decides whether the Super Admin login
+# response also echoes the 2FA code: until emails actually go out
+# (RESEND_API_KEY, below), leave it off or nobody can finish signing in.
+# Turn it on once email works, so the code arrives only by email.
 # ---------------------------------------------------------------------------
 EMAIL_DELIVERY_ENABLED = env.bool("EMAIL_DELIVERY_ENABLED", default=False)
-COMMON_VERIFICATION_TOKEN = env("COMMON_VERIFICATION_TOKEN", default="COMMON-TEST-TOKEN")
-COMMON_VERIFICATION_CODE = env("COMMON_VERIFICATION_CODE", default="123456")
 
 # ---------------------------------------------------------------------------
 # Real email sending (2FA codes, invite/reset tokens) — via Resend's HTTPS

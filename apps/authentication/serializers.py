@@ -2,6 +2,7 @@ import re
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.db.models.functions import Lower
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
@@ -79,7 +80,7 @@ def resolve_branch_context(user):
     if user.branch is not None:
         return BranchSummarySerializer(user.branch).data, None
 
-    branches = list(Branch.objects.filter(restaurant_id=user.restaurant_id, is_active=True).order_by("name"))
+    branches = list(Branch.objects.filter(restaurant_id=user.restaurant_id, is_active=True).order_by(Lower("name"), "id"))
     selected = user.selected_branch if (user.selected_branch and user.selected_branch.is_active) else None
     if selected is None and branches:
         selected = branches[0]

@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 
@@ -15,7 +16,10 @@ class Category(models.Model):
 
     class Meta:
         db_table = "menu_categories"
-        ordering = ["sort_order", "name"]
+        # Lower(): case-insensitive A-Z (2026-10-05, per Karwin). Neon sorts
+        # text byte-wise (C.UTF-8), so "Zeta" came before "alpha"; the old
+        # Render database ignored case. Done here so it holds on any database.
+        ordering = ["sort_order", Lower("name"), "id"]
         verbose_name_plural = "categories"
         constraints = [
             models.UniqueConstraint(
@@ -55,7 +59,8 @@ class MenuItem(models.Model):
 
     class Meta:
         db_table = "menu_items"
-        ordering = ["category__sort_order", "sort_order", "name"]
+        # Lower(): case-insensitive A-Z, see Category.Meta.
+        ordering = ["category__sort_order", "sort_order", Lower("name"), "id"]
 
     def __str__(self):
         return self.name

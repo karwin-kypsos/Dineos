@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.permissions import FeatureEnabledPermission, IsAdminOrManager, IsAnyStaff, IsCashierOrManager
+from core.query_params import parse_query_date
 
 from . import services
 from .models import CashierShift
@@ -171,8 +172,8 @@ class DailyCollectionsView(APIView):
         date_from_param = request.query_params.get("date_from")
         date_to_param = request.query_params.get("date_to")
         if date_from_param and date_to_param:
-            date_from = timezone.datetime.strptime(date_from_param, "%Y-%m-%d").date()
-            date_to = timezone.datetime.strptime(date_to_param, "%Y-%m-%d").date()
+            date_from = parse_query_date(date_from_param, "date_from")
+            date_to = parse_query_date(date_to_param, "date_to")
             window_start = timezone.make_aware(timezone.datetime.combine(date_from, timezone.datetime.min.time()))
             window_end = timezone.make_aware(timezone.datetime.combine(date_to, timezone.datetime.min.time())) + timezone.timedelta(days=1)
             report = services.daily_collections(
@@ -181,7 +182,7 @@ class DailyCollectionsView(APIView):
             )
         else:
             date_param = request.query_params.get("date")
-            date = timezone.datetime.strptime(date_param, "%Y-%m-%d").date() if date_param else timezone.localdate()
+            date = parse_query_date(date_param, "date") if date_param else timezone.localdate()
             report = services.daily_collections(request.tenant, date, search=search, payment_method=payment_method)
         return Response(DailyCollectionsSerializer(report).data)
 
@@ -200,12 +201,12 @@ class CashierCollectionsView(APIView):
         date_from_param = request.query_params.get("date_from")
         date_to_param = request.query_params.get("date_to")
         if date_from_param and date_to_param:
-            date_from = timezone.datetime.strptime(date_from_param, "%Y-%m-%d").date()
-            date_to = timezone.datetime.strptime(date_to_param, "%Y-%m-%d").date()
+            date_from = parse_query_date(date_from_param, "date_from")
+            date_to = parse_query_date(date_to_param, "date_to")
             collections = services.cashier_collections(request.tenant, date_from=date_from, date_to=date_to)
         else:
             date_param = request.query_params.get("date")
-            date = timezone.datetime.strptime(date_param, "%Y-%m-%d").date() if date_param else timezone.localdate()
+            date = parse_query_date(date_param, "date") if date_param else timezone.localdate()
             collections = services.cashier_collections(request.tenant, date=date)
         return Response(CashierCollectionSerializer(collections, many=True).data)
 

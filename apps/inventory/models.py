@@ -2,6 +2,7 @@ import uuid
 
 from django.conf import settings
 from django.db import models
+from django.db.models.functions import Lower
 
 
 class Ingredient(models.Model):
@@ -30,7 +31,10 @@ class Ingredient(models.Model):
 
     class Meta:
         db_table = "ingredients"
-        ordering = ["name"]
+        # Lower(): case-insensitive A-Z (2026-10-05, per Karwin). Neon sorts
+        # text byte-wise (C.UTF-8), so "Zeta" came before "alpha"; the old
+        # Render database ignored case. Done here so it holds on any database.
+        ordering = [Lower("name"), "id"]
         constraints = [
             models.UniqueConstraint(
                 fields=["restaurant", "name"], condition=models.Q(branch__isnull=True),

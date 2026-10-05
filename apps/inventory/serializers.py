@@ -49,6 +49,13 @@ class IngredientSerializer(serializers.ModelSerializer):
             return attrs
         branch = attrs["branch"] if "branch" in attrs else (self.instance.branch if self.instance else None)
         request = self.context.get("request")
+        # 2026-10-05: a Manager's new ingredient is always filed under the
+        # Manager's own branch (IngredientViewSet.perform_create), whatever
+        # the body says - check that branch, or a duplicate slipped past this
+        # check and hit the database's unique constraint as a 500.
+        user_branch = getattr(getattr(request, "user", None), "branch", None) if request else None
+        if self.instance is None and user_branch is not None:
+            branch = user_branch
         restaurant = getattr(request, "tenant", None) if request else None
         if restaurant is None and self.instance is not None:
             restaurant = self.instance.restaurant

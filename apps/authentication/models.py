@@ -69,21 +69,18 @@ class User(AbstractBaseUser, PermissionsMixin):
 
 
 def _generate_reset_token():
-    from django.conf import settings
-
-    if not settings.EMAIL_DELIVERY_ENABLED:
-        return settings.COMMON_VERIFICATION_TOKEN
+    # Always random (2026-10-05). Every token used to be the same public
+    # value ("COMMON-TEST-TOKEN", visible in this public repo) while email
+    # delivery was off, so anyone could redeem whichever reset or invite
+    # had been issued most recently - someone else's account included.
     return secrets.token_urlsafe(32)
 
 
 class PasswordResetToken(models.Model):
-    """token is deliberately NOT unique at the DB level: while
-    EMAIL_DELIVERY_ENABLED is off, every row gets the same well-known
-    value (see _generate_reset_token), so multiple pending invites/resets
-    can coexist. Lookups always take the most recently issued match — see
-    apps.authentication.views.ResetPasswordView — which is unambiguous
-    once real per-user random tokens are turned on, and matches "the one
-    I just triggered" while they're shared."""
+    """One password reset or invite. The token is random per row (see
+    _generate_reset_token); it is not unique at the DB level only because
+    older rows from before 2026-10-05 share one fixed value. Lookups take
+    the most recently issued match - see ResetPasswordView."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="reset_tokens")

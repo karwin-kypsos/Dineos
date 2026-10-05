@@ -59,10 +59,8 @@ class PlatformAdmin(AbstractBaseUser, PermissionsMixin):
 
 
 def _generate_2fa_code():
-    from django.conf import settings
-
-    if not settings.EMAIL_DELIVERY_ENABLED:
-        return settings.COMMON_VERIFICATION_CODE
+    # Always random (2026-10-05) - it used to be a fixed, public 123456
+    # whenever email delivery was off.
     return f"{secrets.randbelow(1_000_000):06d}"
 
 

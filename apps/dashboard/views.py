@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.db.models import Q, Sum
+from django.db.models.functions import Lower
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
@@ -94,7 +95,7 @@ class AdminDashboardView(APIView):
         # "Your Branches" breakdown — always whole-restaurant regardless of
         # ?branch=, since it's a per-branch comparison view, not itself
         # narrowable to one branch.
-        branches_qs = Branch.objects.filter(restaurant=restaurant).order_by("name")
+        branches_qs = Branch.objects.filter(restaurant=restaurant).order_by(Lower("name"), "id")
         branches = []
         for branch in branches_qs:
             branch_tables = Table.objects.filter(restaurant=restaurant, branch=branch, is_active=True)

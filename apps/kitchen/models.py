@@ -1,6 +1,7 @@
 import secrets
 
 from django.db import models
+from django.db.models.functions import Lower
 
 
 def _generate_api_key():
@@ -25,7 +26,8 @@ class KDSDevice(models.Model):
         # query - so a device could appear on two pages or on neither.
         # Django was already warning about exactly this
         # (UnorderedObjectListWarning on the Kitchen Devices screen).
-        ordering = ["label", "id"]
+        # Lower(): case-insensitive A-Z (2026-10-05) - see apps.restaurant.models.Branch.
+        ordering = [Lower("label"), "id"]
 
     def __str__(self):
         return self.label

@@ -42,12 +42,10 @@ FEATURE_FLAG_KEYS = {f["key"] for f in FEATURE_FLAG_METADATA}
 
 class PlatformLoginView(APIView):
     """Step 1 of 2 — password only. No token issued here; a correct
-    password sends a 2FA code (step 2 is VerifyPlatformLoginView). Until
-    settings.EMAIL_DELIVERY_ENABLED is turned on, there's no real email/SMS
-    channel to deliver that code through, so PlatformLoginCode issues a
-    fixed, well-known code instead of a random one (see
-    apps.platform.models._generate_2fa_code) — the response echoes it back
-    either way so the flow is testable end-to-end without one."""
+    password sends a 2FA code (step 2 is VerifyPlatformLoginView). The code
+    is random (since 2026-10-05). Until settings.EMAIL_DELIVERY_ENABLED is
+    turned on there's no email channel to deliver it, so the response
+    echoes it back; with email on, it arrives by email only."""
 
     # No authentication_classes: without this, DRF still runs the global
     # default (JWTAuthentication against apps.authentication.User) against
@@ -334,12 +332,32 @@ class TenantViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_409_CONFLICT,
             )
 
+        # 2026-10-05: three relations are PROTECT so ordinary deletes can't
+        # erase history (order items -> dish, dish -> category, PO line ->
+        # ingredient). Deleting a whole organization is the one place that
+        # history is meant to go, but the cascade hit those guards and any
+        # organization that had ever taken an order or a purchase order
+        # answered 500. Clear the protected rows first, all in one
+        # transaction with the delete and its log line.
+        from django.db import transaction
+
+        from apps.inventory.models import PurchaseOrderLine
+        from apps.menu.models import MenuItem
+        from apps.orders.models import OrderItem
+
         name = restaurant.name
-        PlatformActivityLog.objects.create(
-            actor=request.user, action="TENANT_DELETED", restaurant=restaurant,
-            description=f"Permanently deleted organization '{name}' and all its data",
-        )
-        return super().destroy(request, *args, **kwargs)
+        with transaction.atomic():
+            PlatformActivityLog.objects.create(
+                actor=request.user, action="TENANT_DELETED", restaurant=restaurant,
+                description=f"Permanently deleted organization '{name}' and all its data",
+            )
+            OrderItem.objects.filter(
+                Q(order__table__restaurant=restaurant) | Q(order__branch__restaurant=restaurant)
+            ).delete()
+            PurchaseOrderLine.objects.filter(purchase_order__restaurant=restaurant).delete()
+            MenuItem.objects.filter(category__restaurant=restaurant).delete()
+            restaurant.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["patch"], url_path="status")
     def update_status(self, request, pk=None):

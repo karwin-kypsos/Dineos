@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -48,7 +49,9 @@ class MarkNotificationReadView(APIView):
     permission_classes = [IsAuthenticated]
 
     def patch(self, request, notification_id):
-        notification = Notification.objects.get(id=notification_id, recipient=request.user)
+        # get_object_or_404 (2026-10-05): someone else's or an unknown id
+        # answered 500 through a bare .get().
+        notification = get_object_or_404(Notification, id=notification_id, recipient=request.user)
         notification.is_read = True
         notification.save(update_fields=["is_read"])
         return Response(NotificationSerializer(notification).data)

@@ -1,0 +1,27 @@
+# Keeps the Render free web service from sleeping (2026-10-05, per Karwin).
+#
+# A free Render service spins down after 15 idle minutes, and waking it takes
+# ~40 s - long enough for the app's first request (e.g. Change Password) to
+# fail with a Cloudflare error. Pinging every 10 minutes keeps it up.
+#
+# /healthz/ never touches the database, so the Neon compute still scales to
+# zero between real requests and this costs no Neon compute hours. One
+# service awake all month (~744 h) fits Render's 750 free instance hours.
+# Free for a public repo. GitHub may run scheduled jobs a few minutes late,
+# and pauses them after 60 days with no commits to the repo.
+name: keep-awake
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping the API health check
+        run: curl --silent --show-error --fail --max-time 120 --retry 2 https://dineos-1unt.onrender.com/healthz/
