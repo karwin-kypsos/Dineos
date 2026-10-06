@@ -99,6 +99,10 @@ def razorpay_plan_for(tier, amount):
 def change_kind(current, tier):
     if current is None:
         return "new"
+    if tier == current.plan_tier:
+        # The same plan again after cancelling it: billing simply carries on
+        # from the end of the period already paid for.
+        return "renew"
     return "upgrade" if TIER_RANK[tier] > TIER_RANK[current.plan_tier] else "downgrade"
 
 

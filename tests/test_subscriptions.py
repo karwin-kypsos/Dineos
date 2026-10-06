@@ -343,3 +343,16 @@ def test_an_ended_subscription_stays_ended(admin_client, trial_restaurant, price
     assert sub.status == "CANCELLED"
     assert trial_restaurant.status == "PAYMENT_DUE"
     assert not SubscriptionPayment.objects.filter(razorpay_payment_id__startswith="pay_late").exists()
+
+
+def test_resubscribing_to_the_same_plan_after_cancelling_is_a_renewal(admin_client, trial_restaurant, prices, razorpay):
+    _, client = admin_client
+    sub = _active_on(client, "GROWTH")
+    client.post("/v1/subscriptions/cancel/")
+
+    again = client.post("/v1/subscriptions/checkout/", {"plan_id": "GROWTH"}, format="json")
+
+    assert again.status_code == 201, again.data
+    assert again.data["change"] == "renew"
+    sub.refresh_from_db()
+    assert again.data["first_charge_at"] == sub.current_end
