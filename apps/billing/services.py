@@ -318,9 +318,6 @@ def _broadcast_takeaway_payment_confirmed(bill, order, restaurant):
 
 
 def _notify_takeaway_payment_confirmed(bill, order, restaurant):
-    if not restaurant.notifications_enabled:
-        return
-
     from apps.notifications.services import notify_role
 
     notify_role(
@@ -341,9 +338,6 @@ def _notify_payment_confirmed(bill, session):
     from apps.notifications.services import notify_role
 
     restaurant = session.table.restaurant
-    if not restaurant.notifications_enabled:
-        return
-
     notify_role(
         ["ADMIN", "MANAGER"],
         tenant=restaurant,

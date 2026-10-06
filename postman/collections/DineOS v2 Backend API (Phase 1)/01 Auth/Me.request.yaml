@@ -10,7 +10,6 @@ scripts:
       pm.test('includes own tenant feature flags', () => {
         pm.expect(meData.restaurant).to.have.property('kitchen_enabled');
         pm.expect(meData.restaurant).to.have.property('billing_enabled');
-        pm.expect(meData.restaurant).to.have.property('notifications_enabled');
         pm.expect(meData.restaurant).to.have.property('realtime_enabled');
       });
     language: text/javascript

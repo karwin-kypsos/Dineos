@@ -126,9 +126,6 @@ def request_bill(session_id):
 
 
 def _notify_bill_requested(session, restaurant):
-    if not restaurant.notifications_enabled:
-        return
-
     from apps.notifications.services import notify_role
 
     notify_role(

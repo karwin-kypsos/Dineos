@@ -62,9 +62,10 @@ class Restaurant(models.Model):
     default_manager_spending_limit = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
 
     # Per-tenant add-on flags — controlled by the platform Super Admin,
-    # not by deployment config. Every deployment ships with all four on;
+    # not by deployment config. Every deployment ships with them on;
     # a Super Admin dials individual clients down for cheaper tiers.
-    notifications_enabled = models.BooleanField(default=True)
+    # notifications_enabled was one until 2026-10-06, per Karwin: on in
+    # every plan, so every restaurant now always gets in-app notifications.
     kitchen_enabled = models.BooleanField(default=True)
     billing_enabled = models.BooleanField(default=True)
     # Realtime updates stopped being a flag on 2026-10-01, per Karwin: every

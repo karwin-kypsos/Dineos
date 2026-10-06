@@ -95,7 +95,6 @@ class RestaurantSerializer(serializers.ModelSerializer):
             "default_manager_spending_limit",
             "gst_percentage",
             "service_charge_percentage",
-            "notifications_enabled",
             "kitchen_enabled",
             "billing_enabled",
             "realtime_enabled",

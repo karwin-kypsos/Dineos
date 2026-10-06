@@ -40,7 +40,6 @@ class TenantSummarySerializer(serializers.ModelSerializer):
             "plan_tier",
             "plan_tier_display",
             "max_branches",
-            "notifications_enabled",
             "kitchen_enabled",
             "billing_enabled",
             "realtime_enabled",

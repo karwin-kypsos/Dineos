@@ -8,14 +8,13 @@ PLAN_PRESETS = {
     "STARTER": {
         "max_branches": 1,
         "flags": {
-            "notifications_enabled": True,
+            # No notifications_enabled (since 2026-10-06) or realtime_enabled
+            # (since 2026-10-01): every plan has both, per Karwin.
             "kitchen_enabled": False,
             # Off since 2026-09-29, per Karwin: billing is a Growth/Enterprise
             # module. A preset only fills new organizations and plan changes -
             # restaurants already on Starter keep whatever their row says.
             "billing_enabled": False,
-            # No realtime_enabled: every plan has live updates and it stopped
-            # being a flag on 2026-10-01, per Karwin.
             # Off since 2026-09-30, per Shereena - same caveat as billing.
             "customer_ordering_enabled": False,
             "server_staff_enabled": False,
@@ -24,7 +23,6 @@ PLAN_PRESETS = {
     "GROWTH": {
         "max_branches": 5,
         "flags": {
-            "notifications_enabled": True,
             "kitchen_enabled": True,
             "billing_enabled": True,
             "customer_ordering_enabled": True,
@@ -34,7 +32,6 @@ PLAN_PRESETS = {
     "ENTERPRISE": {
         "max_branches": None,
         "flags": {
-            "notifications_enabled": True,
             "kitchen_enabled": True,
             "billing_enabled": True,
             "customer_ordering_enabled": True,

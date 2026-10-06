@@ -14,13 +14,10 @@ FEATURE_FLAG_METADATA = [
         "label": "Billing",
         "description": "Bill preview, payment collection, and cashier shift reconciliation.",
     },
-    {
-        "key": "notifications_enabled",
-        "label": "Notifications",
-        "description": "In-app notifications for order-ready, bill-requested, and payment-confirmed events.",
-    },
-    # realtime_enabled was here until 2026-10-01: every restaurant gets live
-    # updates now (per Karwin), so it is no longer a switch or a plan feature.
+    # realtime_enabled was here until 2026-10-01 and notifications_enabled
+    # until 2026-10-06 (per Karwin): every plan had them on, so they never
+    # told the plans apart - every restaurant gets live updates and in-app
+    # notifications, and neither is a switch or a plan feature any more.
     # 2026-09-30, per Shereena.
     {
         "key": "customer_ordering_enabled",

@@ -79,9 +79,10 @@ def test_plans_are_public_and_describe_each_tier(client):
     starter_features = {f["key"]: f["included"] for f in plans["STARTER"]["features"]}
     # Billing left Starter on 2026-09-29, per Karwin; customer ordering and
     # Server staff were added off on 2026-09-30, per Shereena. Realtime is no
-    # plan feature since 2026-10-01 - every restaurant has it.
+    # plan feature since 2026-10-01, nor notifications since 2026-10-06 -
+    # every restaurant has both.
     assert starter_features == {
-        "kitchen_enabled": False, "billing_enabled": False, "notifications_enabled": True,
+        "kitchen_enabled": False, "billing_enabled": False,
         "customer_ordering_enabled": False, "server_staff_enabled": False,
     }
     assert all(f["label"] and f["description"] for f in plans["GROWTH"]["features"])
@@ -196,7 +197,6 @@ def test_starter_plan_applies_its_limits(client):
     assert restaurant.max_branches == 1
     assert restaurant.kitchen_enabled is False
     assert restaurant.billing_enabled is False
-    assert restaurant.notifications_enabled is True
 
 
 def test_signup_refuses_mismatched_or_short_passwords(client):

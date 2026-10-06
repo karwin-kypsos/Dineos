@@ -475,9 +475,6 @@ def _order_payload(order):
 
 
 def _notify_order_ready(order, restaurant):
-    if not restaurant.notifications_enabled:
-        return
-
     from apps.notifications.services import notify_role
 
     # Takeaway has no table/assigned server (round-robin assignment is

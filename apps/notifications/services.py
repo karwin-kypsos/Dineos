@@ -51,8 +51,6 @@ def notify_role(roles, tenant, type, title, body="", data=None, order=None, tabl
     None — legacy/single-branch setups) skips this filter entirely, same
     restaurant-wide behavior as before.
     """
-    if not tenant.notifications_enabled:
-        return []
     resolved_branch = branch
     if resolved_branch is _BRANCH_UNSET:
         if table is not None:
