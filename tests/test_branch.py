@@ -356,3 +356,18 @@ def test_branch_rejects_manager_from_other_restaurant(admin_client):
 
     assert response.status_code == 400
     assert "manager" in response.data
+
+
+
+def test_multipart_branch_create_without_is_active_is_active(admin_client, monkeypatch):
+    """2026-10-05: a form reads a missing boolean as false, so a branch
+    created with a photo came out inactive."""
+    from tests.conftest import make_test_image
+
+    _, client = admin_client
+    monkeypatch.setattr("core.image_upload.upload_image", lambda f: "https://res.cloudinary.com/demo/b.jpg")
+
+    response = client.post("/v1/branches/", {"name": "Photo Branch", "image": make_test_image()}, format="multipart")
+
+    assert response.status_code == 201, response.data
+    assert response.data["is_active"] is True

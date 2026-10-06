@@ -37,6 +37,23 @@ class ImageUploadMixin:
 
     image_url_field = "image_url"
 
+    def get_fields(self):
+        # A form (multipart, how the apps send an image) reads a missing
+        # boolean as false - an unticked HTML checkbox sends nothing - while
+        # JSON reads it as not sent. So a dish, category or branch created
+        # with a photo came out is_active=false, hidden from the menu, and a
+        # form PUT without is_active deactivated it (2026-10-05). Missing
+        # now means "not sent" on a form too: the model default on create,
+        # unchanged on update. An explicit false still turns it off.
+        from rest_framework import serializers
+        from rest_framework.fields import empty
+
+        fields = super().get_fields()
+        for field in fields.values():
+            if isinstance(field, serializers.BooleanField) and not field.read_only:
+                field.default_empty_html = empty
+        return fields
+
     def _handle_image_upload(self, validated_data):
         image_file = validated_data.pop("image", None)
         if image_file is not None:

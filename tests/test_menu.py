@@ -640,3 +640,35 @@ def test_multipart_json_string_recipe_still_checks_ingredients(manager_client, m
     )
 
     assert response.status_code == 400 and "recipe_items" in response.data
+
+
+# ---- a form leaving is_active out (2026-10-05) -------------------------------
+
+def test_multipart_create_without_is_active_makes_an_active_dish_and_category(manager_client, menu_item, monkeypatch):
+    from apps.menu.models import Category, MenuItem
+    from tests.conftest import make_test_image
+
+    _, client = manager_client
+    monkeypatch.setattr("core.image_upload.upload_image", lambda f: "https://res.cloudinary.com/demo/x.jpg")
+
+    category = client.post("/v1/menu/categories/", {"name": "Desserts", "sort_order": 3, "image": make_test_image()}, format="multipart")
+    dish = client.post("/v1/menu/", {"category": menu_item.category_id, "name": "Photo Dish", "price": "99.00", "sort_order": 1,
+                                     "image": make_test_image()}, format="multipart")
+
+    assert category.status_code == 201 and dish.status_code == 201, (category.data, dish.data)
+    assert category.data["is_active"] is True and Category.objects.get(id=category.data["id"]).is_active
+    assert dish.data["is_active"] is True and MenuItem.objects.get(id=dish.data["id"]).is_active
+
+
+def test_multipart_explicit_false_still_deactivates_and_put_without_it_leaves_it(manager_client, menu_item):
+    _, client = manager_client
+
+    off = client.patch(f"/v1/menu/{menu_item.id}/", {"is_active": "false"}, format="multipart")
+    assert off.status_code == 200 and off.data["is_active"] is False
+
+    on = client.patch(f"/v1/menu/{menu_item.id}/", {"is_active": "true"}, format="multipart")
+    assert on.data["is_active"] is True
+    put = client.put(f"/v1/menu/{menu_item.id}/", {"category": menu_item.category_id, "name": "Same", "price": "10.00", "sort_order": 0},
+                     format="multipart")
+    assert put.status_code == 200, put.data
+    assert put.data["is_active"] is True  # a form PUT used to switch it off
