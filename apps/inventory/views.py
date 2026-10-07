@@ -441,8 +441,11 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
     def goods_receipts(self, request, pk=None):
         """Record one delivery. The ONLY endpoint that moves stock.
 
-        {"items": [{"item_id": 1, "received_quantity": "3.00", "notes":
-        ""}], "notes": "", "confirm_overdelivery": false}
+        {"items": [{"item_id": 1, "received_quantity": "3.00", "unit_cost":
+        "48.00", "notes": ""}], "notes": "", "confirm_overdelivery": false}
+
+        unit_cost (optional, 2026-10-07) is what the delivery actually cost
+        per unit; left out, the line's quoted price is used.
 
         Receiving more than was approved returns 409 unless
         confirm_overdelivery is true - never silently clamped, never
@@ -464,6 +467,7 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
             items.append({
                 "line": line,
                 "received_quantity": entry["received_quantity"],
+                "unit_cost": entry.get("unit_cost"),
                 "notes": entry["notes"],
             })
 

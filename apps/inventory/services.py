@@ -330,8 +330,10 @@ def record_goods_receipt(po_id, items, received_by=None, confirm_overdelivery=Fa
     """Record one delivery against a PO. THE ONLY PATH THAT RAISES STOCK.
 
     `items` is [{"line": PurchaseOrderLine, "received_quantity": Decimal,
-    "notes": str}]. Quantities are per-delivery, not running totals, and
-    accumulate onto PurchaseOrderLine.quantity_received.
+    "notes": str, "unit_cost": Decimal or None}]. Quantities are
+    per-delivery, not running totals, and accumulate onto
+    PurchaseOrderLine.quantity_received. unit_cost is what this delivery
+    actually cost per unit; None means the line's quoted price.
 
     Over-delivery (cumulative received beyond approved) is refused unless
     confirm_overdelivery is set - never silently clamped and never
@@ -396,12 +398,15 @@ def record_goods_receipt(po_id, items, received_by=None, confirm_overdelivery=Fa
     for entry in items:
         line = lines[entry["line"].id]
         qty = entry["received_quantity"]
+        cost = entry.get("unit_cost")
+        if cost is None:
+            cost = line.unit_cost
         GoodsReceiptLine.objects.create(
             goods_receipt=receipt, purchase_order_line=line,
-            received_quantity=qty, notes=entry.get("notes", "") or "",
+            received_quantity=qty, unit_cost=cost, notes=entry.get("notes", "") or "",
         )
         add_stock(
-            line.ingredient_id, qty, unit_cost=line.unit_cost, recorded_by=received_by,
+            line.ingredient_id, qty, unit_cost=cost, recorded_by=received_by,
             adjustment_reason=StockMovement.AdjustmentReason.GOODS_RECEIPT,
         )
         line.quantity_received = line.quantity_received + qty

@@ -1438,3 +1438,70 @@ def test_branch_manager_cannot_see_another_branch_wastage_via_branch_param(manag
     _wastage(oil, "1.00", "SPOILED")
 
     assert client.get(f"/v1/inventory/wastage/?branch={south.id}").data["count"] == 0
+
+
+
+# ---- received_value (2026-10-07, per Karwin) ---------------------------------
+
+def _approved_po(admin_c, manager_c, ingredient, qty="10.00", cost="120.00"):
+    create = manager_c.post("/v1/inventory/purchase-orders/", {
+        "lines": [{"ingredient": str(ingredient.id), "quantity_ordered": qty, "unit_cost": cost}]}, format="json")
+    po_id, line_id = create.data["id"], create.data["lines"][0]["id"]
+    admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/approve/", {}, format="json")
+    return po_id, line_id
+
+
+def test_received_value_uses_what_each_delivery_actually_cost(admin_client, manager_client, ingredient):
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+    po_id, line_id = _approved_po(admin_c, manager_c, ingredient)  # 10 x 120.00 quoted = 1200.00
+
+    first = admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+                         {"items": [{"item_id": line_id, "received_quantity": "4.00", "unit_cost": "105.00"}]}, format="json")
+    second = admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+                          {"items": [{"item_id": line_id, "received_quantity": "2.00"}]}, format="json")
+    detail = admin_c.get(f"/v1/inventory/purchase-orders/{po_id}/").data
+
+    assert first.status_code == 201 and first.data["lines"][0]["unit_cost"] == "105.00"
+    assert second.data["lines"][0]["unit_cost"] == "120.00"  # not given: the quoted price
+    assert detail["estimated_total"] == "1200.00"
+    assert detail["received_value"] == "660.00"  # 4 x 105 + 2 x 120, not 6 x 120 = 720
+    ingredient.refresh_from_db()
+    assert ingredient.unit_cost == Decimal("120.00")  # the latest delivery's price
+
+
+def test_received_value_is_zero_before_anything_arrives_and_in_the_list(admin_client, manager_client, ingredient):
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+    po_id, _ = _approved_po(admin_c, manager_c, ingredient)
+
+    detail = admin_c.get(f"/v1/inventory/purchase-orders/{po_id}/").data
+    listed = [po for po in admin_c.get("/v1/inventory/purchase-orders/").data["results"] if po["id"] == po_id][0]
+
+    assert detail["received_value"] == "0.00"
+    assert listed["received_value"] == "0.00"
+
+
+def test_delivery_cost_moves_stock_at_the_real_price(admin_client, manager_client, ingredient):
+    from apps.inventory.models import StockMovement
+
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+    po_id, line_id = _approved_po(admin_c, manager_c, ingredient)
+
+    admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+                 {"items": [{"item_id": line_id, "received_quantity": "1.00", "unit_cost": "99.50"}]}, format="json")
+
+    movement = StockMovement.objects.filter(ingredient=ingredient, adjustment_reason="GOODS_RECEIPT").latest("recorded_at")
+    assert movement.unit_cost_at_time == Decimal("99.50")
+
+
+def test_negative_delivery_cost_is_refused(admin_client, manager_client, ingredient):
+    _, admin_c = admin_client
+    _, manager_c = manager_client
+    po_id, line_id = _approved_po(admin_c, manager_c, ingredient)
+
+    response = admin_c.post(f"/v1/inventory/purchase-orders/{po_id}/goods-receipts/",
+                            {"items": [{"item_id": line_id, "received_quantity": "1.00", "unit_cost": "-5.00"}]}, format="json")
+
+    assert response.status_code == 400

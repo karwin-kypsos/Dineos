@@ -201,7 +201,7 @@ class GoodsReceiptLineSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = GoodsReceiptLine
-        fields = ["id", "purchase_order_line", "ingredient_name", "unit", "received_quantity", "notes"]
+        fields = ["id", "purchase_order_line", "ingredient_name", "unit", "received_quantity", "unit_cost", "notes"]
         read_only_fields = fields
 
 
@@ -255,6 +255,11 @@ class ApprovePurchaseOrderSerializer(serializers.Serializer):
 
 class GoodsReceiptLineInputSerializer(_POLineRefSerializer):
     received_quantity = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=Decimal("0.01"))
+    # What the delivery actually cost per unit (2026-10-07); left out or
+    # null, the PO line's quoted unit_cost.
+    unit_cost = serializers.DecimalField(
+        max_digits=10, decimal_places=2, min_value=Decimal("0"), required=False, allow_null=True, default=None,
+    )
     notes = serializers.CharField(required=False, allow_blank=True, default="")
 
 
@@ -279,6 +284,23 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
     requested_by_name = serializers.CharField(source="requested_by.name", read_only=True)
     approved_by_name = serializers.CharField(source="approved_by.name", read_only=True)
     estimated_total = serializers.SerializerMethodField()
+    received_value = serializers.SerializerMethodField()
+
+    def get_received_value(self, obj):
+        """What was actually received, at what it actually cost (2026-10-07,
+        per Karwin): every delivery's received_quantity x its unit_cost,
+        summed. The app had worked this out as quantity_received x the
+        quoted unit_cost, wrong whenever the supplier's price differed.
+        A string, like estimated_total."""
+        from django.db.models import DecimalField, ExpressionWrapper, F, Sum, Value
+        from django.db.models.functions import Coalesce
+
+        cost = ExpressionWrapper(
+            F("received_quantity") * Coalesce("unit_cost", "purchase_order_line__unit_cost", Value(Decimal("0"))),
+            output_field=DecimalField(max_digits=22, decimal_places=4),
+        )
+        total = GoodsReceiptLine.objects.filter(goods_receipt__purchase_order=obj).aggregate(total=Sum(cost))["total"]
+        return str(Decimal(total or 0).quantize(Decimal("0.01")))
 
     def get_estimated_total(self, obj):
         # 2026-09-22: returned as a decimal STRING, like every other money
@@ -300,7 +322,7 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
             "id", "branch", "status", "reason", "is_emergency", "supplier_name", "supplier_notes",
             "requested_by", "requested_by_name", "approved_by", "approved_by_name",
             "approved_at", "approval_note", "closed_reason", "created_at", "lines",
-            "estimated_total", "goods_receipts",
+            "estimated_total", "received_value", "goods_receipts",
         ]
         read_only_fields = fields
 

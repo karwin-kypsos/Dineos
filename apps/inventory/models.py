@@ -247,6 +247,12 @@ class GoodsReceiptLine(models.Model):
         PurchaseOrderLine, on_delete=models.CASCADE, related_name="receipt_lines"
     )
     received_quantity = models.DecimalField(max_digits=10, decimal_places=2)
+    # What this delivery actually cost per unit (2026-10-07, per Karwin) -
+    # the supplier's price can differ from the one quoted on the PO line.
+    # The quoted unit_cost when the receipt didn't say; receipts recorded
+    # before this field were backfilled with it, the price their stock was
+    # added at. Null only when the PO line had no price either.
+    unit_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     notes = models.CharField(max_length=255, blank=True)
 
     class Meta:
