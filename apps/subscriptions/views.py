@@ -138,8 +138,11 @@ class VerifyView(APIView):
             verify_subscription_payment(data["razorpay_subscription_id"], data["razorpay_payment_id"], data["razorpay_signature"])
         except RazorpayUnavailableError:
             return Response({"razorpay_signature": ["Payment signature is not valid."]}, status=400)
+        from apps.restaurant.realtime import broadcast_if_changed, organization_payload
+
+        before = organization_payload(request.tenant)
         services.mark_authorised(sub)
-        request.tenant.refresh_from_db()
+        broadcast_if_changed(request.tenant, before)
         return Response(current_payload(request.tenant))
 
 

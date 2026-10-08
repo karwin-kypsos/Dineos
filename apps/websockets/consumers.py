@@ -54,6 +54,9 @@ class _BroadcastConsumer(AsyncWebsocketConsumer):
     portions_updated = _forward
     portions_zero = _forward
     notification_new = _forward
+    # The restaurant's plan / flags / status changed (2026-10-08) - see
+    # apps.restaurant.realtime. Staff sockets only (staff_all group).
+    organization_updated = _forward
 
 
 class KitchenConsumer(_BroadcastConsumer):

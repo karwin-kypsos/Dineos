@@ -80,7 +80,10 @@ def pending_change(restaurant):
     current = current_subscription(restaurant)
     if current is None:
         return None
-    return restaurant.subscriptions.filter(status__in=LIVE, plan_applied_at__isnull=True).exclude(id=current.id).order_by("-created_at").first()
+    return (
+        restaurant.subscriptions.filter(status__in=LIVE, plan_applied_at__isnull=True, cancel_at_period_end=False)
+        .exclude(id=current.id).order_by("-created_at").first()
+    )
 
 
 def razorpay_plan_for(tier, amount):
@@ -96,14 +99,20 @@ def razorpay_plan_for(tier, amount):
     return plan
 
 
-def change_kind(current, tier):
+def change_kind(current, tier, on_plan=None):
+    """new / upgrade / downgrade / renew. Judged against on_plan - the plan
+    the restaurant is actually on, which a Super Admin can change by hand -
+    rather than the subscription's own plan (2026-10-08: a restaurant moved
+    to Starter by hand while its Growth subscription ran got 409
+    already_on_plan for Growth)."""
     if current is None:
         return "new"
-    if tier == current.plan_tier:
+    on_plan = on_plan or current.plan_tier
+    if tier == on_plan:
         # The same plan again after cancelling it: billing simply carries on
         # from the end of the period already paid for.
         return "renew"
-    return "upgrade" if TIER_RANK[tier] > TIER_RANK[current.plan_tier] else "downgrade"
+    return "upgrade" if TIER_RANK[tier] > TIER_RANK[on_plan] else "downgrade"
 
 
 @transaction.atomic
@@ -117,9 +126,12 @@ def start_checkout(restaurant, tier, user):
         raise PricesNotSet()
     restaurant = Restaurant.objects.select_for_update().get(id=restaurant.id)
     current = current_subscription(restaurant)
-    if current is not None and current.plan_tier == tier and not current.cancel_at_period_end:
+    # Already on it = the restaurant has this plan AND a live subscription
+    # paying for it that isn't being cancelled.
+    if (current is not None and current.plan_tier == tier and restaurant.plan_tier == tier
+            and not current.cancel_at_period_end):
         raise AlreadyOnPlan()
-    kind = change_kind(current, tier)
+    kind = change_kind(current, tier, restaurant.plan_tier)
 
     unfinished = restaurant.subscriptions.filter(
         status=Subscription.Status.CREATED, plan_tier=tier, amount=price, replaces=current,
@@ -188,14 +200,20 @@ def mark_authorised(sub):
     if first_time:
         sub.status = Subscription.Status.AUTHENTICATED
     old = sub.replaces
-    if old is not None and old.status in LIVE and not old.cancel_at_period_end:
+    # The plan just chosen replaces every other live one, not only the one
+    # it was checked out against (2026-10-08): a downgrade still waiting to
+    # start, or a second checkout authorised meanwhile, would otherwise all
+    # begin charging at the same date. One that is billing keeps its paid
+    # period (cancelled at cycle end); one that hasn't started is cancelled.
+    others = sub.restaurant.subscriptions.filter(status__in=LIVE, cancel_at_period_end=False).exclude(id=sub.id)
+    for other in others:
         try:
-            razorpay_client.cancel_subscription(old.razorpay_subscription_id, at_cycle_end=old.status == Subscription.Status.ACTIVE)
+            razorpay_client.cancel_subscription(other.razorpay_subscription_id, at_cycle_end=other.status == Subscription.Status.ACTIVE)
         except RazorpayUnavailableError:
-            logger.exception("Could not cancel replaced subscription %s", old.razorpay_subscription_id)
-        old.cancel_at_period_end = True
-        old.save(update_fields=["cancel_at_period_end", "updated_at"])
-    kind = change_kind(old if old is not None and old.plan_applied_at else None, sub.plan_tier)
+            logger.exception("Could not cancel replaced subscription %s", other.razorpay_subscription_id)
+        other.cancel_at_period_end = True
+        other.save(update_fields=["cancel_at_period_end", "updated_at"])
+    kind = change_kind(old if old is not None and old.plan_applied_at else None, sub.plan_tier, sub.restaurant.plan_tier)
     # An upgrade (or a first plan) applies now; a downgrade waits for billing.
     if kind in ("new", "upgrade"):
         _apply_tier(sub, now)
@@ -305,9 +323,19 @@ def handle_webhook(event, payload):
     """Razorpay subscription.* events. Unknown subscriptions are ignored
     (another environment's, or one created outside DineOS)."""
     entity = ((payload.get("payload") or {}).get("subscription") or {}).get("entity") or {}
-    sub = Subscription.objects.filter(razorpay_subscription_id=entity.get("id")).first()
+    sub = Subscription.objects.filter(razorpay_subscription_id=entity.get("id")).select_related("restaurant").first()
     if sub is None or sub.status in ENDED:
         return "ignored"
+    from apps.restaurant.realtime import broadcast_if_changed, organization_payload
+
+    restaurant = sub.restaurant
+    before = organization_payload(restaurant)
+    result = _apply_event(event, sub, entity, payload)
+    broadcast_if_changed(restaurant, before)
+    return result
+
+
+def _apply_event(event, sub, entity, payload):
     payment = ((payload.get("payload") or {}).get("payment") or {}).get("entity")
     if event == "subscription.authenticated":
         mark_authorised(sub)

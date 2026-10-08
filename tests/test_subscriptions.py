@@ -356,3 +356,41 @@ def test_resubscribing_to_the_same_plan_after_cancelling_is_a_renewal(admin_clie
     assert again.data["change"] == "renew"
     sub.refresh_from_db()
     assert again.data["first_charge_at"] == sub.current_end
+
+
+# ---- 2026-10-08: plan changed by hand; several live subscriptions ----------------
+
+def test_plan_set_by_hand_is_what_already_on_plan_is_judged_against(admin_client, trial_restaurant, prices, razorpay):
+    """Bristo, live: on a Growth subscription, moved to Starter by a Super
+    Admin, then checkout of Growth answered 409 already_on_plan."""
+    _, client = admin_client
+    growth = _active_on(client, "GROWTH")
+    trial_restaurant.refresh_from_db()
+    trial_restaurant.plan_tier = "STARTER"  # what PATCH /platform/tenants/{id}/plan/ does
+    trial_restaurant.save(update_fields=["plan_tier"])
+
+    checkout = client.post("/v1/subscriptions/checkout/", {"plan_id": "GROWTH"}, format="json")
+    assert checkout.status_code == 201, checkout.data
+    assert checkout.data["change"] == "upgrade"
+    client.post("/v1/subscriptions/verify/", {"razorpay_subscription_id": checkout.data["razorpay_subscription_id"],
+                                             "razorpay_payment_id": "pay_hand", "razorpay_signature": "sig"}, format="json")
+
+    trial_restaurant.refresh_from_db()
+    growth.refresh_from_db()
+    assert trial_restaurant.plan_tier == "GROWTH"  # applied at verify, an upgrade from Starter
+    assert growth.cancel_at_period_end is True
+
+
+def test_authorising_a_plan_cancels_every_other_live_one(admin_client, trial_restaurant, prices, razorpay):
+    _, client = admin_client
+    _active_on(client, "GROWTH")
+    starter = _checkout_and_verify(client, "STARTER")  # a downgrade waiting for the period end
+    assert client.get("/v1/subscriptions/current/").data["pending_plan_id"] == "STARTER"
+
+    _checkout_and_verify(client, "ENTERPRISE")
+
+    starter.refresh_from_db()
+    assert starter.cancel_at_period_end is True
+    razorpay["cancel"].assert_any_call(starter.razorpay_subscription_id, at_cycle_end=False)  # never billed: cancelled now
+    current = client.get("/v1/subscriptions/current/").data
+    assert current["plan_id"] == "ENTERPRISE" and current["pending_plan_id"] is None

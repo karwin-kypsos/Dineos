@@ -280,7 +280,11 @@ class TenantViewSet(viewsets.ModelViewSet):
         plan_tier_changed = "plan_tier" in self.request.data and serializer.instance.plan_tier != self.request.data.get(
             "plan_tier"
         )
+        from apps.restaurant.realtime import broadcast_if_changed, organization_payload
+
+        before = organization_payload(serializer.instance)
         restaurant = serializer.save()
+        broadcast_if_changed(restaurant, before)
         PlatformActivityLog.objects.create(
             actor=self.request.user,
             action="PLAN_CHANGED" if plan_tier_changed else "TENANT_UPDATED",
@@ -367,7 +371,10 @@ class TenantViewSet(viewsets.ModelViewSet):
         and core.tenancy.TenantResolverMiddleware) — not just a cosmetic
         status label."""
 
+        from apps.restaurant.realtime import broadcast_if_changed, organization_payload
+
         restaurant = self.get_object()
+        before = organization_payload(restaurant)
         new_status = request.data.get("status")
         if new_status not in Restaurant.Status.values:
             return Response(
@@ -393,6 +400,7 @@ class TenantViewSet(viewsets.ModelViewSet):
             restaurant=restaurant,
             description=f"Set '{restaurant.name}' status to {restaurant.get_status_display()}",
         )
+        broadcast_if_changed(restaurant, before)
         return Response(RestaurantSerializer(restaurant).data)
 
     @action(detail=True, methods=["patch"], url_path="feature-flags")
@@ -401,7 +409,10 @@ class TenantViewSet(viewsets.ModelViewSet):
         one dedicated endpoint so the frontend doesn't need to resend the
         entire org record for a single switch flip."""
 
+        from apps.restaurant.realtime import broadcast_if_changed, organization_payload
+
         restaurant = self.get_object()
+        before = organization_payload(restaurant)
         unknown = set(request.data.keys()) - FEATURE_FLAG_KEYS
         if unknown:
             return Response({"detail": f"Unknown flag(s): {sorted(unknown)}"}, status=status.HTTP_400_BAD_REQUEST)
@@ -433,6 +444,7 @@ class TenantViewSet(viewsets.ModelViewSet):
                 description=f"Changed flags for '{restaurant.name}': "
                 + ", ".join(f"{key} {'on' if value else 'off'}" for key, value in values.items()),
             )
+            broadcast_if_changed(restaurant, before)
         return Response(RestaurantSerializer(restaurant).data)
 
     @action(detail=True, methods=["patch"], url_path="plan")
@@ -447,7 +459,10 @@ class TenantViewSet(viewsets.ModelViewSet):
         /feature-flags/ afterward — this endpoint is for the plan switch
         itself, not for preserving one-off customizations through it."""
 
+        from apps.restaurant.realtime import broadcast_if_changed, organization_payload
+
         restaurant = self.get_object()
+        before = organization_payload(restaurant)
         plan_tier = request.data.get("plan_tier")
         if plan_tier not in Restaurant.PlanTier.values:
             return Response(
@@ -468,6 +483,7 @@ class TenantViewSet(viewsets.ModelViewSet):
             restaurant=restaurant,
             description=f"Changed '{restaurant.name}' to the {restaurant.get_plan_tier_display()} plan",
         )
+        broadcast_if_changed(restaurant, before)
         return Response(RestaurantSerializer(restaurant).data)
 
     @action(detail=True, methods=["patch"], url_path="branding")
