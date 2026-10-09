@@ -14,6 +14,7 @@ POSTs are rate-limited per client against scripted sign-ups.
 """
 from decimal import Decimal
 
+from django.conf import settings
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -39,6 +40,9 @@ def plan_payload(tier):
         "price": str(price.quantize(Decimal("0.01"))) if price is not None else None,
         "currency": "INR",
         "billing_cycle": "MONTHLY" if price is not None else None,
+        # Length of the free trial a new restaurant gets (2026-10-09), so the
+        # signup screen can say "14-day free trial" without hardcoding it.
+        "trial_days": settings.TRIAL_DAYS,
         "max_branches": preset["max_branches"],  # null = unlimited
         "features": [
             {**flag, "included": preset["flags"][flag["key"]]} for flag in FEATURE_FLAG_METADATA

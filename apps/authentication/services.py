@@ -20,10 +20,10 @@ def issue_invite(user):
 # ---- Admin Self-Registration (2026-09-29) --------------------------------------
 
 REGISTRATION_TTL_HOURS = 24
-# Same trial a Super Admin gives a tenant created straight into TRIAL, so a
-# self-registered restaurant shows up in the platform dashboard's "needing
-# attention" list when it runs out and can be switched to ACTIVE there.
-SELF_REGISTRATION_TRIAL_DAYS = 14
+# The trial is settings.TRIAL_DAYS long - the same one a Super Admin gives a
+# tenant created straight into TRIAL - so a self-registered restaurant shows
+# up in the platform dashboard's "needing attention" list when it runs out
+# and can be switched to ACTIVE there.
 
 
 class RegistrationNotFound(Exception):
@@ -117,7 +117,7 @@ def complete_self_registration(registration_id, email, password):
             name=registration.restaurant_name,
             slug=_unique_restaurant_slug(registration.restaurant_name),
             status=Restaurant.Status.TRIAL,
-            trial_ends_at=now + timezone.timedelta(days=SELF_REGISTRATION_TRIAL_DAYS),
+            trial_ends_at=now + timezone.timedelta(days=settings.TRIAL_DAYS),
             gst_percentage=Decimal(str(settings.DEFAULT_GST_PERCENTAGE)),
             service_charge_percentage=registration.service_charge_percentage,
             contact_name=registration.contact_name,

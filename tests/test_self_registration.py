@@ -286,3 +286,32 @@ def test_super_admin_organization_form_takes_pan_and_registration_number():
     assert bad_pan.status_code == 400
     assert "pan_number" in bad_pan.data
     assert Restaurant.objects.get(id=created.data["id"]).pan_number == "ABCDE1234F"
+
+
+
+# ---- trial_days (2026-10-09, per Karwin) --------------------------------------
+
+def test_plans_carry_the_trial_length(client):
+    plans = client.get("/v1/auth/plans/").data
+
+    assert [p["trial_days"] for p in plans] == [14, 14, 14]
+
+
+def test_one_setting_drives_the_plans_and_the_actual_trial(client, settings):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.restaurant.models import Restaurant
+
+    settings.TRIAL_DAYS = 30
+    plans = client.get("/v1/auth/plans/").data
+    reg = client.post("/v1/auth/register-restaurant/", {
+        "restaurant_name": "Thirty Day Diner", "contact_name": "Owner", "contact_phone": "+91 98470 00030",
+        "contact_email": "thirty@trial.test", "plan_id": "GROWTH"}, format="json")
+    signup = client.post("/v1/auth/signup/", {"registration_id": reg.data["registration_id"], "email": "thirty@trial.test",
+                                              "password": "Secret@123", "password_confirm": "Secret@123"}, format="json")
+
+    assert all(p["trial_days"] == 30 for p in plans) and reg.data["plan"]["trial_days"] == 30
+    restaurant = Restaurant.objects.get(id=signup.data["restaurant_id"])
+    assert timedelta(days=29) < restaurant.trial_ends_at - timezone.now() <= timedelta(days=30)

@@ -329,6 +329,13 @@ PLAN_PRICES = {
     "ENTERPRISE": env("PLAN_PRICE_ENTERPRISE", default=""),
 }
 
+# Length of the free trial, in days (2026-10-09, per Karwin): a self-registered
+# restaurant's trial, a Super Admin putting an organization into TRIAL, and
+# trial_days on GET /v1/auth/plans/ all read this one value, so the signup
+# screen never shows a number that has gone stale. Was 14 written in three
+# places.
+TRIAL_DAYS = env.int("TRIAL_DAYS", default=14)
+
 # ---------------------------------------------------------------------------
 # Logging — send everything to stdout so Render captures it
 # ---------------------------------------------------------------------------

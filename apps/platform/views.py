@@ -248,7 +248,7 @@ class TenantViewSet(viewsets.ModelViewSet):
         if serializer.validated_data.get("status") == Restaurant.Status.TRIAL and "trial_ends_at" not in request.data:
             from django.utils import timezone
 
-            extra["trial_ends_at"] = timezone.now() + timezone.timedelta(days=14)
+            extra["trial_ends_at"] = timezone.now() + timezone.timedelta(days=settings.TRIAL_DAYS)
 
         # Atomic so a failure anywhere in here (e.g. an unforeseen race on
         # contact_email between the check above and this running) rolls
@@ -390,7 +390,7 @@ class TenantViewSet(viewsets.ModelViewSet):
         if new_status == Restaurant.Status.TRIAL and restaurant.trial_ends_at is None:
             from django.utils import timezone
 
-            restaurant.trial_ends_at = timezone.now() + timezone.timedelta(days=14)
+            restaurant.trial_ends_at = timezone.now() + timezone.timedelta(days=settings.TRIAL_DAYS)
             update_fields.append("trial_ends_at")
         restaurant.save(update_fields=update_fields)
 
