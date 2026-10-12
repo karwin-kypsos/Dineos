@@ -661,6 +661,37 @@ class DashboardView(APIView):
             "-created_at"
         )[:10]
 
+        # revenue_by_plan (2026-10-12, per Karwin - the MRR-by-plan bar chart):
+        # what restaurants paid DineOS for their plan (paid subscription
+        # charges), per plan tier, this calendar month and this calendar year
+        # so far - not monthly_revenue above, which is the restaurants' own
+        # diner bills. A charge counts on the day it was recorded, which
+        # follows the payment within minutes. org_count is how many
+        # organizations are on each tier now, whatever their status.
+        from apps.subscriptions.models import SubscriptionPayment
+
+        tiers = Restaurant.PlanTier.values
+        org_counts = dict(Restaurant.objects.values_list("plan_tier").annotate(n=Count("id")).order_by())
+
+        def _revenue_by_plan(since):
+            totals = dict(
+                SubscriptionPayment.objects.filter(status=SubscriptionPayment.Status.PAID, created_at__gte=since)
+                .values_list("plan_tier").annotate(total=Sum("amount")).order_by()
+            )
+            return [
+                {"plan_tier": tier, "revenue": str((totals.get(tier) or Decimal("0")).quantize(Decimal("0.01"))),
+                 "org_count": org_counts.get(tier, 0)}
+                for tier in tiers
+            ]
+
+        revenue_by_plan = {
+            "month": month_start.strftime("%Y-%m"),
+            "year": month_start.year,
+            "currency": "INR",
+            "monthly": _revenue_by_plan(month_start),
+            "yearly": _revenue_by_plan(month_start.replace(month=1)),
+        }
+
         return Response(
             {
                 "total_tenants": total_tenants,
@@ -671,6 +702,7 @@ class DashboardView(APIView):
                 "total_staff_percentage": total_staff_percentage,
                 "recent_tenants": RestaurantSerializer(recent_tenants, many=True).data,
                 "monthly_revenue": monthly_revenue,
+                "revenue_by_plan": revenue_by_plan,
                 "new_signups_this_week": new_signups_this_week,
                 "weekly_revenue": weekly_revenue,
                 "revenue_vs_last_week": this_week_total - previous_week_total,

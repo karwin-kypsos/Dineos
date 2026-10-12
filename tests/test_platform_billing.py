@@ -118,3 +118,49 @@ def test_unknown_subscription_status_filter_is_400(platform):
     response = platform.get("/platform/tenants/?subscription_status=late")
 
     assert response.status_code == 400 and "subscription_status" in response.data
+
+
+
+# ---- 2026-10-12: revenue_by_plan on the dashboard (MRR-by-plan chart) -------------
+
+def test_dashboard_revenue_by_plan_month_and_year(platform, restaurant):
+    """Per Karwin: monthly = this month's paid subscription charges per plan,
+    yearly = this calendar year so far; org_count = organizations on each
+    tier now. Failed charges and earlier years don't count."""
+    now = timezone.localtime()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    restaurant.plan_tier = "GROWTH"
+    restaurant.save(update_fields=["plan_tier"])
+    starter_org = Restaurant.objects.create(name="Starter Org", slug="starter-rev", plan_tier="STARTER")
+    Restaurant.objects.create(name="Starter Org 2", slug="starter-rev-2", plan_tier="STARTER", status="SUSPENDED")
+
+    growth = _sub(restaurant, "ACTIVE", tier="GROWTH")
+    starter = _sub(starter_org, "ACTIVE", tier="STARTER")
+    _pay(growth, amount="2499.00")
+    _pay(growth, amount="2499.00", status="FAILED")
+    _pay(starter, amount="999.00")
+    if month_start.month > 1:  # earlier this year: yearly only
+        earlier = _pay(growth, amount="2499.00")
+        SubscriptionPayment.objects.filter(id=earlier.id).update(created_at=month_start - datetime.timedelta(days=1))
+    last_year = _pay(starter, amount="999.00")
+    SubscriptionPayment.objects.filter(id=last_year.id).update(created_at=month_start.replace(month=1) - datetime.timedelta(days=1))
+
+    data = platform.get("/platform/dashboard/").data["revenue_by_plan"]
+
+    assert data["month"] == month_start.strftime("%Y-%m") and data["year"] == month_start.year and data["currency"] == "INR"
+    monthly = {row["plan_tier"]: row for row in data["monthly"]}
+    yearly = {row["plan_tier"]: row for row in data["yearly"]}
+    assert [row["plan_tier"] for row in data["monthly"]] == ["STARTER", "GROWTH", "ENTERPRISE"]
+    assert monthly["GROWTH"]["revenue"] == "2499.00" and monthly["STARTER"]["revenue"] == "999.00"
+    assert monthly["ENTERPRISE"] == {"plan_tier": "ENTERPRISE", "revenue": "0.00", "org_count": 0}
+    assert yearly["GROWTH"]["revenue"] == ("4998.00" if month_start.month > 1 else "2499.00")
+    assert yearly["STARTER"]["revenue"] == "999.00"  # last year's charge left out
+    assert monthly["STARTER"]["org_count"] == yearly["STARTER"]["org_count"] == 2
+    assert monthly["GROWTH"]["org_count"] == 1
+
+
+def test_dashboard_revenue_by_plan_with_no_charges(platform):
+    data = platform.get("/platform/dashboard/").data["revenue_by_plan"]
+
+    assert all(row["revenue"] == "0.00" for row in data["monthly"] + data["yearly"])
+    assert len(data["monthly"]) == len(data["yearly"]) == 3
