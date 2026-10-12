@@ -75,7 +75,15 @@ class TenantResolverMiddleware:
         except ImpersonationRevoked:
             return JsonResponse({"detail": "This support access session has ended."}, status=401)
         except TenantSuspended:
-            return JsonResponse({"detail": "This organization's account has been suspended."}, status=403)
+            # code "access_blocked" (2026-10-12, per Karwin): the app needs a
+            # marker to tell an organization-level block apart from an
+            # ordinary permission 403 (which must not log anyone out).
+            # Deliberately not "subscription_required" - a suspension can be
+            # a policy or manual decision, not only billing.
+            return JsonResponse(
+                {"detail": "This organization's account has been suspended.", "code": "access_blocked"},
+                status=403,
+            )
         except TenantPaymentDue:
             return JsonResponse(
                 {"detail": "This organization's subscription has ended. Renew it to continue.", "code": "subscription_required"},

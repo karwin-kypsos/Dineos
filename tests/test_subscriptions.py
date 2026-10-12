@@ -394,3 +394,36 @@ def test_authorising_a_plan_cancels_every_other_live_one(admin_client, trial_res
     razorpay["cancel"].assert_any_call(starter.razorpay_subscription_id, at_cycle_end=False)  # never billed: cancelled now
     current = client.get("/v1/subscriptions/current/").data
     assert current["plan_id"] == "ENTERPRISE" and current["pending_plan_id"] is None
+
+
+
+# ---- 2026-10-12: paying again on the same plan (app team's question) -------------
+
+@pytest.mark.parametrize("ending_event", ["subscription.cancelled", "subscription.halted"])
+def test_payment_due_can_resubscribe_to_the_same_plan(admin_client, trial_restaurant, prices, razorpay, ending_event):
+    _, client = admin_client
+    sub = _active_on(client, "GROWTH")
+    trial_restaurant.status = "ACTIVE"  # past the trial
+    trial_restaurant.save(update_fields=["status"])
+    _webhook(ending_event, sub)
+    trial_restaurant.refresh_from_db()
+    assert trial_restaurant.status == "PAYMENT_DUE" and trial_restaurant.plan_tier == "GROWTH"
+
+    again = client.post("/v1/subscriptions/checkout/", {"plan_id": "GROWTH"}, format="json")
+
+    assert again.status_code == 201, again.data
+    assert again.data["change"] == "new" and again.data["first_charge_at"] is None  # charged now
+    renewed = _checkout_and_verify(client, "GROWTH")
+    trial_restaurant.refresh_from_db()
+    assert renewed.status == "AUTHENTICATED" and trial_restaurant.status == "ACTIVE"
+
+
+def test_same_plan_is_refused_while_razorpay_is_still_retrying(admin_client, trial_restaurant, prices, razorpay):
+    """past_due with the organization still open: Razorpay retries the
+    mandate itself; a second subscription for the same plan is not taken."""
+    _, client = admin_client
+    sub = _active_on(client, "GROWTH")
+    _webhook("subscription.pending", sub)
+
+    assert client.get("/v1/subscriptions/current/").data["status"] == "past_due"
+    assert client.post("/v1/subscriptions/checkout/", {"plan_id": "GROWTH"}, format="json").status_code == 409
