@@ -548,3 +548,206 @@ def test_screen_still_loads_when_razorpay_is_down(admin_client, trial_restaurant
 
     assert response.status_code == 200 and response.data["plan_id"] == "GROWTH"
     cache.clear()
+
+
+
+# ---- 2026-10-12: a paid charge but no billing period from Razorpay (Altaza) ------
+
+def _paid_no_period(client, restaurant, invoice):
+    """Altaza, live: an e-mandate subscription charged at checkout; Razorpay
+    keeps it "created" with current_start / current_end / charge_at null."""
+    from django.core.cache import cache
+
+    restaurant.status = "ACTIVE"
+    restaurant.save(update_fields=["status"])
+    sub = _checkout_and_verify(client, "GROWTH")
+    cache.clear()
+    entity = {"id": sub.razorpay_subscription_id, "status": "created", "current_start": None, "current_end": None, "charge_at": None}
+    payment = {"id": invoice["payment_id"], "amount": 249900, "currency": "INR", "method": "emandate", "created_at": invoice.get("paid_at") or 1791786879}
+    with patch("core.razorpay_client.fetch_subscription", return_value=entity), \
+         patch("core.razorpay_client.fetch_subscription_invoices", return_value={"items": [invoice]}), \
+         patch("core.razorpay_client.fetch_payment", return_value=payment) as fetch_payment:
+        current = client.get("/v1/subscriptions/current/").data
+    cache.clear()
+    return sub, current, fetch_payment
+
+
+def test_paid_charge_without_razorpay_period_gives_renews_at(admin_client, trial_restaurant, prices, razorpay):
+    _, client = admin_client
+    ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    paid_at = int(datetime.datetime(2026, 10, 12, 12, 4, 42, tzinfo=ist).timestamp())
+    sub, current, _ = _paid_no_period(client, trial_restaurant, {"id": "inv_alt", "status": "paid", "payment_id": "pay_alt", "paid_at": paid_at,
+                                                                  "billing_start": None, "billing_end": None})
+
+    start, end = current["current_period_start"], current["current_period_end"]
+    assert start is not None and end is not None and current["renews_at"] == end
+    assert start.astimezone(ist).isoformat()[:19] == "2026-10-12T12:04:42"
+    assert end.astimezone(ist).isoformat()[:19] == "2026-11-12T12:04:42"
+    assert current["status"] == "active"
+    row = client.get("/v1/subscriptions/invoices/").data["results"][0]
+    assert row["razorpay_payment_id"] == "pay_alt" and row["period_start"] is not None and row["period_end"] is not None
+
+
+def test_invoice_billing_dates_win_over_paid_time(admin_client, trial_restaurant, prices, razorpay):
+    _, client = admin_client
+    begin, finish = 1791786000, 1791786000 + 31 * 86400
+    sub, current, _ = _paid_no_period(client, trial_restaurant, {"id": "inv_b", "status": "paid", "payment_id": "pay_b", "paid_at": begin + 600,
+                                                                  "billing_start": begin, "billing_end": finish})
+
+    sub.refresh_from_db()
+    assert int(sub.current_start.timestamp()) == begin and int(sub.current_end.timestamp()) == finish
+
+
+def test_paid_time_falls_back_to_the_payment_and_fetches_it_once(admin_client, trial_restaurant, prices, razorpay):
+    _, client = admin_client
+    sub, current, fetch_payment = _paid_no_period(client, trial_restaurant, {"id": "inv_c", "status": "paid", "payment_id": "pay_c"})
+
+    assert current["renews_at"] is not None
+    assert fetch_payment.call_count == 1
+
+
+def test_a_payment_recorded_before_gets_its_period_filled(admin_client, trial_restaurant, prices, razorpay):
+    """Altaza's Rs 2499 was recorded on 2026-10-12 with period_start/end null."""
+    from django.core.cache import cache
+
+    _, client = admin_client
+    trial_restaurant.status = "ACTIVE"
+    trial_restaurant.save(update_fields=["status"])
+    sub = _checkout_and_verify(client, "GROWTH")
+    SubscriptionPayment.objects.create(subscription=sub, restaurant=trial_restaurant, razorpay_payment_id="pay_old", amount="2499.00",
+                                       status="PAID", plan_tier="GROWTH")
+    cache.clear()
+    entity = {"id": sub.razorpay_subscription_id, "status": "created"}
+    with patch("core.razorpay_client.fetch_subscription", return_value=entity), \
+         patch("core.razorpay_client.fetch_subscription_invoices", return_value={"items": [{"status": "paid", "payment_id": "pay_old", "paid_at": 1791786882}]}), \
+         patch("core.razorpay_client.fetch_payment") as fetch_payment:
+        client.get("/v1/subscriptions/current/")
+    cache.clear()
+
+    row = SubscriptionPayment.objects.get(razorpay_payment_id="pay_old")
+    assert row.period_start is not None and row.period_end is not None
+    assert fetch_payment.call_count == 0
+
+
+def test_razorpay_dates_replace_the_derived_ones_once_it_has_them(admin_client, trial_restaurant, prices, razorpay):
+    from apps.subscriptions.services import sync_from_razorpay
+
+    _, client = admin_client
+    sub, current, _ = _paid_no_period(client, trial_restaurant, {"id": "inv_d", "status": "paid", "payment_id": "pay_d", "paid_at": 1791786882})
+    real_start, real_end = 1791900000, 1791900000 + 30 * 86400
+    with patch("core.razorpay_client.fetch_subscription", return_value=_rzp_sub(sub.razorpay_subscription_id, "active", start=real_start, end=real_end)), \
+         patch("core.razorpay_client.fetch_subscription_invoices", return_value={"items": [{"status": "paid", "payment_id": "pay_d", "paid_at": 1791786882}]}):
+        sync_from_razorpay(sub)
+
+    sub.refresh_from_db()
+    assert sub.status == "ACTIVE"
+    assert int(sub.current_start.timestamp()) == real_start and int(sub.current_end.timestamp()) == real_end
+
+
+def test_a_trial_subscription_keeps_renews_at_at_the_trial_end(admin_client, trial_restaurant, prices, razorpay):
+    """Nothing paid yet: no period is made up; renews_at stays the first charge."""
+    from django.core.cache import cache
+
+    _, client = admin_client
+    sub = _checkout_and_verify(client, "GROWTH")
+    cache.clear()
+    with patch("core.razorpay_client.fetch_subscription", return_value={"id": sub.razorpay_subscription_id, "status": "authenticated"}), \
+         patch("core.razorpay_client.fetch_subscription_invoices", return_value={"items": [{"status": "issued", "payment_id": None}]}):
+        current = client.get("/v1/subscriptions/current/").data
+    cache.clear()
+
+    sub.refresh_from_db()
+    assert sub.current_start is None and sub.current_end is None
+    assert current["renews_at"] == sub.start_at and current["status"] == "trialing"
+
+
+def test_plus_one_month_clamps_to_the_shorter_month():
+    from apps.subscriptions.services import _plus_one_month
+
+    ist = datetime.timezone(datetime.timedelta(hours=5, minutes=30))
+    assert _plus_one_month(datetime.datetime(2027, 1, 31, 10, 0, tzinfo=ist)).astimezone(ist).date() == datetime.date(2027, 2, 28)
+    assert _plus_one_month(datetime.datetime(2026, 12, 15, 10, 0, tzinfo=ist)).astimezone(ist).date() == datetime.date(2027, 1, 15)
+    # 31 Oct 02:00 IST is still 30 Oct in UTC - the month is taken in Indian time
+    assert _plus_one_month(datetime.datetime(2026, 10, 31, 2, 0, tzinfo=ist)).astimezone(ist).date() == datetime.date(2026, 11, 30)
+
+
+
+# ---- 2026-10-12: only the first authorisation replaces the other subscriptions ---
+
+def _change_plan(client, kind):
+    """old billing, then a newer subscription replacing it: (old, new)."""
+    if kind == "upgrade":
+        old = _active_on(client, "STARTER")
+        return old, _checkout_and_verify(client, "GROWTH")
+    old = _active_on(client, "GROWTH")
+    if kind == "renew":
+        client.post("/v1/subscriptions/cancel/")
+        return old, _checkout_and_verify(client, "GROWTH")
+    return old, _checkout_and_verify(client, "STARTER")
+
+
+@pytest.mark.parametrize("kind", ["downgrade", "upgrade", "renew"])
+def test_syncing_the_old_subscription_never_cancels_the_new_one(admin_client, trial_restaurant, prices, razorpay, kind):
+    """Found 2026-10-12: the old subscription is "active" on Razorpay until
+    its paid month ends; syncing it (GET current/) re-ran the replace-every-
+    other-live-subscription step and cancelled the plan that replaced it."""
+    from django.core.cache import cache
+
+    _, client = admin_client
+    old, new = _change_plan(client, kind)
+    razorpay["cancel"].reset_mock()
+    cache.clear()
+    state = {old.razorpay_subscription_id: "active", new.razorpay_subscription_id: "authenticated"}
+    with patch("core.razorpay_client.fetch_subscription", side_effect=lambda sub_id: _rzp_sub(sub_id, state[sub_id])):
+        current = client.get("/v1/subscriptions/current/").data
+    cache.clear()
+
+    new.refresh_from_db()
+    assert new.status == "AUTHENTICATED" and new.cancel_at_period_end is False
+    assert razorpay["cancel"].call_count == 0
+    if kind == "downgrade":
+        assert current["pending_plan_id"] == "STARTER"
+    elif kind == "renew":  # the renewal takes over when the paid month ends
+        assert current["pending_plan_id"] == "GROWTH" and current["pending_change_at"] == new.start_at
+    else:
+        assert current["plan_id"] == "GROWTH" and current["cancel_at_period_end"] is False and current["renews_at"] is not None
+
+
+def test_a_late_charge_for_the_old_subscription_never_cancels_the_new_one(admin_client, trial_restaurant, prices, razorpay):
+    _, client = admin_client
+    old, new = _change_plan(client, "upgrade")
+    razorpay["cancel"].reset_mock()
+
+    _webhook("subscription.charged", old, payment={"id": "pay_late_old", "amount": 99900, "currency": "INR"})
+
+    new.refresh_from_db()
+    assert new.cancel_at_period_end is False and razorpay["cancel"].call_count == 0
+
+
+def test_a_replayed_authenticated_does_not_reopen_a_halted_organization(admin_client, trial_restaurant, prices, razorpay):
+    _, client = admin_client
+    sub = _active_on(client, "GROWTH")
+    trial_restaurant.status = "ACTIVE"
+    trial_restaurant.save(update_fields=["status"])
+    _webhook("subscription.halted", sub)
+    trial_restaurant.refresh_from_db()
+    assert trial_restaurant.status == "PAYMENT_DUE"
+
+    _webhook("subscription.authenticated", sub)  # a replay - nothing was paid
+
+    trial_restaurant.refresh_from_db()
+    assert trial_restaurant.status == "PAYMENT_DUE"
+
+
+def test_verify_twice_replaces_the_others_once(admin_client, trial_restaurant, prices, razorpay):
+    _, client = admin_client
+    _active_on(client, "GROWTH")
+    checkout = client.post("/v1/subscriptions/checkout/", {"plan_id": "ENTERPRISE"}, format="json")
+    body = {"razorpay_subscription_id": checkout.data["razorpay_subscription_id"], "razorpay_payment_id": "pay_twice", "razorpay_signature": "sig"}
+    razorpay["cancel"].reset_mock()
+
+    first = client.post("/v1/subscriptions/verify/", body, format="json")
+    second = client.post("/v1/subscriptions/verify/", body, format="json")
+
+    assert first.status_code == second.status_code == 200
+    assert razorpay["cancel"].call_count == 1 and second.data["plan_id"] == "ENTERPRISE"

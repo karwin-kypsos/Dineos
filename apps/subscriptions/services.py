@@ -240,10 +240,16 @@ def mark_authorised(sub):
     sub = _lock(sub)
     if sub.status in ENDED:
         return sub
+    if sub.status != Subscription.Status.CREATED:
+        # Authorised before: a second verify, a replayed
+        # subscription.authenticated, or mark_active for a charge or a sync.
+        # Everything below happened then; re-running it would cancel what
+        # replaced this subscription since (2026-10-12: syncing an old
+        # subscription, still "active" on Razorpay until its paid month ends,
+        # cancelled the new plan) or reopen an organization nothing paid for.
+        return sub
     now = timezone.now()
-    first_time = sub.status == Subscription.Status.CREATED
-    if first_time:
-        sub.status = Subscription.Status.AUTHENTICATED
+    sub.status = Subscription.Status.AUTHENTICATED
     old = sub.replaces
     # The plan just chosen replaces every other live one, not only the one
     # it was checked out against (2026-10-08): a downgrade still waiting to
@@ -263,8 +269,7 @@ def mark_authorised(sub):
     if kind in ("new", "upgrade"):
         _apply_tier(sub, now)
         _restore_access(sub.restaurant)
-    if first_time:
-        _log(sub.restaurant, "SUBSCRIPTION_STARTED", f"{sub.plan_tier.title()} subscription authorised ({kind})")
+    _log(sub.restaurant, "SUBSCRIPTION_STARTED", f"{sub.plan_tier.title()} subscription authorised ({kind})")
     sub.save()
     return sub
 
@@ -385,10 +390,55 @@ def sync_from_razorpay(sub):
         sub = mark_renewal_failed(sub, halted=True)
     elif status in ("cancelled", "completed"):
         sub = mark_ended(sub, completed=status == "completed")
-    for invoice in (razorpay_client.fetch_subscription_invoices(sub.razorpay_subscription_id) or {}).get("items", []):
-        payment_id = invoice.get("payment_id")
-        if invoice.get("status") == "paid" and payment_id and not SubscriptionPayment.objects.filter(razorpay_payment_id=payment_id).exists():
-            record_payment(sub, razorpay_client.fetch_payment(payment_id), SubscriptionPayment.Status.PAID)
+    invoices = (razorpay_client.fetch_subscription_invoices(sub.razorpay_subscription_id) or {}).get("items", [])
+    paid = [i for i in invoices if i.get("status") == "paid" and i.get("payment_id")]
+    payments = {}
+    if paid and sub.status in LIVE and not entity.get("current_end"):
+        sub = _period_from_charge(sub, max(paid, key=lambda i: i.get("paid_at") or 0), payments)
+    for invoice in paid:
+        payment_id = invoice["payment_id"]
+        if not SubscriptionPayment.objects.filter(razorpay_payment_id=payment_id).exists():
+            payment = payments.get(payment_id) or razorpay_client.fetch_payment(payment_id)
+            record_payment(sub, payment, SubscriptionPayment.Status.PAID)
+    return sub
+
+
+def _plus_one_month(moment):
+    """The same day next month, in Indian time like Razorpay's monthly
+    cycle, clamped to the last day of a shorter month (31 Jan -> 28 Feb)."""
+    import calendar
+
+    local = timezone.localtime(moment)
+    year, month = (local.year + 1, 1) if local.month == 12 else (local.year, local.month + 1)
+    return local.replace(year=year, month=month, day=min(local.day, calendar.monthrange(year, month)[1]))
+
+
+def _period_from_charge(sub, invoice, payments):
+    """A paid charge, but no billing period from Razorpay (2026-10-12, per
+    Karwin - Altaza): an e-mandate subscription charged at checkout stays
+    "created" on Razorpay with current_start, current_end and charge_at all
+    null, even after the bank confirmed the mandate, so renews_at had
+    nothing to show. The period is then the one that charge paid for: the
+    invoice's own billing dates if Razorpay set them, otherwise from when it
+    was paid to the same day next month. Never replaces a later end Razorpay
+    already gave; Razorpay's own dates overwrite these once it sends them
+    (mark_active)."""
+    start = _aware(invoice.get("billing_start")) or _aware(invoice.get("paid_at"))
+    if start is None:
+        payments[invoice["payment_id"]] = razorpay_client.fetch_payment(invoice["payment_id"])
+        start = _aware(payments[invoice["payment_id"]].get("created_at"))
+    if start is None:
+        return sub
+    end = _aware(invoice.get("billing_end")) or _plus_one_month(start)
+    with transaction.atomic():
+        sub = _lock(sub)
+        if sub.current_end is not None and sub.current_end >= end:
+            return sub
+        sub.current_start, sub.current_end = start, end
+        sub.save(update_fields=["current_start", "current_end", "updated_at"])
+    SubscriptionPayment.objects.filter(subscription=sub, razorpay_payment_id=invoice["payment_id"], period_start__isnull=True).update(
+        period_start=start, period_end=end,
+    )
     return sub
 
 
