@@ -186,7 +186,32 @@ class TenantViewSet(viewsets.ModelViewSet):
         if search:
             qs = qs.filter(name__icontains=search)
 
+        # ?subscription_status=past_due (comma-separated for several) -
+        # the real billing state, computed per organization, so it filters
+        # before pagination rather than in the app (2026-10-12, per Karwin).
+        wanted = self.request.query_params.get("subscription_status", "").strip()
+        if wanted and self.action == "list":
+            from apps.subscriptions.services import BILLING_STATUSES, billing_status
+
+            values = {v.strip().lower() for v in wanted.split(",") if v.strip()}
+            unknown = values - set(BILLING_STATUSES)
+            if unknown:
+                raise ValidationError({"subscription_status": [f"Must be one of {list(BILLING_STATUSES)}."]})
+            qs = qs.filter(id__in=[r.id for r in qs if billing_status(r) in values])
+
         return qs
+
+    @action(detail=True, methods=["get"], url_path="invoices")
+    def invoices(self, request, pk=None):
+        """GET /platform/tenants/{id}/invoices/ (2026-10-12, per Karwin) - one
+        organization's subscription charges for the Super Admin, the same
+        rows and shape as the Admin app's /v1/subscriptions/invoices/."""
+        from apps.subscriptions.models import SubscriptionPayment
+        from apps.subscriptions.views import SubscriptionPaymentSerializer
+
+        restaurant = self.get_object()
+        page = self.paginate_queryset(SubscriptionPayment.objects.filter(restaurant=restaurant).order_by("-created_at"))
+        return self.get_paginated_response(SubscriptionPaymentSerializer(page, many=True).data)
 
     def list(self, request, *args, **kwargs):
         # total_tenants/active_tenants/total_staff (2026-09-07, per Karwin -

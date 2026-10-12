@@ -72,6 +72,37 @@ class PlatformRefreshSerializer(serializers.Serializer):
 class RestaurantSerializer(serializers.ModelSerializer):
     branch_count = serializers.IntegerField(source="branches.count", read_only=True)
     staff_count = serializers.IntegerField(source="staff.count", read_only=True)
+    # Billing visibility for the Super Admin app (2026-10-12, per Karwin):
+    # the real subscription state, separate from the hand-set status.
+    subscription_status = serializers.SerializerMethodField()
+    next_billing_date = serializers.SerializerMethodField()
+    last_payment_date = serializers.SerializerMethodField()
+    last_payment_amount = serializers.SerializerMethodField()
+    last_payment_status = serializers.SerializerMethodField()
+
+    def _billing(self, obj):
+        if not hasattr(obj, "_billing_summary"):
+            from apps.subscriptions.services import billing_summary
+
+            obj._billing_summary = billing_summary(obj)
+        return obj._billing_summary
+
+    def get_subscription_status(self, obj):
+        return self._billing(obj)["subscription_status"]
+
+    def get_next_billing_date(self, obj):
+        value = self._billing(obj)["next_billing_date"]
+        return serializers.DateTimeField().to_representation(value) if value else None
+
+    def get_last_payment_date(self, obj):
+        value = self._billing(obj)["last_payment_date"]
+        return serializers.DateTimeField().to_representation(value) if value else None
+
+    def get_last_payment_amount(self, obj):
+        return self._billing(obj)["last_payment_amount"]
+
+    def get_last_payment_status(self, obj):
+        return self._billing(obj)["last_payment_status"]
 
     class Meta:
         model = Restaurant
@@ -103,6 +134,11 @@ class RestaurantSerializer(serializers.ModelSerializer):
             "razorpay_account_id",
             "branch_count",
             "staff_count",
+            "subscription_status",
+            "next_billing_date",
+            "last_payment_date",
+            "last_payment_amount",
+            "last_payment_status",
             "created_at",
         ]
         # trial_ends_at is server-computed only (see TenantViewSet.create()

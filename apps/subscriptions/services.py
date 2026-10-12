@@ -86,6 +86,51 @@ def pending_change(restaurant):
     )
 
 
+BILLING_STATUSES = ("trialing", "active", "past_due", "cancelled", "none")
+
+
+def billing_status(restaurant):
+    """The real billing state, from the subscriptions alone (2026-10-12, per
+    Karwin - for the Super Admin app). Not from organization_status, which a
+    Super Admin can set by hand (TRIAL / ACTIVE / SUSPENDED / PAYMENT_DUE):
+      past_due  - a renewal is failing (Razorpay retrying), or the last
+                  subscription stopped after its retries ran out
+      active    - a paid billing period is running (or charged at checkout)
+      trialing  - authorised, first charge still in the future (trial end)
+      cancelled - the last subscription ended
+      none      - never subscribed
+    """
+    live = list(restaurant.subscriptions.filter(status__in=LIVE))
+    if any(s.status == Subscription.Status.PENDING for s in live):
+        return "past_due"
+    if any(s.status == Subscription.Status.ACTIVE for s in live):
+        return "active"
+    now = timezone.now()
+    authorised = [s for s in live if s.status == Subscription.Status.AUTHENTICATED]
+    if authorised:
+        return "trialing" if all(s.start_at and s.start_at > now for s in authorised) else "active"
+    last = restaurant.subscriptions.exclude(status=Subscription.Status.CREATED).order_by("-created_at").first()
+    if last is None:
+        return "none"
+    return "past_due" if last.status == Subscription.Status.HALTED else "cancelled"
+
+
+def billing_summary(restaurant):
+    """subscription_status, next_billing_date and the last payment, for the
+    Super Admin's organization responses."""
+    sub = current_subscription(restaurant)
+    last = restaurant.subscription_payments.order_by("-created_at").first()
+    return {
+        "subscription_status": billing_status(restaurant),
+        # The next charge: the end of the paid period, or the first charge of
+        # one not billing yet; null when renewals are stopped or nothing runs.
+        "next_billing_date": None if (sub is None or sub.cancel_at_period_end) else (sub.current_end or sub.start_at),
+        "last_payment_date": last.created_at if last else None,
+        "last_payment_amount": str(last.amount.quantize(Decimal("0.01"))) if last else None,
+        "last_payment_status": last.status if last else None,
+    }
+
+
 def razorpay_plan_for(tier, amount):
     key = settings.RAZORPAY_KEY_ID
     plan = RazorpayPlan.objects.filter(plan_tier=tier, billing_cycle="MONTHLY", amount=amount, razorpay_key_id=key).first()
