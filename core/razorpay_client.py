@@ -169,6 +169,34 @@ def cancel_subscription(subscription_id, at_cycle_end=True):
         raise RazorpayUnavailableError(f"Razorpay subscription cancel failed: {_reason(e)}") from e
 
 
+def _fetch(what, call):
+    try:
+        return call()
+    except Exception as e:
+        logger.exception("Razorpay %s fetch failed", what)
+        raise RazorpayUnavailableError(f"Razorpay {what} fetch failed: {_reason(e)}") from e
+
+
+def fetch_subscription(subscription_id):
+    client = _client()
+    return _fetch("subscription", lambda: client.subscription.fetch(subscription_id))
+
+
+def fetch_subscription_invoices(subscription_id):
+    client = _client()
+    return _fetch("invoices", lambda: client.invoice.all({"subscription_id": subscription_id}))
+
+
+def fetch_invoice(invoice_id):
+    client = _client()
+    return _fetch("invoice", lambda: client.invoice.fetch(invoice_id))
+
+
+def fetch_payment(payment_id):
+    client = _client()
+    return _fetch("payment", lambda: client.payment.fetch(payment_id))
+
+
 def verify_subscription_payment(subscription_id, payment_id, signature):
     """Checkout's client-side "success" is only a claim until this passes:
     HMAC-SHA256 of "payment_id|subscription_id" with the key secret."""

@@ -364,6 +364,82 @@ def cancel(restaurant):
     return current_subscription(restaurant)
 
 
+def sync_from_razorpay(sub):
+    """Bring one subscription in line with what Razorpay says now: its
+    status, the paid period's dates and the paid charges (2026-10-12, per
+    Karwin). Called at verify and whenever Razorpay sends a payment event
+    for a subscription invoice - so nothing depends on the subscription.*
+    webhook events being ticked on the Razorpay dashboard (they weren't, and
+    dates, invoices and statuses never arrived). Each step is the same one
+    the matching webhook takes, so it is safe to repeat."""
+    entity = razorpay_client.fetch_subscription(sub.razorpay_subscription_id)
+    status = entity.get("status")
+    sub.refresh_from_db()
+    if status == "active":
+        sub = mark_active(sub, entity)
+    elif status == "authenticated" and sub.status == Subscription.Status.CREATED:
+        sub = mark_authorised(sub)
+    elif status == "pending" and sub.status != Subscription.Status.PENDING:
+        sub = mark_renewal_failed(sub, halted=False)
+    elif status == "halted" and sub.status != Subscription.Status.HALTED:
+        sub = mark_renewal_failed(sub, halted=True)
+    elif status in ("cancelled", "completed"):
+        sub = mark_ended(sub, completed=status == "completed")
+    for invoice in (razorpay_client.fetch_subscription_invoices(sub.razorpay_subscription_id) or {}).get("items", []):
+        payment_id = invoice.get("payment_id")
+        if invoice.get("status") == "paid" and payment_id and not SubscriptionPayment.objects.filter(razorpay_payment_id=payment_id).exists():
+            record_payment(sub, razorpay_client.fetch_payment(payment_id), SubscriptionPayment.Status.PAID)
+    return sub
+
+
+SYNC_ON_READ_SECONDS = 600
+
+
+def sync_live_on_read(restaurant):
+    """Re-read the restaurant's live subscriptions from Razorpay when the app
+    opens the subscription or invoices screen - at most once every 10
+    minutes each (2026-10-12). Razorpay announces some changes only through
+    subscription.* events: an e-mandate subscription stays "created" until
+    the bank confirms the mandate, then becomes active with its billing
+    period, and only subscription.activated says so. With this the dates and
+    status show up as soon as Razorpay has them, whatever is ticked on the
+    webhook. Best effort - a Razorpay hiccup never fails the screen."""
+    from django.core.cache import cache
+
+    from apps.restaurant.realtime import broadcast_if_changed, organization_payload
+
+    live = list(restaurant.subscriptions.filter(status__in=LIVE))
+    due = [s for s in live if cache.add(f"subscription-sync:{s.id}", 1, SYNC_ON_READ_SECONDS)]
+    if not due:
+        return
+    before = organization_payload(restaurant)
+    for sub in due:
+        try:
+            sync_from_razorpay(sub)
+        except RazorpayUnavailableError:
+            logger.warning("Could not sync %s from Razorpay on read", sub.razorpay_subscription_id)
+    broadcast_if_changed(restaurant, before)
+
+
+def sync_for_invoice_payment(payment):
+    """A payment.captured / payment.failed for a subscription invoice: find
+    our subscription through the invoice and sync it. Returns what happened,
+    for the webhook's reply."""
+    invoice = razorpay_client.fetch_invoice(payment["invoice_id"])
+    sub = Subscription.objects.filter(razorpay_subscription_id=invoice.get("subscription_id")).select_related("restaurant").first()
+    if sub is None or sub.status in ENDED:
+        return "ignored"
+    from apps.restaurant.realtime import broadcast_if_changed, organization_payload
+
+    restaurant = sub.restaurant
+    before = organization_payload(restaurant)
+    sub = sync_from_razorpay(sub)
+    if payment.get("status") == "failed" and payment.get("id"):
+        record_payment(sub, payment, SubscriptionPayment.Status.FAILED)
+    broadcast_if_changed(restaurant, before)
+    return "synced"
+
+
 def handle_webhook(event, payload):
     """Razorpay subscription.* events. Unknown subscriptions are ignored
     (another environment's, or one created outside DineOS)."""

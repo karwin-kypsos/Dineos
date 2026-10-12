@@ -33,7 +33,7 @@ def razorpay():
     with patch("core.razorpay_client.create_plan", side_effect=lambda name, amount, period="monthly": {"id": f"plan_{next(_ids)}"}) as plan, \
          patch("core.razorpay_client.create_subscription", side_effect=lambda plan_id, total, start_at=None, notes=None: {"id": f"sub_{next(_ids)}"}) as sub, \
          patch("core.razorpay_client.cancel_subscription", return_value={}) as cancel, \
-         patch("apps.subscriptions.views.verify_subscription_payment", return_value=None) as verify:
+         patch("apps.subscriptions.views.verify_subscription_payment", return_value=None) as verify,          patch("core.razorpay_client.fetch_subscription", return_value={"status": "created"}),          patch("core.razorpay_client.fetch_subscription_invoices", return_value={"items": []}):
         yield {"plan": plan, "subscription": sub, "cancel": cancel, "verify": verify}
 
 
@@ -427,3 +427,124 @@ def test_same_plan_is_refused_while_razorpay_is_still_retrying(admin_client, tri
 
     assert client.get("/v1/subscriptions/current/").data["status"] == "past_due"
     assert client.post("/v1/subscriptions/checkout/", {"plan_id": "GROWTH"}, format="json").status_code == 409
+
+
+
+# ---- 2026-10-12: sync from Razorpay at verify and on payment events ------------
+
+def _rzp_sub(sub_id, status, start=None, end=None):
+    now = int(timezone.now().timestamp())
+    return {"id": sub_id, "status": status, "current_start": start if start is not None else now, "current_end": end if end is not None else now + 30 * 86400}
+
+
+def test_verify_takes_period_dates_and_first_charge_from_razorpay(admin_client, trial_restaurant, prices, razorpay):
+    """Altaza, live: active, but current_period_* and renews_at null - they
+    only ever came from webhooks that weren't ticked."""
+    _, client = admin_client
+    trial_restaurant.status = "ACTIVE"
+    trial_restaurant.save(update_fields=["status"])
+    checkout = client.post("/v1/subscriptions/checkout/", {"plan_id": "GROWTH"}, format="json")
+    sub_id = checkout.data["razorpay_subscription_id"]
+    end = int(timezone.now().timestamp()) + 30 * 86400
+    with patch("core.razorpay_client.fetch_subscription", return_value=_rzp_sub(sub_id, "active", end=end)), \
+         patch("core.razorpay_client.fetch_subscription_invoices", return_value={"items": [{"status": "paid", "payment_id": "pay_first"}]}), \
+         patch("core.razorpay_client.fetch_payment", return_value={"id": "pay_first", "amount": 249900, "currency": "INR", "method": "emandate", "invoice_id": "inv_first"}):
+        verified = client.post("/v1/subscriptions/verify/", {"razorpay_subscription_id": sub_id, "razorpay_payment_id": "pay_first",
+                                                            "razorpay_signature": "sig"}, format="json")
+
+    assert verified.status_code == 200
+    assert verified.data["status"] == "active" and verified.data["current_period_end"] is not None and verified.data["renews_at"] is not None
+    assert client.get("/v1/subscriptions/invoices/").data["count"] == 1
+
+
+def test_verify_still_works_when_razorpay_cannot_be_reached(admin_client, trial_restaurant, prices, razorpay):
+    from core.razorpay_client import RazorpayUnavailableError
+
+    _, client = admin_client
+    checkout = client.post("/v1/subscriptions/checkout/", {"plan_id": "GROWTH"}, format="json")
+    with patch("core.razorpay_client.fetch_subscription", side_effect=RazorpayUnavailableError("down")):
+        verified = client.post("/v1/subscriptions/verify/", {"razorpay_subscription_id": checkout.data["razorpay_subscription_id"],
+                                                            "razorpay_payment_id": "pay_x", "razorpay_signature": "sig"}, format="json")
+
+    assert verified.status_code == 200 and verified.data["plan_id"] == "GROWTH"
+
+
+def test_payment_captured_for_an_invoice_syncs_the_subscription(admin_client, trial_restaurant, prices, razorpay):
+    _, client = admin_client
+    sub = _checkout_and_verify(client, "GROWTH")
+    payment = {"id": "pay_renew", "order_id": "order_inv", "invoice_id": "inv_renew", "amount": 249900, "currency": "INR",
+               "method": "card", "status": "captured"}
+    payload = {"event": "payment.captured", "payload": {"payment": {"entity": payment}}}
+    with patch("apps.payments.views.verify_webhook_signature", return_value=None), \
+         patch("core.razorpay_client.fetch_invoice", return_value={"id": "inv_renew", "subscription_id": sub.razorpay_subscription_id}), \
+         patch("core.razorpay_client.fetch_subscription", return_value=_rzp_sub(sub.razorpay_subscription_id, "active")), \
+         patch("core.razorpay_client.fetch_subscription_invoices", return_value={"items": [{"status": "paid", "payment_id": "pay_renew"}]}), \
+         patch("core.razorpay_client.fetch_payment", return_value=payment):
+        response = APIClient().post("/v1/payments/razorpay/webhook/", data=json.dumps(payload), content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="sig")
+
+    assert response.status_code == 200 and "synced" in response.data["detail"]
+    sub.refresh_from_db()
+    assert sub.status == "ACTIVE" and sub.current_end is not None
+    assert SubscriptionPayment.objects.filter(razorpay_payment_id="pay_renew", status="PAID").exists()
+
+
+def test_payment_failed_for_an_invoice_records_it_and_marks_past_due(admin_client, trial_restaurant, prices, razorpay):
+    _, client = admin_client
+    sub = _active_on(client, "GROWTH")
+    payment = {"id": "pay_fail", "order_id": "order_inv2", "invoice_id": "inv_fail", "amount": 249900, "currency": "INR", "status": "failed"}
+    payload = {"event": "payment.failed", "payload": {"payment": {"entity": payment}}}
+    with patch("apps.payments.views.verify_webhook_signature", return_value=None), \
+         patch("core.razorpay_client.fetch_invoice", return_value={"id": "inv_fail", "subscription_id": sub.razorpay_subscription_id}), \
+         patch("core.razorpay_client.fetch_subscription", return_value=_rzp_sub(sub.razorpay_subscription_id, "pending")), \
+         patch("core.razorpay_client.fetch_subscription_invoices", return_value={"items": []}):
+        APIClient().post("/v1/payments/razorpay/webhook/", data=json.dumps(payload), content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="sig")
+
+    assert client.get("/v1/subscriptions/current/").data["status"] == "past_due"
+    assert SubscriptionPayment.objects.filter(razorpay_payment_id="pay_fail", status="FAILED").exists()
+
+
+def test_payment_event_for_an_unknown_invoice_is_still_200(api_client):
+    payload = {"event": "payment.captured", "payload": {"payment": {"entity": {"id": "pay_s", "order_id": "order_x", "invoice_id": "inv_9"}}}}
+    with patch("apps.payments.views.verify_webhook_signature", return_value=None), \
+         patch("core.razorpay_client.fetch_invoice", return_value={"id": "inv_9", "subscription_id": "sub_not_ours"}):
+        response = api_client.post("/v1/payments/razorpay/webhook/", data=json.dumps(payload), content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="sig")
+
+    assert response.status_code == 200 and "ignored" in response.data["detail"]
+
+
+
+def test_opening_the_screen_picks_up_what_razorpay_knows_now(admin_client, trial_restaurant, prices, razorpay):
+    """Altaza, live: an e-mandate subscription stays "created" on Razorpay
+    until the bank confirms the mandate; when it turns active only a
+    subscription.* event says so. Reading current/ syncs it instead."""
+    from django.core.cache import cache
+
+    _, client = admin_client
+    sub = _checkout_and_verify(client, "GROWTH")
+    cache.clear()
+    end = int(timezone.now().timestamp()) + 30 * 86400
+    with patch("core.razorpay_client.fetch_subscription", return_value=_rzp_sub(sub.razorpay_subscription_id, "active", end=end)) as fetch, \
+         patch("core.razorpay_client.fetch_subscription_invoices", return_value={"items": [{"status": "paid", "payment_id": "pay_mandate"}]}), \
+         patch("core.razorpay_client.fetch_payment", return_value={"id": "pay_mandate", "amount": 249900, "currency": "INR", "method": "emandate"}):
+        current = client.get("/v1/subscriptions/current/").data
+        client.get("/v1/subscriptions/current/")  # within 10 minutes: no second Razorpay call
+
+    assert current["status"] == "active" and current["current_period_end"] is not None and current["renews_at"] is not None
+    assert fetch.call_count == 1
+    assert client.get("/v1/subscriptions/invoices/").data["count"] == 1
+    cache.clear()
+
+
+def test_screen_still_loads_when_razorpay_is_down(admin_client, trial_restaurant, prices, razorpay):
+    from django.core.cache import cache
+
+    from core.razorpay_client import RazorpayUnavailableError
+
+    _, client = admin_client
+    _checkout_and_verify(client, "GROWTH")
+    cache.clear()
+    with patch("core.razorpay_client.fetch_subscription", side_effect=RazorpayUnavailableError("down")):
+        response = client.get("/v1/subscriptions/current/")
+
+    assert response.status_code == 200 and response.data["plan_id"] == "GROWTH"
+    cache.clear()

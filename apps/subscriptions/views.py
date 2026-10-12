@@ -2,6 +2,7 @@
 Karwin). Razorpay checkout follows the same shape as
 /v1/payments/razorpay/create-order/; see apps.subscriptions.services for the
 rules."""
+import logging
 from decimal import Decimal
 
 from django.conf import settings
@@ -16,6 +17,8 @@ from core.razorpay_client import RazorpayUnavailableError, verify_subscription_p
 
 from . import services
 from .models import Subscription, SubscriptionPayment
+
+logger = logging.getLogger(__name__)
 
 
 def _money(value):
@@ -71,6 +74,8 @@ class CurrentSubscriptionView(APIView):
     permission_classes = [IsAdmin]
 
     def get(self, request):
+        services.sync_live_on_read(request.tenant)
+        request.tenant.refresh_from_db()
         return Response(current_payload(request.tenant))
 
 
@@ -141,7 +146,14 @@ class VerifyView(APIView):
         from apps.restaurant.realtime import broadcast_if_changed, organization_payload
 
         before = organization_payload(request.tenant)
-        services.mark_authorised(sub)
+        sub = services.mark_authorised(sub)
+        # Razorpay already knows the period dates and the first charge of a
+        # subscription charged at checkout - take them now instead of waiting
+        # for a webhook (2026-10-12). Best effort: the verify itself stands.
+        try:
+            services.sync_from_razorpay(sub)
+        except RazorpayUnavailableError:
+            logger.warning("Could not sync %s from Razorpay at verify", sub.razorpay_subscription_id)
         broadcast_if_changed(request.tenant, before)
         return Response(current_payload(request.tenant))
 
@@ -174,6 +186,7 @@ class InvoicesView(APIView):
     permission_classes = [IsAdmin]
 
     def get(self, request):
+        services.sync_live_on_read(request.tenant)
         payments = SubscriptionPayment.objects.filter(restaurant=request.tenant).order_by("-created_at")
         paginator = DineOSPageNumberPagination()
         page = paginator.paginate_queryset(payments, request, view=self)

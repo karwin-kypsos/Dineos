@@ -347,15 +347,24 @@ class RazorpayWebhookView(APIView):
             return Response({"detail": f"Subscription event {handle_webhook(event, payload)}."}, status=200)
 
         payment_entity = ((payload.get("payload") or {}).get("payment") or {}).get("entity") or {}
+        # A subscription charge raises payment.captured / payment.failed on an
+        # invoice, not on one of our diner orders. 2026-10-12: sync that
+        # subscription from Razorpay right here (status, period dates, the
+        # charge) instead of relying only on the subscription.* events, which
+        # may not be ticked on the dashboard. Always 200 - a 404/5xx would
+        # make Razorpay retry and eventually disable the shared webhook.
+        if event in ("payment.captured", "payment.failed") and payment_entity.get("invoice_id") and not PaymentAttempt.objects.filter(
+            razorpay_order_id=payment_entity.get("order_id")
+        ).exists():
+            from apps.subscriptions.services import sync_for_invoice_payment
+
+            try:
+                outcome = sync_for_invoice_payment(payment_entity)
+            except RazorpayUnavailableError as e:
+                logger.warning("Subscription sync from a payment event failed: %s", e)
+                outcome = "not synced (Razorpay unreachable)"
+            return Response({"detail": f"Subscription payment {outcome}."}, status=200)
         if event == "payment.captured":
-            # A subscription renewal also raises payment.captured, on an
-            # order Razorpay made for the invoice - not one of ours. It is
-            # handled by subscription.charged; a 404 here would make
-            # Razorpay retry it and eventually disable the webhook.
-            if payment_entity.get("invoice_id") and not PaymentAttempt.objects.filter(
-                razorpay_order_id=payment_entity.get("order_id")
-            ).exists():
-                return Response({"detail": "Subscription payment; handled by subscription events."}, status=200)
             attempt = get_object_or_404(PaymentAttempt, razorpay_order_id=payment_entity["order_id"])
         elif event == "qr_code.credited":
             qr_code_id = payload["payload"]["qr_code"]["entity"]["id"]
