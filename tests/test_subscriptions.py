@@ -751,3 +751,22 @@ def test_verify_twice_replaces_the_others_once(admin_client, trial_restaurant, p
 
     assert first.status_code == second.status_code == 200
     assert razorpay["cancel"].call_count == 1 and second.data["plan_id"] == "ENTERPRISE"
+
+
+
+def test_a_failed_charge_with_null_amount_and_currency_is_recorded_not_500(admin_client, trial_restaurant, prices, razorpay):
+    """Found 2026-10-12 while documenting the webhook: Decimal(None) and a
+    null currency (NOT NULL column) turned a signed event into a 500."""
+    _, client = admin_client
+    sub = _active_on(client, "GROWTH")
+    payment = {"id": "pay_nulls", "order_id": "order_nulls", "invoice_id": "inv_nulls", "amount": None, "currency": None, "status": "failed"}
+    payload = {"event": "payment.failed", "payload": {"payment": {"entity": payment}}}
+    with patch("apps.payments.views.verify_webhook_signature", return_value=None), \
+         patch("core.razorpay_client.fetch_invoice", return_value={"id": "inv_nulls", "subscription_id": sub.razorpay_subscription_id}), \
+         patch("core.razorpay_client.fetch_subscription", return_value=_rzp_sub(sub.razorpay_subscription_id, "pending")), \
+         patch("core.razorpay_client.fetch_subscription_invoices", return_value={"items": []}):
+        response = APIClient().post("/v1/payments/razorpay/webhook/", data=json.dumps(payload), content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="sig")
+
+    assert response.status_code == 200 and response.data == {"detail": "Subscription payment synced."}
+    row = SubscriptionPayment.objects.get(razorpay_payment_id="pay_nulls")
+    assert row.status == "FAILED" and row.amount == 0 and row.currency == "INR"

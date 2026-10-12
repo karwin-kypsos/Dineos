@@ -101,7 +101,9 @@ def verify_webhook_signature(body, signature):
     client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
     try:
         client.utility.verify_webhook_signature(body, signature, settings.RAZORPAY_WEBHOOK_SECRET)
-    except SignatureVerificationError as e:
+    except (SignatureVerificationError, TypeError) as e:
+        # TypeError: hmac.compare_digest refuses a signature with non-ASCII
+        # characters - still just a wrong signature, not a 500 (2026-10-12).
         raise RazorpayUnavailableError(f"Webhook signature verification failed: {e}") from e
 
 
@@ -209,5 +211,5 @@ def verify_subscription_payment(subscription_id, payment_id, signature):
             "razorpay_payment_id": payment_id,
             "razorpay_signature": signature,
         })
-    except SignatureVerificationError as e:
+    except (SignatureVerificationError, TypeError) as e:  # TypeError: non-ASCII signature
         raise RazorpayUnavailableError(f"Payment signature verification failed: {e}") from e

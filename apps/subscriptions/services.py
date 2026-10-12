@@ -303,8 +303,9 @@ def record_payment(sub, payment, status):
         razorpay_payment_id=payment["id"],
         defaults={
             "subscription": sub, "restaurant": sub.restaurant, "status": status,
-            "amount": Decimal(payment.get("amount", 0)) / 100, "currency": payment.get("currency", "INR"),
-            "method": payment.get("method") or "", "razorpay_invoice_id": payment.get("invoice_id") or "",
+            # Fields Razorpay sends as null must not 500 the webhook (2026-10-12).
+            "amount": Decimal(payment.get("amount") or 0) / 100, "currency": payment.get("currency") or "INR",
+            "method": (payment.get("method") or "")[:20], "razorpay_invoice_id": payment.get("invoice_id") or "",
             "plan_tier": sub.plan_tier, "period_start": sub.current_start, "period_end": sub.current_end,
         },
     )

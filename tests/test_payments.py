@@ -679,3 +679,56 @@ def test_payment_amount_is_a_string_plus_integer_paise(cashier_client, table, me
     assert isinstance(wire["amount_paise"], int), wire["amount_paise"]
     # The two must describe the same money.
     assert wire["amount_paise"] == int(round(float(wire["amount"]) * 100))
+
+
+
+# ---- 2026-10-12: webhook hardening (found while documenting the webhook) --------
+
+def _qr_attempt(cashier_user, table, menu_item, restaurant):
+    session, _ = table_services.get_or_create_active_session(table.id)
+    order_services.place_order(session.id, [{"menu_item_id": menu_item.id, "quantity": 1}])
+    return session, PaymentAttempt.objects.create(
+        session_id=session.id, restaurant=restaurant, razorpay_qr_code_id="qr_only_one",
+        payment_method="UPI", amount=Decimal("231.00"), initiated_by=cashier_user,
+    )
+
+
+def test_payment_captured_without_an_order_never_confirms_a_qr_bill(cashier_client, table, menu_item, restaurant):
+    """A QR payment also raises payment.captured, with no order_id. Looking
+    the attempt up by order_id=None matched the QR attempts (they have none)."""
+    cashier_user, client = cashier_client
+    session, attempt = _qr_attempt(cashier_user, table, menu_item, restaurant)
+    body = json.dumps({"event": "payment.captured", "payload": {"payment": {"entity": {"id": "pay_qr_x", "order_id": None, "status": "captured", "method": "upi"}}}})
+
+    with patch("apps.payments.views.verify_webhook_signature", return_value=None):
+        response = client.post("/v1/payments/razorpay/webhook/", data=body, content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="sig")
+
+    assert response.status_code == 200 and response.data == {"detail": "Event ignored."}
+    attempt.refresh_from_db()
+    assert attempt.status == PaymentAttempt.Status.CREATED and not Bill.objects.filter(session=session).exists()
+
+
+def test_subscription_invoice_payment_without_an_order_still_syncs(cashier_client, table, menu_item, restaurant):
+    cashier_user, client = cashier_client
+    _, attempt = _qr_attempt(cashier_user, table, menu_item, restaurant)
+    body = json.dumps({"event": "payment.failed", "payload": {"payment": {"entity": {"id": "pay_inv_x", "invoice_id": "inv_x", "status": "failed"}}}})
+
+    with patch("apps.payments.views.verify_webhook_signature", return_value=None), \
+         patch("core.razorpay_client.fetch_invoice", return_value={"id": "inv_x", "subscription_id": "sub_not_ours"}) as fetch_invoice:
+        response = client.post("/v1/payments/razorpay/webhook/", data=body, content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="sig")
+
+    assert response.status_code == 200 and response.data == {"detail": "Subscription payment ignored."}
+    assert fetch_invoice.call_count == 1
+    attempt.refresh_from_db()
+    assert attempt.status == PaymentAttempt.Status.CREATED
+
+
+def test_webhook_signature_with_non_ascii_characters_is_400(api_client, settings):
+    settings.RAZORPAY_KEY_ID = "rzp_test_fake"
+    settings.RAZORPAY_KEY_SECRET = "fake_secret"
+    settings.RAZORPAY_WEBHOOK_SECRET = "whsec_fake"
+
+    response = api_client.post("/v1/payments/razorpay/webhook/", data=json.dumps({"event": "payment.captured"}),
+                               content_type="application/json", HTTP_X_RAZORPAY_SIGNATURE="sïg")
+
+    assert response.status_code == 400 and response.data == {"detail": "Invalid signature."}
