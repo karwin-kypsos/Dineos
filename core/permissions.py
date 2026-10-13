@@ -75,6 +75,16 @@ class IsPlatformAdmin(BasePermission):
         return bool(request.user and isinstance(request.user, PlatformAdmin) and request.user.is_active)
 
 
+class IsFullPlatformAdmin(BasePermission):
+    """A Super Admin with access_level FULL_ADMIN - not Support (Read-only).
+    Used with IsPlatformAdmin for team management (2026-10-13)."""
+
+    message = "Only a Full Admin can manage the team."
+
+    def has_permission(self, request, view):
+        return getattr(request.user, "access_level", None) == "FULL_ADMIN"
+
+
 # customer_ordering_enabled off (2026-09-30, per Shereena): a customer on the
 # table QR can still read the menu, but staff take the orders.
 # 2026-10-05: a suspended or unpaid (PAYMENT_DUE) restaurant takes no new

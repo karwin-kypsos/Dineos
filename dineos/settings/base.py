@@ -108,7 +108,9 @@ AUTH_USER_MODEL = "authentication.User"
 # Password validation
 # ---------------------------------------------------------------------------
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    # name too (2026-10-13): both user models keep the full name in "name".
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+     "OPTIONS": {"user_attributes": ("username", "first_name", "last_name", "email", "name")}},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},

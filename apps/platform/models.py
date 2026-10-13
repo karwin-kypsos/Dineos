@@ -40,6 +40,14 @@ class PlatformAdmin(AbstractBaseUser, PermissionsMixin):
     access_level = models.CharField(max_length=20, choices=AccessLevel.choices, default=AccessLevel.FULL_ADMIN)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=True)
+    # 2026-10-13, per Karwin: a member added from the Team screen signs in
+    # with a server-generated temporary password and must set their own -
+    # the same pattern as restaurant staff (apps.authentication.User).
+    must_change_password = models.BooleanField(default=False)
+    # Set whenever the password is changed or a temporary one is reissued;
+    # access tokens issued before it are refused (PlatformJWTAuthentication),
+    # so a leaked temporary password's sessions end with it.
+    password_changed_at = models.DateTimeField(null=True, blank=True)
     last_active_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -56,6 +64,24 @@ class PlatformAdmin(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.email
+
+    @property
+    def password_version(self):
+        """Stamped into every Super Admin token (claim "pwv") and required to
+        match on each request - an exact check, unlike comparing whole-second
+        token times with password_changed_at (2026-10-13). 0 until the first
+        change, so tokens issued before this existed stay valid."""
+        return int(self.password_changed_at.timestamp() * 1_000_000) if self.password_changed_at else 0
+
+    def end_sessions(self):
+        """After a password change or a reissued temporary password: revoke
+        refresh tokens, burn unused 2FA codes from a sign-in started with the
+        old password, and end Support Access sessions. Access tokens are
+        refused through password_version."""
+        now = timezone.now()
+        self.refresh_tokens.filter(revoked_at__isnull=True).update(revoked_at=now)
+        self.login_codes.filter(used_at__isnull=True).update(used_at=now)
+        ImpersonationSession.objects.filter(platform_admin=self, ended_at__isnull=True).update(ended_at=now)
 
 
 def _generate_2fa_code():
@@ -149,6 +175,7 @@ class PlatformActivityLog(models.Model):
         ("TEAM_MEMBER_ADDED", "Team member added"),
         ("TEAM_MEMBER_DEACTIVATED", "Team member deactivated"),
         ("TEAM_MEMBER_REMOVED", "Team member removed"),
+        ("TEAM_PASSWORD_REGENERATED", "Team member temporary password regenerated"),
         ("TENANT_IMPERSONATED", "Support access started"),
         ("IMPERSONATION_ENDED", "Support access ended"),
         ("TENANT_DELETED", "Organization permanently deleted"),

@@ -19,6 +19,7 @@ def issue_platform_access_token(admin, extra_claims=None):
     token = AccessToken.for_user(admin)
     token["platform_admin"] = True
     token["name"] = admin.name
+    token["pwv"] = admin.password_version  # see PlatformJWTAuthentication
     for key, value in (extra_claims or {}).items():
         token[key] = value
     return token
@@ -49,7 +50,10 @@ class VerifyPlatformLoginCodeSerializer(serializers.Serializer):
         if admin is None:
             raise serializers.ValidationError("Invalid email or code.")
         login_code = PlatformLoginCode.objects.filter(admin=admin, code=attrs["code"]).order_by("-created_at").first()
-        if not login_code or not login_code.is_valid:
+        # A code from a sign-in started before the latest password change
+        # belongs to the old password (2026-10-13).
+        stale = admin.password_changed_at and login_code and login_code.created_at < admin.password_changed_at
+        if not login_code or not login_code.is_valid or stale:
             raise serializers.ValidationError("Invalid or expired code.")
         attrs["admin"] = admin
         attrs["login_code"] = login_code
@@ -61,7 +65,8 @@ class PlatformRefreshSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         refresh_token = PlatformRefreshToken.objects.filter(token=attrs["refresh"]).select_related("admin").first()
-        if refresh_token is None or not refresh_token.is_valid:
+        changed = refresh_token and refresh_token.admin.password_changed_at
+        if refresh_token is None or not refresh_token.is_valid or (changed and refresh_token.created_at < changed):
             raise serializers.ValidationError("Invalid or expired refresh token.")
         if not refresh_token.admin.is_active:
             raise serializers.ValidationError("Platform admin account is inactive.")
@@ -154,24 +159,49 @@ class PlatformAdminSerializer(serializers.ModelSerializer):
     """Team screen — list/create platform team members. Password is
     write-only and hashed via set_password, never round-tripped in a
     response, matching the pattern used by apps.authentication.StaffSerializer.
-    """
+
+    2026-10-13, per Karwin: password is no longer expected - TeamViewSet.create
+    generates a temporary one. One that is still sent is taken as the
+    temporary password. Either way a member created by someone else must
+    set their own on first sign-in (must_change_password)."""
 
     password = serializers.CharField(write_only=True, required=False, min_length=8)
 
     class Meta:
         model = PlatformAdmin
-        fields = ["id", "email", "name", "access_level", "is_active", "is_staff", "last_active_at", "created_at", "password"]
-        read_only_fields = ["id", "last_active_at", "created_at"]
+        fields = ["id", "email", "name", "access_level", "is_active", "is_staff", "must_change_password", "last_active_at",
+                  "created_at", "password"]
+        read_only_fields = ["id", "must_change_password", "last_active_at", "created_at"]
 
     def create(self, validated_data):
-        password = validated_data.pop("password", None)
-        admin = PlatformAdmin(**validated_data)
-        if password:
-            admin.set_password(password)
-        else:
-            admin.set_unusable_password()
+        password = validated_data.pop("password")
+        admin = PlatformAdmin(**validated_data, must_change_password=True)
+        admin.set_password(password)
         admin.save()
         return admin
+
+
+class PlatformChangePasswordSerializer(serializers.Serializer):
+    """POST /platform/auth/change-password/ (2026-10-13). Same fields and
+    rules as the staff app's /v1/auth/change-password/, plus: the new
+    password must differ, so a temporary one can't be "changed" to itself."""
+
+    current_password = serializers.CharField()
+    new_password = serializers.CharField(min_length=8)
+
+    def validate(self, attrs):
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        if attrs["new_password"] == attrs["current_password"]:
+            raise serializers.ValidationError({"new_password": ["Choose a password different from the current one."]})
+        # The server's password rules (settings.AUTH_PASSWORD_VALIDATORS): not
+        # too common, not all digits, not too close to the email or name.
+        try:
+            validate_password(attrs["new_password"], user=self.context.get("admin"))
+        except DjangoValidationError as e:
+            raise serializers.ValidationError({"new_password": list(e.messages)}) from e
+        return attrs
 
 
 class ImpersonationSessionSerializer(serializers.ModelSerializer):

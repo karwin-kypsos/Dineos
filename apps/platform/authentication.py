@@ -27,6 +27,12 @@ class PlatformJWTAuthentication(JWTAuthentication):
 
         if not admin.is_active:
             raise InvalidToken("Platform admin account is inactive.")
+        # Sessions opened before a password change or a reissued temporary
+        # password end with it (2026-10-13): the token's password version must
+        # be the current one. Tokens from before this existed carry none (0),
+        # which matches an account whose password never changed since.
+        if validated_token.get("pwv", 0) != admin.password_version:
+            raise InvalidToken("The password was changed. Sign in again.")
         return admin
 
     def get_user_id_claim(self):

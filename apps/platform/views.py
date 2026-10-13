@@ -1,3 +1,5 @@
+import secrets
+
 from django.conf import settings
 from django.utils import timezone
 from rest_framework import serializers, status, viewsets
@@ -13,7 +15,7 @@ from apps.authentication.serializers import ROLE_METADATA, DineOSTokenObtainPair
 from apps.authentication.services import issue_invite
 from apps.restaurant.models import Restaurant
 from apps.restaurant.plans import PLAN_PRESETS
-from core.permissions import IsPlatformAdmin
+from core.permissions import IsFullPlatformAdmin, IsPlatformAdmin
 
 from .authentication import PlatformJWTAuthentication
 from .constants import FEATURE_FLAG_METADATA, THEME_COLOR_PRESETS
@@ -82,7 +84,49 @@ class VerifyPlatformLoginView(APIView):
 
         token = issue_platform_access_token(admin)
         refresh = PlatformRefreshToken.issue(admin)
-        return Response({"access": str(token), "refresh": refresh.token}, status=status.HTTP_200_OK)
+        # must_change_password (2026-10-13, per Karwin): true while the admin
+        # is still on the temporary password they were created with - the app
+        # then shows its change-password screen, as the staff apps do.
+        return Response(
+            {"access": str(token), "refresh": refresh.token, "must_change_password": admin.must_change_password},
+            status=status.HTTP_200_OK,
+        )
+
+
+class PlatformChangePasswordView(APIView):
+    """POST (or PATCH, like the staff app's) /platform/auth/change-password/
+    (2026-10-13, per Karwin): a signed-in Super Admin sets their own
+    password - the way off a temporary one, and the only way to change it
+    voluntarily. Clears must_change_password."""
+
+    authentication_classes = [PlatformJWTAuthentication]
+    permission_classes = [IsPlatformAdmin]
+
+    def post(self, request):
+        from .serializers import PlatformChangePasswordSerializer
+
+        admin = request.user
+        serializer = PlatformChangePasswordSerializer(data=request.data, context={"admin": admin})
+        serializer.is_valid(raise_exception=True)
+        if not admin.check_password(serializer.validated_data["current_password"]):
+            raise ValidationError({"current_password": ["Current password is incorrect."]})
+        from django.db import transaction
+
+        with transaction.atomic():
+            admin.set_password(serializer.validated_data["new_password"])
+            admin.must_change_password = False
+            admin.password_changed_at = timezone.now()
+            admin.save(update_fields=["password", "must_change_password", "password_changed_at"])
+            # Every other session ends; this one carries on with the new pair.
+            admin.end_sessions()
+        return Response({
+            "detail": "Password changed.",
+            "must_change_password": False,
+            "access": str(issue_platform_access_token(admin)),
+            "refresh": PlatformRefreshToken.issue(admin).token,
+        })
+
+    patch = post
 
 
 class PlatformRefreshView(APIView):
@@ -101,7 +145,13 @@ class PlatformRefreshView(APIView):
         serializer.is_valid(raise_exception=True)
         refresh_token = serializer.validated_data["refresh_token"]
         token = issue_platform_access_token(refresh_token.admin)
-        return Response({"access": str(token)}, status=status.HTTP_200_OK)
+        # must_change_password here too (2026-10-13): an app reopened on a
+        # stored refresh token still sends a member on a temporary password
+        # to the change-password screen.
+        return Response(
+            {"access": str(token), "must_change_password": refresh_token.admin.must_change_password},
+            status=status.HTTP_200_OK,
+        )
 
 
 class PlatformLogoutView(APIView):
@@ -749,6 +799,21 @@ class ActivityLogListView(ListAPIView):
         return qs
 
 
+def _email_temp_password(admin, temp_password, subject):
+    from core.email import send_notification_email
+
+    send_notification_email(
+        subject=subject,
+        body=(
+            f"Hi {admin.name or 'there'},\n\n"
+            f"Sign in to the DineOS Super Admin app with:\n\n"
+            f"Email: {admin.email}\nTemporary password: {temp_password}\n\n"
+            f"You'll be asked to set your own password the first time you sign in."
+        ),
+        to_email=admin.email,
+    )
+
+
 class TeamViewSet(viewsets.ModelViewSet):
     """Super Admin app's Team screen — manage other platform admin accounts.
     Deactivating (partial_update with only is_active) keeps historical
@@ -763,24 +828,95 @@ class TeamViewSet(viewsets.ModelViewSet):
     permission_classes = [IsPlatformAdmin]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
-    def perform_create(self, serializer):
-        admin = serializer.save()
+    def get_permissions(self):
+        # Managing the team - which now hands out passwords - is for Full
+        # Admins (2026-10-13); a Support (Read-only) member can still view it.
+        if self.action in ("create", "partial_update", "destroy", "regenerate_temp_password"):
+            return [IsPlatformAdmin(), IsFullPlatformAdmin()]
+        return super().get_permissions()
+
+    def create(self, request, *args, **kwargs):
+        """2026-10-13, per Karwin: no password needed - the server makes a
+        temporary one, returns it once as temp_password for the creator to
+        hand over (and emails it, as staff invites are, whenever the email
+        service is configured - not tied to EMAIL_DELIVERY_ENABLED), and the member
+        must set their own at first sign-in. A password still sent by an
+        older app is taken as the temporary password instead."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        temp_password = None if serializer.validated_data.get("password") else secrets.token_urlsafe(9)
+        admin = serializer.save(**({"password": temp_password} if temp_password else {}))
         PlatformActivityLog.objects.create(
-            actor=self.request.user,
+            actor=request.user,
             action="TEAM_MEMBER_ADDED",
             description=f"Added team member '{admin.email}'",
         )
+        data = PlatformAdminSerializer(admin).data
+        if temp_password is not None:
+            _email_temp_password(admin, temp_password, "Your DineOS Super Admin account")
+            data["temp_password"] = temp_password
+        return Response(data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="regenerate-temp-password")
+    def regenerate_temp_password(self, request, pk=None):
+        """A new temporary password while the member is still on the first
+        one (2026-10-13) - same rule as the staff app's: once they've set
+        their own it is theirs, and this is a 409."""
+        from django.contrib.auth.hashers import make_password
+
+        admin = self.get_object()
+        if admin.pk == request.user.pk:
+            return Response(
+                {"detail": "Use POST /platform/auth/change-password/ for your own password."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not admin.is_active:
+            return Response({"detail": "This team member is deactivated."}, status=status.HTTP_409_CONFLICT)
+        from django.db import transaction
+
+        temp_password = secrets.token_urlsafe(9)
+        with transaction.atomic():
+            # Only while they are still on a temporary password - checked in
+            # the same UPDATE, so a password they set a moment earlier is
+            # never overwritten by one the creator knows.
+            reissued = PlatformAdmin.objects.filter(pk=admin.pk, must_change_password=True).update(
+                password=make_password(temp_password), password_changed_at=timezone.now(),
+            )
+            if reissued:
+                admin.refresh_from_db()
+                admin.end_sessions()  # whoever signed in with the old one is out
+        if not reissued:
+            return Response(
+                {"detail": "This team member has already set their own password."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        PlatformActivityLog.objects.create(
+            actor=request.user,
+            action="TEAM_PASSWORD_REGENERATED",
+            description=f"New temporary password for team member '{admin.email}'",
+        )
+        _email_temp_password(admin, temp_password, "Your DineOS Super Admin account - new temporary password")
+        data = PlatformAdminSerializer(admin).data
+        data["temp_password"] = temp_password
+        return Response(data)
 
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
         was_active = instance.is_active
 
-        for field in ("name", "access_level"):
-            if field in request.data:
-                setattr(instance, field, request.data[field])
-        if "is_active" in request.data:
-            instance.is_active = request.data["is_active"]
-        instance.save()
+        if "access_level" in request.data and request.data["access_level"] not in PlatformAdmin.AccessLevel.values:
+            return Response(
+                {"access_level": [f"Must be one of {list(PlatformAdmin.AccessLevel.values)}."]}, status=status.HTTP_400_BAD_REQUEST,
+            )
+        changed = [field for field in ("name", "access_level", "is_active") if field in request.data]
+        for field in changed:
+            setattr(instance, field, request.data[field])
+        # Team management needs a Full Admin (2026-10-13): never leave none.
+        if self._would_leave_no_full_admin(instance, staying=instance.is_active and instance.access_level == "FULL_ADMIN"):
+            return Response({"detail": "At least one active Full Admin must remain."}, status=status.HTTP_409_CONFLICT)
+        # Only these columns: a whole-row save could write back a stale
+        # password over a change made meanwhile.
+        instance.save(update_fields=changed or None)
 
         if was_active and not instance.is_active:
             PlatformActivityLog.objects.create(
@@ -790,8 +926,15 @@ class TeamViewSet(viewsets.ModelViewSet):
             )
         return Response(PlatformAdminSerializer(instance).data)
 
+    @staticmethod
+    def _would_leave_no_full_admin(instance, staying):
+        others = PlatformAdmin.objects.filter(is_active=True, access_level="FULL_ADMIN").exclude(pk=instance.pk).exists()
+        return not staying and not others
+
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        if self._would_leave_no_full_admin(instance, staying=False):
+            return Response({"detail": "At least one active Full Admin must remain."}, status=status.HTTP_409_CONFLICT)
         email = instance.email
         PlatformActivityLog.objects.create(
             actor=request.user,

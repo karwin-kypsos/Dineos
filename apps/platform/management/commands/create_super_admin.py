@@ -21,10 +21,19 @@ class Command(BaseCommand):
                 "Set SUPERADMIN_EMAIL and SUPERADMIN_PASSWORD in .env first, then re-run this command."
             )
 
+        from django.utils import timezone
+
         admin, created = PlatformAdmin.objects.get_or_create(email=email, defaults={"name": "Super Admin"})
         admin.set_password(password)
         admin.is_active = True
+        admin.access_level = PlatformAdmin.AccessLevel.FULL_ADMIN
+        admin.must_change_password = False
+        if not created:
+            # The break-glass reset: sessions opened with the old password end.
+            admin.password_changed_at = timezone.now()
         admin.save()
+        if not created:
+            admin.end_sessions()
 
         if created:
             self.stdout.write(self.style.SUCCESS(f"Created Super Admin: {email}"))
