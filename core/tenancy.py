@@ -127,6 +127,7 @@ class TenantResolverMiddleware:
         from apps.restaurant.models import Restaurant
 
         restaurant = Restaurant.objects.filter(id=restaurant_id).first()
+        _end_trial_if_over(restaurant)
         if restaurant is not None and restaurant.status == Restaurant.Status.SUSPENDED:
             raise TenantSuspended()
         if restaurant is not None and restaurant.status == Restaurant.Status.PAYMENT_DUE:
@@ -149,11 +150,21 @@ class TenantResolverMiddleware:
         # used to keep working - only staff tokens were checked.
         from apps.restaurant.models import Restaurant
 
+        _end_trial_if_over(device.restaurant)
         if device.restaurant.status == Restaurant.Status.SUSPENDED:
             raise TenantSuspended()
         if device.restaurant.status == Restaurant.Status.PAYMENT_DUE:
             raise TenantPaymentDue()
         return device.restaurant
+
+
+def _end_trial_if_over(restaurant):
+    """A trial whose end date has passed ends on the first request after it
+    (2026-10-15) - see apps.subscriptions.services.end_trial_if_over."""
+    if restaurant is not None:
+        from apps.subscriptions.services import end_trial_if_over
+
+        end_trial_if_over(restaurant)
 
 
 def _table(table_id, related):

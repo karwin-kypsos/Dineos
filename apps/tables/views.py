@@ -160,6 +160,9 @@ class TableViewSet(viewsets.ReadOnlyModelViewSet):
             # ordering off there is nothing for them to do in a session, and
             # opening one would still mark the table OCCUPIED. Staff seating
             # a table is unaffected.
+            from apps.subscriptions.services import end_trial_if_over
+
+            end_trial_if_over(restaurant)  # 2026-10-15
             if restaurant.status in ("SUSPENDED", "PAYMENT_DUE"):
                 raise PermissionDenied(RESTAURANT_NOT_SERVING)
             if not restaurant.customer_ordering_enabled:

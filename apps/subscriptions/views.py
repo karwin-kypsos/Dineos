@@ -61,6 +61,14 @@ def current_payload(restaurant):
         "current_period_end": sub.current_end if sub else None,
         # The next charge: the end of the current period, or a trial's end.
         "renews_at": None if (sub is None or sub.cancel_at_period_end) else (sub.current_end or sub.start_at),
+        # 2026-10-15 (msg 1224): the trial (or the replaced plan's period) is
+        # over and Razorpay's first charge is due but not recorded yet - the
+        # app can say "First payment processing" instead of a past renews_at.
+        "first_charge_pending": bool(
+            sub is not None and sub.status == Subscription.Status.AUTHENTICATED and sub.start_at
+            and sub.start_at <= timezone.now()
+            and not sub.payments.filter(status=SubscriptionPayment.Status.PAID).exists()
+        ),
         "cancel_at_period_end": bool(sub and sub.cancel_at_period_end),
         "pending_plan_id": pending.plan_tier if pending else None,
         "pending_change_at": (pending.start_at if pending else None),

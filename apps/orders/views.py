@@ -68,6 +68,10 @@ class CreateOrderView(APIView):
         if placed_by is None:
             # A customer ordering for themselves; staff always may.
             restaurant = get_tenant_from_session(data["session_id"])
+            if restaurant is not None:
+                from apps.subscriptions.services import end_trial_if_over
+
+                end_trial_if_over(restaurant)  # 2026-10-15
             if restaurant is not None and restaurant.status in ("SUSPENDED", "PAYMENT_DUE"):
                 raise PermissionDenied(RESTAURANT_NOT_SERVING)
             if restaurant is not None and not restaurant.customer_ordering_enabled:

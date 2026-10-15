@@ -19,6 +19,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from core import razorpay_client
@@ -381,6 +382,11 @@ def sync_from_razorpay(sub):
     entity = razorpay_client.fetch_subscription(sub.razorpay_subscription_id)
     status = entity.get("status")
     sub.refresh_from_db()
+    if sub.status == Subscription.Status.CREATED and status not in ("authenticated", "active"):
+        # A checkout never verified with us (2026-10-15): only a mandate
+        # Razorpay confirms counts. An abandoned one changes nothing - above
+        # all it must not end the organization's access.
+        return sub
     if status == "active":
         sub = mark_active(sub, entity)
     elif status == "authenticated" and sub.status == Subscription.Status.CREATED:
@@ -444,6 +450,7 @@ def _period_from_charge(sub, invoice, payments):
 
 
 SYNC_ON_READ_SECONDS = 600
+UNVERIFIED_CHECKOUT_DAYS = 7
 
 
 def sync_live_on_read(restaurant):
@@ -459,7 +466,12 @@ def sync_live_on_read(restaurant):
 
     from apps.restaurant.realtime import broadcast_if_changed, organization_payload
 
-    live = list(restaurant.subscriptions.filter(status__in=LIVE))
+    # Also recent checkouts never verified with us (2026-10-15, org "b"): the
+    # app's verify call can be lost after Razorpay authorised the mandate, and
+    # only the (unticked) subscription.authenticated event would say so.
+    recent = timezone.now() - datetime.timedelta(days=UNVERIFIED_CHECKOUT_DAYS)
+    live = list(restaurant.subscriptions.filter(
+        Q(status__in=LIVE) | Q(status=Subscription.Status.CREATED, created_at__gte=recent)))
     due = [s for s in live if cache.add(f"subscription-sync:{s.id}", 1, SYNC_ON_READ_SECONDS)]
     if not due:
         return
@@ -470,6 +482,62 @@ def sync_live_on_read(restaurant):
         except RazorpayUnavailableError:
             logger.warning("Could not sync %s from Razorpay on read", sub.razorpay_subscription_id)
     broadcast_if_changed(restaurant, before)
+
+
+def end_trial_if_over(restaurant):
+    """Nothing used to end a trial (2026-10-15, per Karwin, msg 1224): once
+    trial_ends_at passed the organization stayed TRIAL for good - free
+    access, status "trialing" forever. Called wherever the organization's
+    status decides access (every staff and kitchen request, login, the
+    customer QR, the Super Admin's organization list), so the trial ends at
+    the first request after trial_ends_at; no scheduled job needed.
+      - a subscription is taking over (authorised, its first charge due on
+        Razorpay's side) -> ACTIVE. Razorpay charges by itself; a failed
+        charge then goes the usual past_due -> halted -> PAYMENT_DUE way.
+      - nothing taking over -> PAYMENT_DUE: only the Admin can sign in, to
+        pick a plan.
+    Returns True when it changed the organization."""
+    from apps.restaurant.models import Restaurant
+
+    now = timezone.now()
+    if restaurant is None or restaurant.status != Restaurant.Status.TRIAL or not restaurant.trial_ends_at or restaurant.trial_ends_at > now:
+        return False
+    from apps.restaurant.realtime import broadcast_if_changed, organization_payload
+
+    before = organization_payload(restaurant)
+    # A checkout whose verify call was lost may still have been authorised
+    # on Razorpay - find out before deciding (best effort).
+    for sub in restaurant.subscriptions.filter(
+        status=Subscription.Status.CREATED, created_at__gte=now - datetime.timedelta(days=UNVERIFIED_CHECKOUT_DAYS)
+    ):
+        try:
+            sync_from_razorpay(sub)
+        except RazorpayUnavailableError:
+            logger.warning("Could not check %s at trial end", sub.razorpay_subscription_id)
+    with transaction.atomic():
+        locked = Restaurant.objects.select_for_update().get(id=restaurant.id)
+        if locked.status != Restaurant.Status.TRIAL or not locked.trial_ends_at or locked.trial_ends_at > now:
+            return False  # changed meanwhile (a verify, a webhook, a Super Admin)
+        taking_over = locked.subscriptions.filter(status__in=LIVE).filter(
+            Q(cancel_at_period_end=False) | Q(current_end__gt=now)
+        ).exists()
+        locked.status = Restaurant.Status.ACTIVE if taking_over else Restaurant.Status.PAYMENT_DUE
+        locked.is_active = taking_over
+        locked.save(update_fields=["status", "is_active"])
+        _log(locked, "SUBSCRIPTION_STARTED" if taking_over else "SUBSCRIPTION_ENDED",
+             "Trial ended; the subscription takes over" if taking_over else "Trial ended without a subscription; a plan is needed to continue")
+    restaurant.status, restaurant.is_active = locked.status, locked.is_active
+    broadcast_if_changed(restaurant, before)
+    return True
+
+
+def end_expired_trials():
+    """Every organization whose trial is over - for the Super Admin's lists,
+    where no request from the organization itself may have come in yet."""
+    from apps.restaurant.models import Restaurant
+
+    for restaurant in Restaurant.objects.filter(status=Restaurant.Status.TRIAL, trial_ends_at__lte=timezone.now()):
+        end_trial_if_over(restaurant)
 
 
 def sync_for_invoice_payment(payment):

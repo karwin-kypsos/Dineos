@@ -226,6 +226,12 @@ class TenantViewSet(viewsets.ModelViewSet):
     permission_classes = [IsPlatformAdmin]
 
     def get_queryset(self):
+        if self.request.method == "GET":
+            # Trials that are over end before they are shown (2026-10-15):
+            # the organization may not have made a request since.
+            from apps.subscriptions.services import end_expired_trials
+
+            end_expired_trials()
         qs = Restaurant.objects.all().order_by("-created_at")
 
         status_filter = self.request.query_params.get("status", "all")
@@ -462,9 +468,9 @@ class TenantViewSet(viewsets.ModelViewSet):
         # Starting (or restarting) a trial gets a fresh 14-day window if one
         # isn't already running — see the dashboard's "needing attention"
         # trial-expiry check.
-        if new_status == Restaurant.Status.TRIAL and restaurant.trial_ends_at is None:
-            from django.utils import timezone
-
+        # 2026-10-15: also when the old trial is already over - trials now
+        # really end, so re-setting TRIAL on an expired one must reopen it.
+        if new_status == Restaurant.Status.TRIAL and (restaurant.trial_ends_at is None or restaurant.trial_ends_at <= timezone.now()):
             restaurant.trial_ends_at = timezone.now() + timezone.timedelta(days=settings.TRIAL_DAYS)
             update_fields.append("trial_ends_at")
         restaurant.save(update_fields=update_fields)
@@ -599,7 +605,9 @@ class DashboardView(APIView):
 
         from apps.billing.models import Bill
         from apps.restaurant.models import Branch
+        from apps.subscriptions.services import end_expired_trials
 
+        end_expired_trials()  # 2026-10-15: trials that are over end before they are counted
         total_tenants = Restaurant.objects.count()
         active_tenants = Restaurant.objects.filter(is_active=True).count()
         total_staff = User.objects.count()

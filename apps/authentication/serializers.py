@@ -100,6 +100,9 @@ class DineOSTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         data = super().validate(attrs)
+        from apps.subscriptions.services import end_trial_if_over
+
+        end_trial_if_over(self.user.restaurant)  # an expired trial ends here too (2026-10-15)
         if self.user.restaurant.status == Restaurant.Status.SUSPENDED:
             raise serializers.ValidationError("This organization's account has been suspended.")
         if self.user.restaurant.status == Restaurant.Status.PAYMENT_DUE and self.user.role != User.Role.ADMIN:
