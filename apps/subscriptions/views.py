@@ -3,6 +3,7 @@ Karwin). Razorpay checkout follows the same shape as
 /v1/payments/razorpay/create-order/; see apps.subscriptions.services for the
 rules."""
 import logging
+import re
 from decimal import Decimal
 
 from django.conf import settings
@@ -121,9 +122,42 @@ class CheckoutView(APIView):
                 "change": kind,
                 # When the first charge happens: null = at checkout.
                 "first_charge_at": sub.start_at,
+                "prefill": checkout_prefill(request.tenant),
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+def razorpay_contact(phone):
+    """A phone as Razorpay Checkout's prefill.contact wants it: "+" country
+    code and number, e.g. "+919847017171". Indian numbers without a code get
+    +91; anything not clearly a phone number is None rather than a guess."""
+    raw = (phone or "").strip()
+    digits = re.sub(r"\D", "", raw)
+    if raw.lstrip("( ").startswith("+") and 8 <= len(digits) <= 15:
+        return "+" + digits
+    if len(digits) == 10:
+        return "+91" + digits
+    if len(digits) == 11 and digits.startswith("0"):
+        return "+91" + digits[1:]
+    if len(digits) == 12 and digits.startswith("91"):
+        return "+" + digits
+    return None
+
+
+def checkout_prefill(restaurant):
+    """2026-10-20, per Karwin (msgs 1234-1237): every subscription had ended
+    up on ONE Razorpay customer - the first tester's number - because
+    Razorpay attaches whoever completes Checkout and the app had nothing to
+    prefill, so Checkout reused the contact it remembered on the device. The
+    app passes this to Razorpay Checkout as prefill (readonly), so each
+    restaurant's mandate, receipts and payment alerts go to its own contact.
+    Each value is null when the organization doesn't have it."""
+    return {
+        "name": restaurant.contact_name or restaurant.name,
+        "email": restaurant.billing_email or restaurant.contact_email or None,
+        "contact": razorpay_contact(restaurant.contact_phone),
+    }
 
 
 class VerifySerializer(serializers.Serializer):
