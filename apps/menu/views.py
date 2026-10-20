@@ -92,24 +92,12 @@ def _available_today_queryset(restaurant, branch=None):
         .exclude(prepared_portions__date=today, prepared_portions__portions_remaining__gt=0)
         .values_list("id", flat=True)
     )
-    # 2026-09-21, per Shereena: auto-86. A dish whose recipe needs an
-    # ingredient at or below zero cannot be made, so it must not be
-    # orderable - this queryset feeds the customer QR menu and the
-    # Server/Cashier order-taking screen, i.e. every path that can put
-    # the dish on a bill. Computed from live stock rather than a stored
-    # flag, so restocking brings the dish back with nothing to reset.
-    # Items with no recipe are never excluded: nothing is known about
-    # what they consume, so 86ing them would be a guess.
-    from .services import out_of_stock_ingredients
-
+    # Orderable = the Manager's is_available toggle (2026-10-20, per Karwin).
+    # From 2026-09-21 a dish whose recipe ingredient ran out was also left
+    # out here (auto-86), overriding a Manager who had decided to keep it on;
+    # stock is now a warning on the Manager's menu screen instead
+    # (MenuItemSerializer.stock_status), and they 86 the dish themselves.
     qs = MenuItem.objects.filter(category__restaurant=restaurant, is_available=True, is_active=True)
-    blocked_ids = list(
-        out_of_stock_ingredients(
-            MenuItem.objects.filter(category__restaurant=restaurant).values_list("id", flat=True)
-        ).keys()
-    )
-    if blocked_ids:
-        qs = qs.exclude(id__in=blocked_ids)
     if branch is not None:
         # 2026-09-14 fix, per Shereena's explicit report and re-test across
         # every role: the "legacy" branch-less-category-is-shared-
@@ -209,6 +197,15 @@ class MenuItemViewSet(ImageUploadErrorHandlingMixin, viewsets.ModelViewSet):
     def get_permissions(self):
         base = [IsAnyStaff()] if self.action in ("list", "retrieve") else [IsAdminOrManager()]
         return base + [TenantObjectPermission()]
+
+    def get_serializer_context(self):
+        # The stock warning for the whole list in one query (2026-10-20).
+        context = super().get_serializer_context()
+        if self.action == "list":
+            from .services import recipe_stock
+
+            context["recipe_stock"] = recipe_stock(self.filter_queryset(self.get_queryset()).values_list("id", flat=True))
+        return context
 
     def perform_create(self, serializer):
         category = serializer.validated_data["category"]

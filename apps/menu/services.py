@@ -206,15 +206,41 @@ def generate_prep_forecast(restaurant, branch=None, target_date=None, lookback_o
     return output, target_date
 
 
-def out_of_stock_ingredients(menu_item_ids):
-    """Which menu items are auto-86'd, and by what.
+def recipe_stock(menu_item_ids):
+    """Stock warning per dish, for the Manager (2026-10-20, per Karwin).
 
-    2026-09-21, per Shereena: a dish whose recipe needs an ingredient
-    that is at or below zero cannot actually be made, so it must stop
-    being sellable everywhere at once - cashier, customer QR menu and
-    KDS. Computed server-side rather than left to each client, because
-    stock is the source of truth and three clients computing their own
-    86 rule would disagree with each other.
+    For every menu item WITH a recipe: {"critical": [...], "low": [...]} -
+    the recipe ingredients at or below zero, and those at or below their
+    reorder point but not out - the same tiers as Ingredient.stock_status.
+    Items without a recipe are left out: nothing is known about what they
+    consume. One query for the whole page. Information only - it never
+    changes whether the dish can be ordered (see MenuItemSerializer)."""
+    from apps.inventory.models import RecipeItem
+
+    stock = {}
+    rows = (
+        RecipeItem.objects.filter(menu_item_id__in=list(menu_item_ids))
+        .values_list("menu_item_id", "ingredient__name", "ingredient__current_stock", "ingredient__minimum_stock_level")
+    )
+    for menu_item_id, name, current, minimum in rows:
+        entry = stock.setdefault(menu_item_id, {"critical": [], "low": []})
+        if current <= 0:
+            entry["critical"].append(name)
+        elif current <= minimum:
+            entry["low"].append(name)
+    for entry in stock.values():
+        entry["critical"].sort()
+        entry["low"].sort()
+    return stock
+
+
+def out_of_stock_ingredients(menu_item_ids):
+    """Which menu items have a recipe ingredient at or below zero, and which.
+
+    2026-09-21, per Shereena, this hid such dishes everywhere (auto-86).
+    2026-10-20, per Karwin: no longer - is_available is the Manager's toggle
+    alone. Still used for the order-time warning (unavailable_items) and
+    the Manager's stock warning; it never blocks or hides a dish.
 
     One query for the whole page of items, returning
     {menu_item_id: [ingredient names]} for the blocked ones only. Items

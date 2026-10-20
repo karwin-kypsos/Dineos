@@ -299,92 +299,108 @@ def test_recipe_deduction_is_not_blocked_by_insufficient_stock(manager_client, m
     assert StockMovement.objects.filter(ingredient=chicken, movement_type="USAGE", quantity=Decimal("5.00")).exists()
 
 
-def test_dish_is_auto_86ed_when_a_recipe_ingredient_hits_zero(
+def _row(client, menu_item):
+    listing = client.get("/v1/menu/all/")
+    return [i for i in listing.data["results"] if i["id"] == menu_item.id][0]
+
+
+def test_running_out_warns_the_manager_but_never_turns_the_dish_off(
     manager_client, menu_item, chicken, recipe
 ):
-    """2026-09-21, per Shereena: a dish whose recipe needs an ingredient
-    at or below zero cannot be made, so it must stop being orderable on
-    every client at once - computed server-side from live stock rather
-    than each app deciding for itself."""
+    """2026-10-20, per Karwin: is_available is the Manager's toggle alone.
+    From 2026-09-21 an ingredient at zero switched the dish off (auto-86)
+    and overrode a Manager who wanted it on; now it's a warning they act on."""
     _, client = manager_client
 
     chicken.current_stock = Decimal("100.00")
     chicken.save(update_fields=["current_stock"])
-    listing = client.get("/v1/menu/all/")
-    row = [i for i in listing.data["results"] if i["id"] == menu_item.id][0]
-    assert row["is_available"] is True
-    assert row["unavailable_reason"] == ""
+    row = _row(client, menu_item)
+    assert row["is_available"] is True and row["unavailable_reason"] == ""
+    assert row["stock_status"] == "healthy" and row["stock_warning"] == ""
 
     chicken.current_stock = Decimal("0.00")
     chicken.save(update_fields=["current_stock"])
 
-    listing = client.get("/v1/menu/all/")
-    row = [i for i in listing.data["results"] if i["id"] == menu_item.id][0]
-    assert row["is_available"] is False
-    assert chicken.name in row["unavailable_reason"]
+    row = _row(client, menu_item)
+    assert row["is_available"] is True and row["unavailable_reason"] == ""
+    assert row["stock_status"] == "critical"
+    assert row["stock_warning"] == f"Out of stock: {chicken.name}"
+    assert row["out_of_stock_ingredients"] == [chicken.name] and row["low_stock_ingredients"] == []
 
 
-def test_auto_86ed_dish_disappears_from_the_orderable_menu(
+def test_low_stock_is_a_warning_too(manager_client, menu_item, chicken, recipe):
+    _, client = manager_client
+    chicken.minimum_stock_level = Decimal("5.00")
+    chicken.current_stock = Decimal("2.00")
+    chicken.save(update_fields=["minimum_stock_level", "current_stock"])
+
+    row = _row(client, menu_item)
+
+    assert row["is_available"] is True
+    assert row["stock_status"] == "low" and row["stock_warning"] == f"Low stock: {chicken.name}"
+    assert row["low_stock_ingredients"] == [chicken.name] and row["out_of_stock_ingredients"] == []
+
+
+def test_an_out_of_stock_dish_stays_on_the_orderable_menu(
     manager_client, menu_item, chicken, recipe
 ):
-    """The queryset that feeds the customer QR menu and the order-taking
-    screen - i.e. every path that can put the dish on a bill."""
+    """The queryset feeding the customer QR menu and the order-taking screen
+    no longer hides it - only the Manager's toggle does."""
     _, client = manager_client
-
-    chicken.current_stock = Decimal("100.00")
-    chicken.save(update_fields=["current_stock"])
-    available = client.get("/v1/menu/")
-    assert any(i["id"] == menu_item.id for i in available.data)
-
     chicken.current_stock = Decimal("-1.00")
     chicken.save(update_fields=["current_stock"])
 
-    available = client.get("/v1/menu/")
-    assert not any(i["id"] == menu_item.id for i in available.data)
+    assert any(i["id"] == menu_item.id for i in client.get("/v1/menu/").data)
+
+    client.patch(f"/v1/menu/{menu_item.id}/availability/")  # the Manager 86es it
+    assert not any(i["id"] == menu_item.id for i in client.get("/v1/menu/").data)
 
 
-def test_restocking_brings_an_auto_86ed_dish_straight_back(
-    manager_client, menu_item, chicken, recipe
-):
-    """Self-healing is the whole reason this is computed rather than
-    stored - there is no flag to reset and no job to run."""
+def test_restocking_clears_the_warning(manager_client, menu_item, chicken, recipe):
     from apps.inventory.services import add_stock
 
     _, client = manager_client
     chicken.current_stock = Decimal("-5.00")
     chicken.save(update_fields=["current_stock"])
-    assert not any(i["id"] == menu_item.id for i in client.get("/v1/menu/").data)
+    assert _row(client, menu_item)["stock_status"] == "critical"
 
     add_stock(chicken.id, Decimal("20.00"))
 
-    assert any(i["id"] == menu_item.id for i in client.get("/v1/menu/").data)
+    row = _row(client, menu_item)
+    assert row["stock_status"] == "healthy" and row["stock_warning"] == ""
 
 
-def test_a_dish_with_no_recipe_is_never_auto_86ed(manager_client, menu_item, chicken):
-    """Nothing is known about what it consumes, so claiming it is out of
-    stock would be a guess. No `recipe` fixture here on purpose."""
+def test_a_dish_with_no_recipe_has_no_stock_status(manager_client, menu_item, chicken):
+    """Nothing is known about what it consumes. No `recipe` fixture on purpose."""
     _, client = manager_client
     chicken.current_stock = Decimal("-50.00")
     chicken.save(update_fields=["current_stock"])
 
-    listing = client.get("/v1/menu/all/")
-    row = [i for i in listing.data["results"] if i["id"] == menu_item.id][0]
+    row = _row(client, menu_item)
     assert row["is_available"] is True
+    assert row["stock_status"] is None and row["stock_warning"] == "" and row["out_of_stock_ingredients"] == []
 
 
-def test_manual_switch_still_wins_and_says_so(manager_client, menu_item, chicken, recipe):
-    """The stored toggle is still the manager's own override, and the
-    reason has to distinguish it from an out-of-stock 86."""
+def test_the_managers_toggle_decides_both_ways(manager_client, menu_item, chicken, recipe):
+    """Off by hand stays off whatever the stock; on by hand stays on even
+    with an ingredient at zero - the next stock change never flips it."""
     _, client = manager_client
     chicken.current_stock = Decimal("100.00")
     chicken.save(update_fields=["current_stock"])
     menu_item.is_available = False
     menu_item.save(update_fields=["is_available"])
 
-    listing = client.get("/v1/menu/all/")
-    row = [i for i in listing.data["results"] if i["id"] == menu_item.id][0]
-    assert row["is_available"] is False
-    assert row["unavailable_reason"] == "Turned off manually"
+    row = _row(client, menu_item)
+    assert row["is_available"] is False and row["unavailable_reason"] == "Turned off manually"
+
+    chicken.current_stock = Decimal("0.00")
+    chicken.save(update_fields=["current_stock"])
+    client.patch(f"/v1/menu/{menu_item.id}/availability/")  # on again, deliberately
+    chicken.current_stock = Decimal("-3.00")  # stock keeps falling
+    chicken.save(update_fields=["current_stock"])
+
+    row = _row(client, menu_item)
+    assert row["is_available"] is True and row["stock_status"] == "critical"
 
 
 def test_ordering_an_auto_86ed_dish_is_accepted_but_flagged(api_client, table, menu_item, chicken, recipe):

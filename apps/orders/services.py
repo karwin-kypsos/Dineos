@@ -154,15 +154,15 @@ def _finalize_new_order(order, restaurant, portion_updates, zero_hits):
 
 
 def unavailable_items_at_order_time(menu_item_ids):
-    """Which of these dishes were ALREADY auto-86'd before this order.
+    """Which of these dishes had a recipe ingredient ALREADY out of stock
+    before this order.
 
-    2026-09-23, option (c) per Karwin. The menu hides an 86'd dish, but
-    order placement never refused one - so an app whose menu loaded
-    before an ingredient ran out, or two customers ordering at the same
-    moment, could still get it through. Refusing outright was the other
-    option and was rejected: stock counts drift from reality, so a hard
-    block can turn away an order the kitchen could actually cook. This
-    flags it instead and lets a human decide.
+    2026-09-23, option (c) per Karwin: order placement never refuses such
+    a dish - stock counts drift from reality, so a hard block can turn away
+    an order the kitchen could actually cook. This flags it instead and
+    lets a human decide. Since 2026-10-20 the menu doesn't hide those
+    dishes either (only the Manager's toggle does), so this warning is
+    what tells the order-taker.
 
     Evaluated BEFORE the order's own deduction runs, deliberately.
     Afterwards, whoever takes the last portion would always trip the
