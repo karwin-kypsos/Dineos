@@ -11,7 +11,11 @@ class Ingredient(models.Model):
         G = "G", "Grams"
         L = "L", "Liters"
         ML = "ML", "Milliliters"
-        PCS = "PCS", "Pieces"
+        # 2026-10-20, per Karwin: the app sends PIECES (was PCS, which the
+        # API still accepts - IngredientUnitField) and PORTION for countable
+        # ingredients such as eggs or buns.
+        PIECES = "PIECES", "Pieces"
+        PORTION = "PORTION", "Portion"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     restaurant = models.ForeignKey("restaurant.Restaurant", on_delete=models.CASCADE, related_name="ingredients")
@@ -19,7 +23,7 @@ class Ingredient(models.Model):
         "restaurant.Branch", on_delete=models.SET_NULL, null=True, blank=True, related_name="ingredients"
     )
     name = models.CharField(max_length=255)
-    unit = models.CharField(max_length=4, choices=Unit.choices)
+    unit = models.CharField(max_length=10, choices=Unit.choices)
     current_stock = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     unit_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     minimum_stock_level = models.DecimalField(max_digits=10, decimal_places=2, default=0)

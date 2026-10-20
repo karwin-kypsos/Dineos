@@ -159,7 +159,7 @@ class MenuItemSerializer(ImageUploadMixin, serializers.ModelSerializer):
     # one request instead of a create-item call followed by N separate
     # POST /v1/inventory/recipe-items/ calls. Each quantity is a plain
     # number in whatever unit the ingredient itself was defined with (KG/G/
-    # L/ML/PCS) — see `unit` in the read-only `recipe` field below — there
+    # L/ML/PIECES/PORTION) — see `unit` in the read-only `recipe` field below — there
     # is no separate per-line unit selector.
     recipe_items = RecipeItemInputSerializer(many=True, required=False, write_only=True)
     recipe = RecipeItemSerializer(source="recipe_items", many=True, read_only=True)

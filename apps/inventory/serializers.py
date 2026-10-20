@@ -14,9 +14,23 @@ from .models import (
 )
 
 
+class IngredientUnitField(serializers.ChoiceField):
+    """KG / G / L / ML / PIECES / PORTION (2026-10-20). "PCS", the old name
+    for pieces, is still accepted and stored as PIECES."""
+
+    ALIASES = {"PCS": "PIECES"}
+
+    def __init__(self, **kwargs):
+        super().__init__(choices=Ingredient.Unit.choices, **kwargs)
+
+    def to_internal_value(self, data):
+        return super().to_internal_value(self.ALIASES.get(data, data) if isinstance(data, str) else data)
+
+
 class IngredientSerializer(serializers.ModelSerializer):
     is_low_stock = serializers.BooleanField(read_only=True)
     stock_status = serializers.CharField(read_only=True)
+    unit = IngredientUnitField()
 
     class Meta:
         model = Ingredient
