@@ -53,8 +53,8 @@ def test_org_invoices_for_the_super_admin(platform, restaurant):
     assert response.status_code == 200
     assert response.data["count"] == 2  # only this organization's
     row = response.data["results"][0]
-    assert set(row) == {"id", "razorpay_payment_id", "razorpay_invoice_id", "amount", "currency", "status", "method",
-                        "plan_tier", "period_start", "period_end", "created_at"}
+    assert set(row) == {"id", "razorpay_payment_id", "razorpay_invoice_id", "razorpay_order_id", "amount", "currency", "status",
+                        "method", "plan_tier", "period_start", "period_end", "created_at"}
     assert row["status"] == "FAILED" and row["amount"] == "2499.00"  # newest first
 
 
@@ -164,3 +164,139 @@ def test_dashboard_revenue_by_plan_with_no_charges(platform):
 
     assert all(row["revenue"] == "0.00" for row in data["monthly"] + data["yearly"])
     assert len(data["monthly"]) == len(data["yearly"]) == 3
+
+
+# ---- 2026-10-20: subscription detail + razorpay_order_id (Telegram msg 1246) ------
+
+RZP_SUB = {
+    "id": "sub_detail_1", "status": "active", "plan_id": "plan_growth", "payment_method": "emandate", "quantity": 1,
+    "start_at": 1792575000, "end_at": 2105461800, "total_count": 120, "paid_count": 2, "remaining_count": 118,
+    "short_url": "https://rzp.io/rzp/abc", "current_start": 1792575000, "current_end": 1795253400,
+}
+RZP_PLAN = {"id": "plan_growth", "period": "monthly", "interval": 1,
+            "item": {"name": "DineOS Growth (monthly)", "amount": 249900, "currency": "INR"}}
+
+
+def _detail(platform, restaurant, entity=None, plan=None):
+    from unittest.mock import patch
+
+    from django.core.cache import cache
+
+    cache.clear()
+    with patch("core.razorpay_client.fetch_subscription", return_value=entity or RZP_SUB) as fetch_sub, \
+         patch("core.razorpay_client.fetch_plan", return_value=plan or RZP_PLAN) as fetch_plan:
+        response = platform.get(f"/platform/tenants/{restaurant.id}/subscription/")
+    cache.clear()
+    return response, fetch_sub, fetch_plan
+
+
+def test_subscription_detail_returns_razorpays_view(platform, restaurant):
+    sub = _sub(restaurant, "ACTIVE", plan_applied_at=timezone.now())
+
+    response, fetch_sub, _ = _detail(platform, restaurant)
+
+    assert response.status_code == 200, response.data
+    fetch_sub.assert_called_once_with(sub.razorpay_subscription_id)
+    data = response.data
+    assert set(data) == {"razorpay_subscription_id", "status", "plan_id", "plan_description", "amount", "currency", "interval",
+                         "interval_count", "payment_method", "start_at", "end_at", "total_count", "paid_count", "remaining_count", "short_url"}
+    assert data["status"] == "active" and data["plan_id"] == "plan_growth" and data["plan_description"] == "DineOS Growth (monthly)"
+    assert data["amount"] == "2499.00" and data["currency"] == "INR" and data["interval"] == "monthly" and data["interval_count"] == 1
+    assert data["payment_method"] == "emandate" and data["total_count"] == 120 and data["paid_count"] == 2 and data["remaining_count"] == 118
+    assert data["start_at"] == datetime.datetime.fromtimestamp(1792575000, tz=datetime.timezone.utc)
+    assert data["short_url"] is None  # active: the authorisation link is no use any more
+
+
+def test_subscription_detail_keeps_the_link_before_authorisation(platform, restaurant):
+    _sub(restaurant, "CREATED")
+
+    response, _, _ = _detail(platform, restaurant, entity={**RZP_SUB, "status": "created", "paid_count": 0, "start_at": None})
+
+    assert response.status_code == 200
+    assert response.data["status"] == "created" and response.data["short_url"] == "https://rzp.io/rzp/abc" and response.data["start_at"] is None
+
+
+def test_subscription_detail_prefers_the_current_one(platform, restaurant):
+    current = _sub(restaurant, "ACTIVE", plan_applied_at=timezone.now())
+    _sub(restaurant, "CREATED")  # a newer abandoned checkout
+
+    _, fetch_sub, _ = _detail(platform, restaurant)
+
+    fetch_sub.assert_called_once_with(current.razorpay_subscription_id)
+
+
+def test_subscription_detail_falls_back_to_the_latest_ended_one(platform, restaurant):
+    ended = _sub(restaurant, "CANCELLED")
+
+    response, fetch_sub, _ = _detail(platform, restaurant, entity={**RZP_SUB, "status": "cancelled"})
+
+    assert response.status_code == 200 and response.data["status"] == "cancelled"
+    fetch_sub.assert_called_once_with(ended.razorpay_subscription_id)
+
+
+def test_subscription_detail_404_without_a_subscription(platform, restaurant):
+    response, fetch_sub, _ = _detail(platform, restaurant)
+    assert response.status_code == 404 and response.data == {"detail": "This organization has no subscription."}
+    fetch_sub.assert_not_called()
+
+
+def test_subscription_detail_502_when_razorpay_is_down(platform, restaurant):
+    from unittest.mock import patch
+
+    from core.razorpay_client import RazorpayUnavailableError
+
+    _sub(restaurant, "ACTIVE", plan_applied_at=timezone.now())
+    with patch("core.razorpay_client.fetch_subscription", side_effect=RazorpayUnavailableError("Razorpay subscription fetch failed: down")):
+        response = platform.get(f"/platform/tenants/{restaurant.id}/subscription/")
+
+    assert response.status_code == 502 and "down" in response.data["detail"]
+
+
+def test_subscription_detail_caches_the_plan(platform, restaurant):
+    from unittest.mock import patch
+
+    from django.core.cache import cache
+
+    _sub(restaurant, "ACTIVE", plan_applied_at=timezone.now())
+    cache.clear()
+    with patch("core.razorpay_client.fetch_subscription", return_value=RZP_SUB), \
+         patch("core.razorpay_client.fetch_plan", return_value=RZP_PLAN) as fetch_plan:
+        platform.get(f"/platform/tenants/{restaurant.id}/subscription/")
+        platform.get(f"/platform/tenants/{restaurant.id}/subscription/")
+    cache.clear()
+
+    assert fetch_plan.call_count == 1
+
+
+def test_subscription_detail_needs_a_super_admin(api_client, restaurant):
+    assert api_client.get(f"/platform/tenants/{restaurant.id}/subscription/").status_code in (401, 403)
+
+
+def test_invoices_carry_the_razorpay_order_id(platform, restaurant):
+    from apps.subscriptions.services import record_payment
+
+    sub = _sub(restaurant, "ACTIVE")
+    record_payment(sub, {"id": "pay_ord1", "order_id": "order_ABC123", "amount": 249900, "currency": "INR", "method": "card"}, "PAID")
+
+    row = platform.get(f"/platform/tenants/{restaurant.id}/invoices/").data["results"][0]
+
+    assert row["razorpay_payment_id"] == "pay_ord1" and row["razorpay_order_id"] == "order_ABC123"
+
+
+def test_a_row_recorded_before_the_field_gets_its_order_id_on_the_next_sync(restaurant):
+    from apps.subscriptions.services import record_payment
+
+    sub = _sub(restaurant, "ACTIVE")
+    record = _pay(sub)
+    assert record.razorpay_order_id == ""
+
+    record_payment(sub, {"id": record.razorpay_payment_id, "order_id": "order_LATE", "amount": 249900}, "PAID")
+
+    record.refresh_from_db()
+    assert record.razorpay_order_id == "order_LATE" and record.status == "PAID"
+
+
+def test_no_order_id_from_razorpay_is_an_empty_string(platform, restaurant):
+    sub = _sub(restaurant, "ACTIVE")
+    _pay(sub)
+    assert platform.get(f"/platform/tenants/{restaurant.id}/invoices/").data["results"][0]["razorpay_order_id"] == ""

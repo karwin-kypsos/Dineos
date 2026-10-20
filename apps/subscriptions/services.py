@@ -307,13 +307,62 @@ def record_payment(sub, payment, status):
             # Fields Razorpay sends as null must not 500 the webhook (2026-10-12).
             "amount": Decimal(payment.get("amount") or 0) / 100, "currency": payment.get("currency") or "INR",
             "method": (payment.get("method") or "")[:20], "razorpay_invoice_id": payment.get("invoice_id") or "",
+            "razorpay_order_id": payment.get("order_id") or "",
             "plan_tier": sub.plan_tier, "period_start": sub.current_start, "period_end": sub.current_end,
         },
     )
+    changed = []
     if not created and record.status != status and status == SubscriptionPayment.Status.PAID:
         record.status = status
-        record.save(update_fields=["status"])
+        changed.append("status")
+    if not record.razorpay_order_id and payment.get("order_id"):
+        record.razorpay_order_id = payment["order_id"]  # rows recorded before the field existed
+        changed.append("razorpay_order_id")
+    if changed:
+        record.save(update_fields=changed)
     return record
+
+
+PLAN_CACHE_SECONDS = 86400
+
+
+def razorpay_subscription_details(sub):
+    """GET /platform/tenants/{id}/subscription/ (2026-10-20, per Karwin):
+    the subscription as Razorpay has it right now - its raw status, counts,
+    dates and the plan behind it. The plan is cached for a day (Razorpay
+    plans can't be edited). Raises RazorpayUnavailableError."""
+    from django.core.cache import cache
+
+    entity = razorpay_client.fetch_subscription(sub.razorpay_subscription_id)
+    plan_id = entity.get("plan_id") or sub.razorpay_plan_id
+    plan = cache.get(f"razorpay-plan:{plan_id}")
+    if plan is None:
+        plan = razorpay_client.fetch_plan(plan_id)
+        cache.set(f"razorpay-plan:{plan_id}", plan, PLAN_CACHE_SECONDS)
+    item = plan.get("item") or {}
+    status = entity.get("status")
+
+    def count(value):
+        return int(value) if value is not None and str(value).lstrip("-").isdigit() else None
+
+    return {
+        "razorpay_subscription_id": entity.get("id") or sub.razorpay_subscription_id,
+        "status": status,
+        "plan_id": plan_id,
+        "plan_description": item.get("name") or item.get("description") or "",
+        "amount": str((Decimal(item.get("amount") or 0) * (count(entity.get("quantity")) or 1) / 100).quantize(Decimal("0.01"))),
+        "currency": item.get("currency") or "INR",
+        "interval": plan.get("period"),
+        "interval_count": count(plan.get("interval")),
+        "payment_method": entity.get("payment_method"),
+        "start_at": _aware(entity.get("start_at")),
+        "end_at": _aware(entity.get("end_at")),
+        "total_count": count(entity.get("total_count")),
+        "paid_count": count(entity.get("paid_count")),
+        "remaining_count": count(entity.get("remaining_count")),
+        # The authorisation link - only useful before the mandate is in place.
+        "short_url": entity.get("short_url") if status in ("created", "authenticated") else None,
+    }
 
 
 @transaction.atomic

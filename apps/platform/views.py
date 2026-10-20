@@ -257,6 +257,26 @@ class TenantViewSet(viewsets.ModelViewSet):
 
         return qs
 
+    @action(detail=True, methods=["get"], url_path="subscription")
+    def subscription(self, request, pk=None):
+        """GET /platform/tenants/{id}/subscription/ (2026-10-20, per Karwin) -
+        the organization's Razorpay subscription as Razorpay has it now, for
+        the Super Admin's billing screen. The current one (the plan the
+        organization is on); otherwise the most recent, whatever its
+        status. 404 when the organization never started a subscription."""
+        from core.razorpay_client import RazorpayUnavailableError
+
+        from apps.subscriptions.services import current_subscription, razorpay_subscription_details
+
+        restaurant = self.get_object()
+        sub = current_subscription(restaurant) or restaurant.subscriptions.order_by("-created_at").first()
+        if sub is None:
+            return Response({"detail": "This organization has no subscription."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            return Response(razorpay_subscription_details(sub))
+        except RazorpayUnavailableError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_502_BAD_GATEWAY)
+
     @action(detail=True, methods=["get"], url_path="invoices")
     def invoices(self, request, pk=None):
         """GET /platform/tenants/{id}/invoices/ (2026-10-12, per Karwin) - one

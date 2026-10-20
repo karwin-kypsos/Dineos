@@ -199,6 +199,11 @@ def fetch_payment(payment_id):
     return _fetch("payment", lambda: client.payment.fetch(payment_id))
 
 
+def fetch_plan(plan_id):
+    client = _client()
+    return _fetch("plan", lambda: client.plan.fetch(plan_id))
+
+
 def verify_subscription_payment(subscription_id, payment_id, signature):
     """Checkout's client-side "success" is only a claim until this passes:
     HMAC-SHA256 of "payment_id|subscription_id" with the key secret."""

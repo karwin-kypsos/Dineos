@@ -95,6 +95,9 @@ class SubscriptionPayment(models.Model):
     restaurant = models.ForeignKey("restaurant.Restaurant", on_delete=models.CASCADE, related_name="subscription_payments")
     razorpay_payment_id = models.CharField(max_length=64, unique=True)
     razorpay_invoice_id = models.CharField(max_length=64, blank=True)
+    # 2026-10-20, per Karwin: the Super Admin's payment history shows the
+    # Razorpay order id beside the payment id.
+    razorpay_order_id = models.CharField(max_length=64, blank=True)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     currency = models.CharField(max_length=3, default="INR")
     status = models.CharField(max_length=8, choices=Status.choices)

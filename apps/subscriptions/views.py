@@ -183,8 +183,8 @@ class CancelView(APIView):
 class SubscriptionPaymentSerializer(serializers.ModelSerializer):
     class Meta:
         model = SubscriptionPayment
-        fields = ["id", "razorpay_payment_id", "razorpay_invoice_id", "amount", "currency", "status", "method",
-                  "plan_tier", "period_start", "period_end", "created_at"]
+        fields = ["id", "razorpay_payment_id", "razorpay_invoice_id", "razorpay_order_id", "amount", "currency", "status",
+                  "method", "plan_tier", "period_start", "period_end", "created_at"]
 
 
 class InvoicesView(APIView):
