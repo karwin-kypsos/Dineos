@@ -30,6 +30,10 @@ class Ingredient(models.Model):
     supplier_name = models.CharField(max_length=255, blank=True)
     supplier_phone = models.CharField(max_length=20, blank=True)
     supplier_notes = models.TextField(blank=True)
+    # 2026-10-21, per Karwin: a photo so staff recognise items during stock
+    # counts and purchase orders. Same as a menu item: set directly, or
+    # upload `image` (multipart) and the Cloudinary URL lands here.
+    image_url = models.URLField(blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 

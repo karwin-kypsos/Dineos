@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.ai_client import AIUnavailableError
+from core.image_fields import ImageUploadErrorHandlingMixin
 from core.permissions import IsAdminOrManager, IsAnyStaff
 from core.query_params import parse_query_date
 from core.tenancy import resolve_report_branch
@@ -44,7 +45,7 @@ def _branch_scoped(qs, request):
     return qs
 
 
-class IngredientViewSet(viewsets.ModelViewSet):
+class IngredientViewSet(ImageUploadErrorHandlingMixin, viewsets.ModelViewSet):
     serializer_class = IngredientSerializer
 
     def get_queryset(self):

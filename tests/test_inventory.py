@@ -1505,3 +1505,94 @@ def test_negative_delivery_cost_is_refused(admin_client, manager_client, ingredi
                             {"items": [{"item_id": line_id, "received_quantity": "1.00", "unit_cost": "-5.00"}]}, format="json")
 
     assert response.status_code == 400
+
+
+# ---- Ingredient photo (2026-10-21, per Karwin) ----
+
+def test_create_ingredient_with_uploaded_image(manager_client, restaurant, monkeypatch):
+    from tests.conftest import make_test_image
+
+    _, client = manager_client
+    monkeypatch.setattr("core.image_upload.upload_image", lambda f: "https://res.cloudinary.com/demo/rice.jpg")
+
+    response = client.post(
+        "/v1/inventory/ingredients/",
+        {"name": "Rice", "unit": "KG", "minimum_stock_level": "10.00", "image": make_test_image()},
+        format="multipart",
+    )
+
+    assert response.status_code == 201, response.data
+    assert response.data["image_url"] == "https://res.cloudinary.com/demo/rice.jpg"
+    assert "image" not in response.data
+    # A form leaves out an unticked boolean; that must not mean inactive.
+    assert response.data["is_active"] is True
+    assert Ingredient.objects.get(restaurant=restaurant, name="Rice").image_url == "https://res.cloudinary.com/demo/rice.jpg"
+
+
+def test_update_ingredient_image_and_list_shows_it(manager_client, ingredient, monkeypatch):
+    from tests.conftest import make_test_image
+
+    _, client = manager_client
+    monkeypatch.setattr("core.image_upload.upload_image", lambda f: "https://res.cloudinary.com/demo/chicken.jpg")
+
+    response = client.patch(f"/v1/inventory/ingredients/{ingredient.id}/", {"image": make_test_image()}, format="multipart")
+
+    assert response.status_code == 200, response.data
+    assert response.data["image_url"] == "https://res.cloudinary.com/demo/chicken.jpg"
+    ingredient.refresh_from_db()
+    assert ingredient.is_active is True and ingredient.name == "Chicken"
+    listed = client.get("/v1/inventory/ingredients/").data
+    rows = listed["results"] if isinstance(listed, dict) else listed
+    assert next(r for r in rows if r["id"] == str(ingredient.id))["image_url"] == "https://res.cloudinary.com/demo/chicken.jpg"
+
+
+def test_ingredient_image_url_can_be_set_directly_and_cleared(manager_client, ingredient):
+    _, client = manager_client
+
+    set_ = client.patch(f"/v1/inventory/ingredients/{ingredient.id}/", {"image_url": "https://example.com/chicken.png"}, format="json")
+    assert set_.status_code == 200, set_.data
+    assert set_.data["image_url"] == "https://example.com/chicken.png"
+
+    bad = client.patch(f"/v1/inventory/ingredients/{ingredient.id}/", {"image_url": "not a url"}, format="json")
+    assert bad.status_code == 400
+
+    cleared = client.patch(f"/v1/inventory/ingredients/{ingredient.id}/", {"image_url": ""}, format="json")
+    assert cleared.status_code == 200
+    assert cleared.data["image_url"] == ""
+
+
+def test_ingredient_without_a_photo_has_a_blank_image_url(manager_client, ingredient):
+    _, client = manager_client
+
+    response = client.get(f"/v1/inventory/ingredients/{ingredient.id}/")
+
+    assert response.status_code == 200
+    assert response.data["image_url"] == ""
+
+
+def test_ingredient_image_upload_returns_503_when_cloudinary_unconfigured(manager_client, settings):
+    from tests.conftest import make_test_image
+
+    _, client = manager_client
+    settings.CLOUDINARY_CLOUD_NAME = ""
+
+    response = client.post(
+        "/v1/inventory/ingredients/", {"name": "Salt", "unit": "KG", "image": make_test_image()}, format="multipart",
+    )
+
+    assert response.status_code == 503
+    assert not Ingredient.objects.filter(name="Salt").exists()
+
+
+def test_ingredient_image_must_be_an_image(manager_client):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    _, client = manager_client
+    not_an_image = SimpleUploadedFile("notes.txt", b"hello", content_type="text/plain")
+
+    response = client.post(
+        "/v1/inventory/ingredients/", {"name": "Salt", "unit": "KG", "image": not_an_image}, format="multipart",
+    )
+
+    assert response.status_code == 400
+    assert "image" in response.data

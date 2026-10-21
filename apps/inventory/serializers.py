@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
+from core.image_fields import ImageUploadMixin
+
 from .models import (
     AIInsight,
     GoodsReceipt,
@@ -27,16 +29,18 @@ class IngredientUnitField(serializers.ChoiceField):
         return super().to_internal_value(self.ALIASES.get(data, data) if isinstance(data, str) else data)
 
 
-class IngredientSerializer(serializers.ModelSerializer):
+class IngredientSerializer(ImageUploadMixin, serializers.ModelSerializer):
     is_low_stock = serializers.BooleanField(read_only=True)
     stock_status = serializers.CharField(read_only=True)
     unit = IngredientUnitField()
+    image = serializers.ImageField(write_only=True, required=False)
 
     class Meta:
         model = Ingredient
         fields = [
             "id", "branch", "name", "unit", "current_stock", "unit_cost", "minimum_stock_level",
-            "supplier_name", "supplier_phone", "supplier_notes", "is_low_stock", "stock_status", "is_active", "created_at",
+            "supplier_name", "supplier_phone", "supplier_notes", "image_url", "image",
+            "is_low_stock", "stock_status", "is_active", "created_at",
         ]
         read_only_fields = ["id", "current_stock", "created_at"]
         validators = []  # conditional UniqueConstraints — see apps/menu CategorySerializer for why
