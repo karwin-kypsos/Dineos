@@ -93,6 +93,22 @@ class VerifyPlatformLoginView(APIView):
         )
 
 
+class PlatformMeView(APIView):
+    """GET /platform/auth/me/ (2026-10-21, per Karwin): the signed-in Super
+    Admin - for the app's profile section and for hiding what a Support
+    (Read-only) member can't do. An endpoint rather than token claims, so a
+    changed access_level shows at once instead of when the token expires.
+    can_manage_team: adding, editing, removing team members and reissuing
+    temporary passwords - the actions limited to Full Admins."""
+
+    authentication_classes = [PlatformJWTAuthentication]
+    permission_classes = [IsPlatformAdmin]
+
+    def get(self, request):
+        admin = request.user
+        return Response({**PlatformAdminSerializer(admin).data, "can_manage_team": admin.access_level == "FULL_ADMIN"})
+
+
 class PlatformChangePasswordView(APIView):
     """POST (or PATCH, like the staff app's) /platform/auth/change-password/
     (2026-10-13, per Karwin): a signed-in Super Admin sets their own
