@@ -15,7 +15,7 @@ from apps.authentication.serializers import ROLE_METADATA, DineOSTokenObtainPair
 from apps.authentication.services import issue_invite
 from apps.restaurant.models import Restaurant
 from apps.restaurant.plans import PLAN_PRESETS
-from core.permissions import IsFullPlatformAdmin, IsPlatformAdmin
+from core.permissions import IsPlatformAdmin
 
 from .authentication import PlatformJWTAuthentication
 from .constants import FEATURE_FLAG_METADATA, THEME_COLOR_PRESETS
@@ -99,7 +99,8 @@ class PlatformMeView(APIView):
     (Read-only) member can't do. An endpoint rather than token claims, so a
     changed access_level shows at once instead of when the token expires.
     can_manage_team: adding, editing, removing team members and reissuing
-    temporary passwords - the actions limited to Full Admins."""
+    temporary passwords. Since 2026-10-22 every change needs a Full Admin
+    (IsPlatformAdmin), so it is simply access_level == FULL_ADMIN."""
 
     authentication_classes = [PlatformJWTAuthentication]
     permission_classes = [IsPlatformAdmin]
@@ -117,6 +118,7 @@ class PlatformChangePasswordView(APIView):
 
     authentication_classes = [PlatformJWTAuthentication]
     permission_classes = [IsPlatformAdmin]
+    read_only_members_may_write = True  # their own password
 
     def post(self, request):
         from .serializers import PlatformChangePasswordSerializer
@@ -179,6 +181,7 @@ class PlatformLogoutView(APIView):
 
     authentication_classes = [PlatformJWTAuthentication]
     permission_classes = [IsPlatformAdmin]
+    read_only_members_may_write = True  # their own sign-out
 
     def post(self, request):
         jti = request.auth.get("jti") if request.auth else None
@@ -872,12 +875,9 @@ class TeamViewSet(viewsets.ModelViewSet):
     permission_classes = [IsPlatformAdmin]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 
-    def get_permissions(self):
-        # Managing the team - which now hands out passwords - is for Full
-        # Admins (2026-10-13); a Support (Read-only) member can still view it.
-        if self.action in ("create", "partial_update", "destroy", "regenerate_temp_password"):
-            return [IsPlatformAdmin(), IsFullPlatformAdmin()]
-        return super().get_permissions()
+    # Managing the team - which hands out passwords - is for Full Admins
+    # (2026-10-13); a Support (Read-only) member can still view it. Refused
+    # by IsPlatformAdmin, like every other change since 2026-10-22.
 
     def create(self, request, *args, **kwargs):
         """2026-10-13, per Karwin: no password needed - the server makes a
@@ -1051,6 +1051,9 @@ class ImpersonateView(APIView):
 class EndImpersonationView(APIView):
     authentication_classes = [PlatformJWTAuthentication]
     permission_classes = [IsPlatformAdmin]
+    # Ending their own session only takes access away, so a Support
+    # (Read-only) member can still end one started before 2026-10-22.
+    read_only_members_may_write = True
 
     def post(self, request, session_id):
         from rest_framework.exceptions import NotFound

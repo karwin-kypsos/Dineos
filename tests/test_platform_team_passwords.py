@@ -220,7 +220,7 @@ def test_a_read_only_member_cannot_manage_the_team(creator, call):
 
     resp = call(client, other)
 
-    assert resp.status_code == 403 and resp.data == {"detail": "Only a Full Admin can manage the team."}
+    assert resp.status_code == 403 and resp.data == {"detail": "Only a Full Admin can do this."}
     assert client.get("/platform/team/").status_code == 200  # viewing is still fine
     assert not PlatformAdmin.objects.filter(email="esc@team.test").exists()
     other.refresh_from_db()
